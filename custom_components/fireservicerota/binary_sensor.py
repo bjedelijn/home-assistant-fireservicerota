@@ -18,9 +18,7 @@ async def async_setup_entry(
     hass: HomeAssistantType, entry: ConfigEntry, async_add_entities
 ) -> None:
     """Set up FireServiceRota binary sensor based on a config entry."""
-
     client = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_CLIENT]
-
     coordinator: DataUpdateCoordinator = hass.data[FIRESERVICEROTA_DOMAIN][
         entry.entry_id
     ][DATA_COORDINATOR]
@@ -29,15 +27,13 @@ async def async_setup_entry(
 
 
 class ResponseBinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """Representation of an FireServiceRota sensor."""
+    """Representation of a FireServiceRota duty sensor."""
 
     def __init__(self, coordinator: DataUpdateCoordinator, client, entry):
         """Initialize."""
         super().__init__(coordinator)
         self._client = client
         self._unique_id = f"{entry.unique_id}_Duty"
-
-        self._state = None
 
     @property
     def name(self) -> str:
@@ -47,9 +43,8 @@ class ResponseBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def icon(self) -> str:
         """Return the icon to use in the frontend."""
-        if self._state:
+        if self.is_on:
             return "mdi:calendar-check"
-
         return "mdi:calendar-remove"
 
     @property
@@ -60,20 +55,16 @@ class ResponseBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         """Return the state of the binary sensor."""
-
-        self._state = self._client.on_duty
-
-        return self._state
+        return self._client.on_duty
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self) -> dict:
         """Return available attributes for binary sensor."""
-        attr = {}
         if not self.coordinator.data:
-            return attr
+            return {}
 
         data = self.coordinator.data
-        attr = {
+        return {
             key: data[key]
             for key in (
                 "start_time",
@@ -87,5 +78,3 @@ class ResponseBinarySensor(CoordinatorEntity, BinarySensorEntity):
             )
             if key in data
         }
-
-        return attr
