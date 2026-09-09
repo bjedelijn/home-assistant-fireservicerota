@@ -17,14 +17,19 @@ async def async_setup_entry(
 ) -> None:
     """Set up FireServiceRota switch based on a config entry."""
     client = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_CLIENT]
-
     coordinator = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_COORDINATOR]
 
     async_add_entities([ResponseSwitch(coordinator, client, entry)])
 
 
 class ResponseSwitch(SwitchEntity):
-    """Representation of an FireServiceRota switch."""
+    """Legacy incident response switch.
+
+    The original integration exposes one generic response switch. Extended keeps
+    that entity for backwards compatibility. For multi-station users the switch
+    remains readable, but sending is disabled until the API request model for a
+    specific membership has been confirmed.
+    """
 
     def __init__(self, coordinator, client, entry):
         """Initialize."""
@@ -32,7 +37,6 @@ class ResponseSwitch(SwitchEntity):
         self._client = client
         self._unique_id = f"{entry.unique_id}_Response"
         self._entry_id = entry.entry_id
-
         self._state = None
         self._state_attributes = {}
         self._state_icon = None
@@ -49,12 +53,11 @@ class ResponseSwitch(SwitchEntity):
             return "mdi:run-fast"
         if self._state_icon == "rejected":
             return "mdi:account-off-outline"
-
         return "mdi:forum"
 
     @property
     def is_on(self) -> bool:
-        """Get the assumed state of the switch."""
+        """Return aggregate response state."""
         return self._state
 
     @property
@@ -68,49 +71,36 @@ class ResponseSwitch(SwitchEntity):
         return False
 
     @property
-    def available(self):
-        """Return if switch is available."""
-        return self._client.on_duty
+    def available(self) -> bool:
+        """Only make the legacy write control available when unambiguous."""
+        return self._client.on_duty and len(self._client.membership_index) <= 1
 
     @property
-    def device_state_attributes(self) -> object:
-        """Return available attributes for switch."""
-        attr = {}
-        if not self._state_attributes:
-            return attr
-
-        data = self._state_attributes
-        attr = {
-            key: data[key]
-            for key in (
-                "user_name",
-                "assigned_skill_ids",
-                "responded_at",
-                "start_time",
-                "status",
-                "reported_status",
-                "arrived_at_station",
-                "available_at_incident_creation",
-                "active_duty_function_ids",
-            )
-            if key in data
-        }
-
+    def extra_state_attributes(self) -> dict:
+        """Return legacy and Extended response attributes."""
+        attr = dict(self._state_attributes)
+        attr["multi_station"] = len(self._client.membership_index) > 1
+        attr["writable"] = self.available
         return attr
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Send Acknowlegde response status."""
+        """Send acknowledge response status."""
         await self.async_set_response(True)
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Send Reject response status."""
+        """Send reject response status."""
         await self.async_set_response(False)
 
     async def async_set_response(self, value) -> None:
-        """Send response status."""
+        """Send response status when the target membership is unambiguous."""
         if not self._client.on_duty:
-            _LOGGER.debug(
-                "Cannot send incident response when not on duty",
+            _LOGGER.debug("Cannot send incident response when not on duty")
+            return
+
+        if len(self._client.membership_index) > 1:
+            _LOGGER.warning(
+                "Not sending legacy incident response because this account has "
+                "multiple active station memberships"
             )
             return
 
@@ -135,15 +125,41 @@ class ResponseSwitch(SwitchEntity):
         """Handle updated incident data from the client."""
         self.async_schedule_update_ha_state(True)
 
-    async def async_update(self) -> bool:
-        """Update FireServiceRota response data."""
-        data = await self._client.async_response_update()
-
-        if not data or "status" not in data:
+    async def async_update(self) -> None:
+        """Update response data without collapsing multiple memberships."""
+        responses = await self._client.async_response_update()
+        if not responses:
+            self._state = None
+            self._state_attributes = {
+                "responses_by_station": [],
+                "response_count": 0,
+            }
+            self._state_icon = None
             return
 
-        self._state = data["status"] == "acknowledged"
-        self._state_attributes = data
-        self._state_icon = data["status"]
+        acknowledged = [
+            response
+            for response in responses
+            if response.get("status") == "acknowledged"
+        ]
+        rejected = [
+            response for response in responses if response.get("status") == "rejected"
+        ]
 
-        _LOGGER.debug("Set state of entity 'Response Switch' to '%s'", self._state)
+        self._state = bool(acknowledged)
+        if acknowledged:
+            self._state_icon = "acknowledged"
+        elif rejected:
+            self._state_icon = "rejected"
+        else:
+            self._state_icon = None
+
+        self._state_attributes = {
+            "response_count": len(responses),
+            "responses_by_station": responses,
+        }
+
+        _LOGGER.debug(
+            "Updated legacy response switch from %s station response(s)",
+            len(responses),
+        )
