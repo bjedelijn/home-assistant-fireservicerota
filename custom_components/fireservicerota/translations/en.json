@@ -25,5 +25,28 @@
         }
       }
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "duty": {
+        "name": "Duty"
+      }
+    },
+    "sensor": {
+      "incidents": {
+        "name": "Incidents"
+      },
+      "pager": {
+        "name": "Pager"
+      }
+    },
+    "switch": {
+      "incident_response": {
+        "name": "Incident response"
+      },
+      "incident_response_station": {
+        "name": "Incident response {station}"
+      }
+    }
   }
 }
