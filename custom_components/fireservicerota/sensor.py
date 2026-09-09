@@ -30,6 +30,9 @@ async def async_setup_entry(
 class IncidentsSensor(RestoreEntity):
     """Representation of the latest FireServiceRota incident."""
 
+    _attr_has_entity_name = True
+    _attr_translation_key = "incidents"
+
     def __init__(self, client):
         """Initialize."""
         self._client = client
@@ -38,11 +41,6 @@ class IncidentsSensor(RestoreEntity):
         self._state = None
         self._state_attributes = {}
         self._task_ids_by_incident = {}
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return "Incidents"
 
     @property
     def icon(self) -> str:
@@ -156,8 +154,6 @@ class IncidentsSensor(RestoreEntity):
         enriched["new_task_ids"] = sorted(new_task_ids)
         self._task_ids_by_incident[incident_id] = current_task_ids
 
-        # Keep only the current incident in memory. This is sufficient for
-        # detecting changes in subsequent WebSocket updates and avoids growth.
         self._task_ids_by_incident = {incident_id: current_task_ids}
         return enriched
 
@@ -207,17 +203,15 @@ class IncidentsSensor(RestoreEntity):
 class PagerSensor(RestoreEntity):
     """Representation of pager status for the authenticated user."""
 
+    _attr_has_entity_name = True
+    _attr_translation_key = "pager"
+
     def __init__(self, client, coordinator):
         """Initialize."""
         self._client = client
         self._coordinator = coordinator
         self._entry_id = self._client.entry_id
         self._unique_id = f"{self._client.unique_id}_Pager"
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return "Pager"
 
     @property
     def unique_id(self) -> str:
