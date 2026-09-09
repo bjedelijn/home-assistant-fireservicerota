@@ -37,7 +37,7 @@ class IncidentsSensor(RestoreEntity):
         self._unique_id = f"{self._client.unique_id}_Incidents"
         self._state = None
         self._state_attributes = {}
-        self._last_processing_id = None
+        self._task_ids_by_incident = {}
 
     @property
     def name(self) -> str:
@@ -85,6 +85,8 @@ class IncidentsSensor(RestoreEntity):
             "responder_mode",
             "can_respond_until",
             "task_ids",
+            "previous_task_ids",
+            "new_task_ids",
             "groups",
             "resolved_tasks",
             "resolved_stations",
@@ -114,8 +116,12 @@ class IncidentsSensor(RestoreEntity):
         if state:
             self._state = state.state
             self._state_attributes = dict(state.attributes)
-            if "id" in self._state_attributes:
-                self._client.incident_id = self._state_attributes["id"]
+            incident_id = self._state_attributes.get("id")
+            if incident_id is not None:
+                self._client.incident_id = incident_id
+                self._task_ids_by_incident[incident_id] = set(
+                    self._state_attributes.get("task_ids") or []
+                )
             _LOGGER.debug("Restored entity 'Incidents' to: %s", self._state)
 
         self.async_on_remove(
@@ -126,6 +132,35 @@ class IncidentsSensor(RestoreEntity):
             )
         )
 
+    def _with_task_changes(self, data: dict) -> dict:
+        """Add task-change metadata for the current incident update."""
+        enriched = dict(data)
+        incident_id = data.get("id")
+        current_task_ids = set(data.get("task_ids") or [])
+
+        if incident_id is None:
+            enriched["previous_task_ids"] = []
+            enriched["new_task_ids"] = sorted(current_task_ids)
+            return enriched
+
+        previous_task_ids = self._task_ids_by_incident.get(incident_id, set())
+        trigger = data.get("trigger")
+
+        if trigger == "new" or incident_id not in self._task_ids_by_incident:
+            previous_task_ids = set()
+            new_task_ids = current_task_ids
+        else:
+            new_task_ids = current_task_ids - previous_task_ids
+
+        enriched["previous_task_ids"] = sorted(previous_task_ids)
+        enriched["new_task_ids"] = sorted(new_task_ids)
+        self._task_ids_by_incident[incident_id] = current_task_ids
+
+        # Keep only the current incident in memory. This is sufficient for
+        # detecting changes in subsequent WebSocket updates and avoids growth.
+        self._task_ids_by_incident = {incident_id: current_task_ids}
+        return enriched
+
     @callback
     def client_update(self) -> None:
         """Handle updated incident data from the websocket client."""
@@ -133,9 +168,10 @@ class IncidentsSensor(RestoreEntity):
         if not data or "body" not in data:
             return
 
-        self._state = data["body"]
-        self._state_attributes = self._client.enrich_incident_data(data)
-        incident_id = data.get("id")
+        data_with_changes = self._with_task_changes(data)
+        self._state = data_with_changes["body"]
+        self._state_attributes = self._client.enrich_incident_data(data_with_changes)
+        incident_id = data_with_changes.get("id")
         if incident_id is not None:
             self._client.incident_id = incident_id
 
@@ -146,7 +182,6 @@ class IncidentsSensor(RestoreEntity):
 
     async def _async_enrich_from_rest(self, incident_id) -> None:
         """Fetch full incident and merge richer per-station response data."""
-        self._last_processing_id = incident_id
         incident = await self._client.async_get_incident(incident_id)
         if not isinstance(incident, dict):
             return
@@ -159,6 +194,10 @@ class IncidentsSensor(RestoreEntity):
 
         if "trigger" not in incident and "trigger" in self._state_attributes:
             merged["trigger"] = self._state_attributes["trigger"]
+
+        for key in ("previous_task_ids", "new_task_ids"):
+            if key not in incident and key in self._state_attributes:
+                merged[key] = self._state_attributes[key]
 
         self._state_attributes = self._client.enrich_incident_data(merged)
         self._state = self._state_attributes.get("body", self._state)
