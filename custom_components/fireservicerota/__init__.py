@@ -1,8 +1,9 @@
 """The FireServiceRota integration."""
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 import importlib
 import logging
+from zoneinfo import ZoneInfo
 
 from pyfireservicerota import (
     ExpiredTokenError,
@@ -90,10 +91,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _async_register_services(hass)
 
-    # Home Assistant 2026.x / Python 3.14 can flag lazy platform imports from
-    # async_forward_entry_setups() as blocking disk I/O. Pre-import the platform
-    # modules in executor threads so the subsequent loader lookup is served from
-    # sys.modules and remains event-loop safe.
     await asyncio.gather(
         *(
             hass.async_add_executor_job(
@@ -105,7 +102,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, SUPPORTED_PLATFORMS)
-
     return True
 
 
@@ -294,6 +290,9 @@ class FireServiceRotaClient:
         self.token_refresh_failure = False
         self.incident_id = None
         self.on_duty = False
+        self.legacy_duty_data = {}
+        self.membership_duty = {}
+        self.do_not_disturb = None
 
         self.user_data = None
         self.groups = []
@@ -309,7 +308,7 @@ class FireServiceRotaClient:
         self.websocket = FireServiceRotaWebSocket(self._hass, self._entry)
 
     async def setup(self) -> None:
-        """Start the websocket listener and discover user-related API objects."""
+        """Start websocket listener and discover user-related API objects."""
         await self._hass.async_add_executor_job(self.websocket.start_listener)
         await self.async_discover()
 
@@ -331,18 +330,14 @@ class FireServiceRotaClient:
 
         return None
 
-    async def async_api_get(self, endpoint):
-        """Call an API v2 GET endpoint through pyfireservicerota.
-
-        pyfireservicerota 0.0.49 has no public get_groups() method yet. This
-        compatibility shim can later be replaced by a public library method.
-        """
+    async def async_api_get(self, endpoint, params=None):
+        """Call an API v2 GET endpoint through pyfireservicerota."""
         return await self.update_call(
             self.fsr._request,
             "GET",
             endpoint,
             f"get {endpoint}",
-            None,
+            params,
             None,
             False,
         )
@@ -435,6 +430,7 @@ class FireServiceRotaClient:
 
         if isinstance(user_data, dict):
             self.user_data = user_data
+            self.do_not_disturb = user_data.get("do_not_disturb")
 
         if isinstance(groups, list):
             self.groups = groups
@@ -458,7 +454,7 @@ class FireServiceRotaClient:
         self._log_discovery_debug()
 
     def _rebuild_group_indexes(self) -> None:
-        """Build indexes for this user's stations, memberships and tasks."""
+        """Build dynamic indexes for stations, memberships and alarm tasks."""
         self.stations = []
         self.membership_index = {}
         self.task_index = {}
@@ -470,6 +466,7 @@ class FireServiceRotaClient:
         if user_id is None:
             return
 
+        station_groups = {}
         for group in self.groups:
             if group.get("type") != "station":
                 continue
@@ -494,6 +491,7 @@ class FireServiceRotaClient:
                 "tasks": group.get("tasks", []),
             }
             self.stations.append(station)
+            station_groups[group.get("id")] = station
 
             for membership in memberships:
                 membership_id = membership.get("id")
@@ -505,29 +503,130 @@ class FireServiceRotaClient:
                         "station_short_code": group.get("short_code"),
                     }
 
-            for task in group.get("tasks", []):
+        # Tasks can live on station groups as well as child/team groups. The API
+        # exposes station_ids on a task, so index every task dynamically and only
+        # retain mappings to stations to which the authenticated user belongs.
+        seen = set()
+        active_station_ids = set(station_groups)
+        for group in self.groups:
+            for task in group.get("tasks", []) or []:
                 task_id = task.get("id")
                 if task_id is None:
                     continue
-                task_info = {
-                    "id": task_id,
-                    "name": task.get("name"),
-                    "alertable": task.get("alertable"),
-                    "station_id": group.get("id"),
-                    "station_name": group.get("name"),
-                    "station_short_code": group.get("short_code"),
-                }
-                self.task_index.setdefault(task_id, []).append(task_info)
+
+                station_ids = [
+                    station_id
+                    for station_id in (task.get("station_ids") or [])
+                    if station_id in active_station_ids
+                ]
+
+                if not station_ids:
+                    related_ids = set(group.get("ancestor_ids") or [])
+                    related_ids.add(group.get("parent_group_id"))
+                    related_ids.add(group.get("id"))
+                    station_ids = list(active_station_ids.intersection(related_ids))
+
+                for station_id in station_ids:
+                    key = (task_id, station_id)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    station = station_groups[station_id]
+                    task_info = {
+                        "id": task_id,
+                        "name": task.get("name"),
+                        "alertable": task.get("alertable"),
+                        "station_id": station_id,
+                        "station_name": station.get("name"),
+                        "station_short_code": station.get("short_code"),
+                        "group_ids": task.get("group_ids", []),
+                    }
+                    self.task_index.setdefault(task_id, []).append(task_info)
+
+    def _schedule_window_params(self) -> dict:
+        """Return today's local schedule window in API-compatible format."""
+        timezone = ZoneInfo(str(self._hass.config.time_zone))
+        now = datetime.now(timezone)
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1)
+        return {
+            "start_time": start.strftime("%Y-%m-%dT00:00:00%z"),
+            "end_time": end.strftime("%Y-%m-%dT00:00:00%z"),
+        }
+
+    @staticmethod
+    def _current_availability(schedule: dict, now: datetime) -> dict:
+        """Resolve the current interval from a combined_schedule response."""
+        for interval in schedule.get("intervals", []) or []:
+            start_time = interval.get("start_time")
+            end_time = interval.get("end_time")
+            if not start_time or not end_time:
+                continue
+            try:
+                start = datetime.fromisoformat(start_time)
+                end = datetime.fromisoformat(end_time)
+            except (TypeError, ValueError):
+                continue
+            if start <= now < end:
+                current = dict(interval)
+                detailed = current.get("detailed_availability") or {}
+                if "standby_duty" in detailed:
+                    current["type"] = "standby_duty"
+                elif "exception" in detailed:
+                    current["type"] = "exception"
+                elif "recurring" in detailed:
+                    current["type"] = "recurring"
+                else:
+                    current["type"] = "unknown"
+                current["available"] = bool(current.get("available"))
+                return current
+        return {"available": False}
+
+    async def _async_update_membership_duty(self) -> None:
+        """Update duty independently for every active membership."""
+        if not self.membership_index:
+            self.membership_duty = {}
+            return
+
+        params = self._schedule_window_params()
+        timezone = ZoneInfo(str(self._hass.config.time_zone))
+        now = datetime.now(timezone)
+        membership_duty = {}
+
+        for membership_id in self.membership_index:
+            schedule = await self.async_api_get(
+                f"memberships/{membership_id}/combined_schedule", params
+            )
+            if isinstance(schedule, dict):
+                membership_duty[membership_id] = self._current_availability(
+                    schedule, now
+                )
+            else:
+                _LOGGER.warning(
+                    "Could not retrieve duty for membership %s", membership_id
+                )
+
+        self.membership_duty = membership_duty
 
     async def async_update(self) -> object:
-        """Get latest availability, pager data and last pager-message status."""
+        """Update user state, per-membership duty and pager data."""
+        user_data = await self.update_call(self.fsr.get_user)
+        if isinstance(user_data, dict):
+            self.user_data = user_data
+            self.do_not_disturb = user_data.get("do_not_disturb")
+
+        # Keep the original first-membership availability call for the legacy
+        # binary_sensor.duty entity and backwards compatibility.
         data = await self.update_call(
             self.fsr.get_availability, str(self._hass.config.time_zone)
         )
-
-        if data:
+        if isinstance(data, dict):
+            self.legacy_duty_data = data
             self.on_duty = bool(data.get("available"))
-            _LOGGER.debug("Updated availability data: %s", data)
+            _LOGGER.debug("Updated legacy availability data: %s", data)
+
+        await self._async_update_membership_duty()
+        _LOGGER.debug("Updated membership duty data: %s", self.membership_duty)
 
         pagers = await self.update_call(self.fsr.get_pagers)
         if isinstance(pagers, list):
