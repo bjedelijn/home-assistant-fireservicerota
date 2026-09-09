@@ -111,6 +111,13 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
                 self._task_ids_by_incident[incident_id] = set(
                     self._state_attributes.get("task_ids") or []
                 )
+                # A restored incident only contains attributes saved by the
+                # previous entity state. Re-fetch the incident so Extended
+                # attributes such as resolved_tasks, resolved_stations and
+                # responses_by_station are available immediately after a
+                # Home Assistant restart instead of waiting for the next
+                # WebSocket incident update.
+                self.hass.async_create_task(self._async_enrich_from_rest(incident_id))
             _LOGGER.debug("Restored entity 'Incidents' to: %s", self._state)
 
         self.async_on_remove(
