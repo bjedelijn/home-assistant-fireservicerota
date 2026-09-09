@@ -140,21 +140,12 @@ attributes:
       station_name: Example Station
       membership_id: 12345
       status: acknowledged
-      response: opkomen
       responded_at: "2026-09-09T12:15:06+02:00"
       channel: pager
       arrived_at_station: false
 ```
 
-The API's original response status is kept alongside a friendlier response value where possible.
-
-Typical status mapping:
-
-```text
-acknowledged -> opkomen
-rejected     -> afwijzen
-no response  -> geen reactie
-```
+Response values are exposed as returned by the BrandweerRooster API. The integration does not translate API data values in the backend. If translated display text is useful, it can be added later through Home Assistant translations or implemented in a dashboard/template without changing the underlying API value.
 
 ## Stations, memberships and alert groups
 
@@ -227,7 +218,7 @@ Relevant API response data can include:
 - `available_at_incident_creation`
 - `alerted_at`
 
-This makes it possible to see which station the user responded for and whether the user chose to turn out or reject the call.
+This makes it possible to determine which station the user responded for and whether the API reports `acknowledged`, `rejected`, or another status value.
 
 ## Example automations
 
@@ -269,7 +260,7 @@ The Extended branch follows these principles:
 1. **Universal discovery** - no hardcoded user, station, membership or task IDs.
 2. **Backwards compatibility** - existing FireServiceRota entities should keep working where practical.
 3. **Small entity footprint** - related detail belongs in attributes unless a separate entity adds clear Home Assistant value.
-4. **Preserve raw API values** - translated/friendly values should complement rather than replace API data.
+4. **Preserve raw API values** - API values remain unchanged in integration data. Optional human-readable translations belong in Home Assistant's presentation/translation layer or dashboards/templates.
 5. **Multi-station support** - membership identity is taken into account when resolving responses.
 6. **Optional functionality** - users do not have to use pager, task or response extensions simply because the data is available.
 7. **Safety first** - Home Assistant remains an additional automation/information layer, not the primary emergency alerting path.
