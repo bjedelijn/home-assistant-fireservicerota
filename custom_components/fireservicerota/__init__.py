@@ -466,14 +466,6 @@ class FireServiceRotaClient:
                 continue
 
             membership = self.membership_index.get(response.get("membership_id"), {})
-            status = response.get("status")
-            if status == "acknowledged":
-                response_label = "opkomen"
-            elif status == "rejected":
-                response_label = "afwijzen"
-            else:
-                response_label = "geen reactie" if not status else status
-
             own.append(
                 {
                     "station_id": membership.get(
@@ -483,8 +475,7 @@ class FireServiceRotaClient:
                     "station_short_code": membership.get("station_short_code"),
                     "membership_id": response.get("membership_id"),
                     "group_id": response.get("group_id"),
-                    "status": status,
-                    "response": response_label,
+                    "status": response.get("status"),
                     "responded_at": response.get("responded_at"),
                     "channel": response.get("channel"),
                     "reported_status": response.get("reported_status"),
