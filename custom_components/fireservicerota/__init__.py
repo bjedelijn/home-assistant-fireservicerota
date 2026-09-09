@@ -10,23 +10,51 @@ from pyfireservicerota import (
     InvalidAuthError,
     InvalidTokenError,
 )
+import voluptuous as vol
 
 from homeassistant.components.binary_sensor import DOMAIN as BINARYSENSOR_DOMAIN
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
 from homeassistant.const import CONF_TOKEN, CONF_URL, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DATA_CLIENT, DATA_COORDINATOR, DOMAIN, WSS_BWRURL
+from .const import (
+    ATTR_ADDRESS,
+    ATTR_ADDRESSES,
+    ATTR_CONFIRMATION,
+    ATTR_ENTRY_ID,
+    ATTR_MESSAGE,
+    ATTR_PAGER_ID,
+    ATTR_WEBHOOK_URL,
+    DATA_CLIENT,
+    DATA_COORDINATOR,
+    DOMAIN,
+    SERVICE_SEND_PAGER_MESSAGE,
+    WSS_BWRURL,
+)
 
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=60)
 
 _LOGGER = logging.getLogger(__name__)
 
 SUPPORTED_PLATFORMS = {SENSOR_DOMAIN, BINARYSENSOR_DOMAIN, SWITCH_DOMAIN}
+
+SEND_PAGER_MESSAGE_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Optional(ATTR_PAGER_ID): vol.Coerce(int),
+        vol.Required(ATTR_MESSAGE): cv.string,
+        vol.Optional(ATTR_ADDRESS): cv.string,
+        vol.Optional(ATTR_ADDRESSES): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional(ATTR_CONFIRMATION, default=True): cv.boolean,
+        vol.Optional(ATTR_WEBHOOK_URL): cv.url,
+    }
+)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -62,6 +90,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DATA_COORDINATOR: coordinator,
     }
 
+    _async_register_services(hass)
+
     for platform in SUPPORTED_PLATFORMS:
         hass.async_create_task(
             hass.config_entries.async_forward_entry_setup(entry, platform)
@@ -87,7 +117,80 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         del hass.data[DOMAIN][entry.entry_id]
 
+    if not hass.data[DOMAIN] and hass.services.has_service(
+        DOMAIN, SERVICE_SEND_PAGER_MESSAGE
+    ):
+        hass.services.async_remove(DOMAIN, SERVICE_SEND_PAGER_MESSAGE)
+
     return unload_ok
+
+
+def _service_client(hass: HomeAssistant, entry_id: str | None):
+    """Return the client targeted by a Home Assistant service call."""
+    entries = hass.data.get(DOMAIN, {})
+
+    if entry_id:
+        entry_data = entries.get(entry_id)
+        if not entry_data:
+            raise HomeAssistantError(
+                f"Unknown FireServiceRota config entry: {entry_id}"
+            )
+        return entry_data[DATA_CLIENT]
+
+    if len(entries) == 1:
+        return next(iter(entries.values()))[DATA_CLIENT]
+
+    if not entries:
+        raise HomeAssistantError("No FireServiceRota config entry is loaded")
+
+    raise HomeAssistantError(
+        "Multiple FireServiceRota config entries are loaded; specify entry_id"
+    )
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register integration services once."""
+    if hass.services.has_service(DOMAIN, SERVICE_SEND_PAGER_MESSAGE):
+        return
+
+    async def async_send_pager_message(call: ServiceCall) -> None:
+        """Send a message through a discovered BrandweerRooster pager."""
+        client = _service_client(hass, call.data.get(ATTR_ENTRY_ID))
+        pager_id = call.data.get(ATTR_PAGER_ID)
+
+        if pager_id is None:
+            if len(client.pagers) != 1:
+                raise HomeAssistantError(
+                    "pager_id is required unless exactly one pager is linked"
+                )
+            pager_id = client.pagers[0].get("id")
+
+        if pager_id not in client.pagers_by_id:
+            raise HomeAssistantError(
+                f"Pager {pager_id} is not linked to this FireServiceRota account"
+            )
+
+        result = await client.async_send_pager_message(
+            pager_id=pager_id,
+            message=call.data[ATTR_MESSAGE],
+            address=call.data.get(ATTR_ADDRESS),
+            addresses=call.data.get(ATTR_ADDRESSES),
+            confirmation=call.data.get(ATTR_CONFIRMATION, True),
+            webhook_url=call.data.get(ATTR_WEBHOOK_URL),
+        )
+
+        if not isinstance(result, dict):
+            raise HomeAssistantError("BrandweerRooster did not accept the pager message")
+
+        client.last_pager_message = result
+        dispatcher_send(hass, f"{DOMAIN}_{client.entry_id}_pager_update")
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEND_PAGER_MESSAGE,
+        async_send_pager_message,
+        schema=SEND_PAGER_MESSAGE_SCHEMA,
+    )
 
 
 class FireServiceRotaOauth:
@@ -183,8 +286,6 @@ class FireServiceRotaClient:
         self.incident_id = None
         self.on_duty = False
 
-        # Extended discovery data. These indexes are built dynamically from the
-        # authenticated user's API data; no station/task IDs are hardcoded.
         self.user_data = None
         self.groups = []
         self.stations = []
@@ -192,6 +293,7 @@ class FireServiceRotaClient:
         self.task_index = {}
         self.pagers = []
         self.pagers_by_id = {}
+        self.last_pager_message = None
 
         self.fsr = FireServiceRota(base_url=self._url, token_info=self._tokens)
         self.oauth = FireServiceRotaOauth(self._hass, self._entry, self.fsr)
@@ -223,9 +325,8 @@ class FireServiceRotaClient:
     async def async_api_get(self, endpoint):
         """Call an API v2 GET endpoint through pyfireservicerota.
 
-        pyfireservicerota 0.0.49 has no public get_groups() method yet. Keeping
-        this small compatibility shim here lets the HA integration discover
-        stations now, while making it easy to replace with get_groups() later.
+        pyfireservicerota 0.0.49 has no public get_groups() method yet. This
+        compatibility shim can later be replaced by a public library method.
         """
         return await self.update_call(
             self.fsr._request,
@@ -353,6 +454,48 @@ class FireServiceRotaClient:
             return None
         return await self.async_api_get(f"incidents/{incident_id}")
 
+    def own_incident_responses(self, data: dict) -> list[dict]:
+        """Return all responses belonging to the authenticated user."""
+        user_id = self.user_data.get("id") if self.user_data else None
+        if user_id is None:
+            return []
+
+        own = []
+        for response in data.get("incident_responses", []) or []:
+            if response.get("user_id") != user_id:
+                continue
+
+            membership = self.membership_index.get(response.get("membership_id"), {})
+            status = response.get("status")
+            if status == "acknowledged":
+                response_label = "opkomen"
+            elif status == "rejected":
+                response_label = "afwijzen"
+            else:
+                response_label = "geen reactie" if not status else status
+
+            own.append(
+                {
+                    "station_id": membership.get(
+                        "station_id", response.get("group_id")
+                    ),
+                    "station_name": membership.get("station_name"),
+                    "station_short_code": membership.get("station_short_code"),
+                    "membership_id": response.get("membership_id"),
+                    "group_id": response.get("group_id"),
+                    "status": status,
+                    "response": response_label,
+                    "responded_at": response.get("responded_at"),
+                    "channel": response.get("channel"),
+                    "reported_status": response.get("reported_status"),
+                    "arrived_at_station": response.get("arrived_at_station"),
+                    "estimated_time_of_arrival": response.get(
+                        "estimated_time_of_arrival"
+                    ),
+                }
+            )
+        return own
+
     def enrich_incident_data(self, data: dict) -> dict:
         """Enrich incident with resolved stations, tasks and own responses."""
         enriched = dict(data)
@@ -371,64 +514,24 @@ class FireServiceRotaClient:
                         "short_code": task.get("station_short_code"),
                     }
 
-        responses_by_station = []
-        user_id = self.user_data.get("id") if self.user_data else None
-        if user_id is not None:
-            for response in data.get("incident_responses", []) or []:
-                if response.get("user_id") != user_id:
-                    continue
-
-                membership = self.membership_index.get(
-                    response.get("membership_id"), {}
-                )
-                status = response.get("status")
-                if status == "acknowledged":
-                    friendly_response = "accepted"
-                elif status == "rejected":
-                    friendly_response = "rejected"
-                else:
-                    friendly_response = status or "unknown"
-
-                responses_by_station.append(
-                    {
-                        "station_id": membership.get(
-                            "station_id", response.get("group_id")
-                        ),
-                        "station_name": membership.get("station_name"),
-                        "station_short_code": membership.get(
-                            "station_short_code"
-                        ),
-                        "membership_id": response.get("membership_id"),
-                        "group_id": response.get("group_id"),
-                        "status": status,
-                        "response": friendly_response,
-                        "responded_at": response.get("responded_at"),
-                        "channel": response.get("channel"),
-                        "reported_status": response.get("reported_status"),
-                        "arrived_at_station": response.get(
-                            "arrived_at_station"
-                        ),
-                        "estimated_time_of_arrival": response.get(
-                            "estimated_time_of_arrival"
-                        ),
-                    }
-                )
-
         enriched["resolved_tasks"] = resolved_tasks
         enriched["resolved_stations"] = list(resolved_stations.values())
-        enriched["responses_by_station"] = responses_by_station
+        enriched["responses_by_station"] = self.own_incident_responses(data)
         return enriched
 
     async def async_response_update(self) -> object:
-        """Get the latest incident response data."""
+        """Get all current-user response data for the latest incident."""
         if not self.incident_id:
             return None
 
         _LOGGER.debug("Updating response data for incident id %s", self.incident_id)
-        return await self.update_call(self.fsr.get_incident_response, self.incident_id)
+        incident = await self.async_get_incident(self.incident_id)
+        if not isinstance(incident, dict):
+            return None
+        return self.own_incident_responses(incident)
 
     async def async_set_response(self, value) -> None:
-        """Set incident response status."""
+        """Set incident response status using the existing API wrapper method."""
         if not self.incident_id:
             return
 
@@ -438,3 +541,23 @@ class FireServiceRotaClient:
             value,
         )
         await self.update_call(self.fsr.set_incident_response, self.incident_id, value)
+
+    async def async_send_pager_message(
+        self,
+        pager_id: int,
+        message: str,
+        address: str | None = None,
+        addresses: list | None = None,
+        confirmation: bool = True,
+        webhook_url: str | None = None,
+    ) -> object:
+        """Send a pager message using the public pyfireservicerota method."""
+        return await self.update_call(
+            self.fsr.send_pager_message,
+            pager_id,
+            message,
+            address,
+            addresses,
+            confirmation,
+            webhook_url,
+        )
