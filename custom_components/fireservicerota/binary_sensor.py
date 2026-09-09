@@ -176,6 +176,11 @@ class DoNotDisturbBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._attr_unique_id = f"{entry.unique_id}_DoNotDisturb"
 
     @property
+    def available(self) -> bool:
+        """Return whether the API supplied the user-level DND flag."""
+        return self._client.do_not_disturb is not None
+
+    @property
     def is_on(self) -> bool:
         """Return the raw user-level do-not-disturb flag."""
         return bool(self._client.do_not_disturb)
