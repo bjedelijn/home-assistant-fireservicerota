@@ -1,8 +1,12 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-This repository is a fork of the original [`cyberjunky/home-assistant-fireservicerota`](https://github.com/cyberjunky/home-assistant-fireservicerota) integration.
+This repository is a fork of the original [`cyberjunky/home-assistant-fireservicerota`](https://github.com/cyberjunky/home-assistant-fireservicerota) integration by Ron Klinkien / Cyberjunky and contributors.
 
-The goal of the **Extended** branch is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
+The original integration and its core design remain credited to Ron Klinkien / Cyberjunky. This fork does **not** claim maintainership of the original project. The `extended` branch is an independent extension built on top of that work.
+
+The practical reason for creating the Extended version is multi-station use. The fork author is an active member of two fire stations and found that the original integration did not expose enough information to distinguish station-specific memberships, alert groups/tasks and incident responses. That became the starting point for the Extended branch.
+
+The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
 > **Status:** active development. The `extended` branch contains experimental functionality and may change while the new data model and services are being completed and tested.
 
@@ -136,7 +140,7 @@ attributes:
       station_name: Example Station
       membership_id: 12345
       status: acknowledged
-      response: accepted
+      response: opkomen
       responded_at: "2026-09-09T12:15:06+02:00"
       channel: pager
       arrived_at_station: false
@@ -147,9 +151,9 @@ The API's original response status is kept alongside a friendlier response value
 Typical status mapping:
 
 ```text
-acknowledged -> accepted / turnout
-rejected     -> rejected
-no response  -> unknown / no response
+acknowledged -> opkomen
+rejected     -> afwijzen
+no response  -> geen reactie
 ```
 
 ## Stations, memberships and alert groups
@@ -191,9 +195,9 @@ If an account has multiple pagers, the intention is to keep them grouped under o
 - sending a message to a pager
 - retrieving pager-message acknowledgment status
 
-The Extended integration is adding a Home Assistant service so messages can be sent without defining a separate `rest_command`.
+The Extended integration adds a Home Assistant service so messages can be sent without defining a separate `rest_command`.
 
-Intended service example:
+Example:
 
 ```yaml
 action: fireservicerota.send_pager_message
@@ -286,11 +290,13 @@ Useful debug information includes WebSocket incidents, discovered stations/membe
 
 ## Upstream and credits
 
-This project builds on the work of the original FireServiceRota Home Assistant integration and `pyfireservicerota` by Ron Klinkien / Cyberjunky and contributors.
+The original FireServiceRota Home Assistant integration and `pyfireservicerota` were created and maintained upstream by Ron Klinkien / Cyberjunky and contributors. All original-project credit remains with them.
+
+This repository is a fork. The fork owner is responsible only for the Extended changes in this repository/branch and is **not** presented as maintainer of the original project.
 
 Original repositories:
 
 - https://github.com/cyberjunky/home-assistant-fireservicerota
 - https://github.com/cyberjunky/python-fireservicerota
 
-The Extended branch is intended to explore broader BrandweerRooster API support while retaining the original integration's useful real-time incident and availability functionality.
+The Extended branch explores broader BrandweerRooster API support, especially multi-station memberships, task/alert-group resolution, pager information and richer incident responses, while retaining the useful real-time incident and availability foundation of the original integration.
