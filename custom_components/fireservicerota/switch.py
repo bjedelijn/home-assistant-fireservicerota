@@ -21,10 +21,6 @@ async def async_setup_entry(
 
     entities = [ResponseSwitch(coordinator, client, entry)]
 
-    # Keep the original single response switch for backwards compatibility.
-    # Only add station-specific response switches when multiple active station
-    # memberships exist, avoiding duplicate entities for normal single-station
-    # accounts.
     if len(client.membership_index) > 1:
         for membership_id, membership in client.membership_index.items():
             entities.append(
@@ -48,6 +44,9 @@ class ResponseSwitch(SwitchEntity):
     switch remains readable but station-specific switches are used for writes.
     """
 
+    _attr_has_entity_name = True
+    _attr_translation_key = "incident_response"
+
     def __init__(self, coordinator, client, entry):
         """Initialize."""
         self._coordinator = coordinator
@@ -57,11 +56,6 @@ class ResponseSwitch(SwitchEntity):
         self._state = None
         self._state_attributes = {}
         self._state_icon = None
-
-    @property
-    def name(self) -> str:
-        """Return the name of the switch."""
-        return "Incident Response"
 
     @property
     def icon(self) -> str:
@@ -186,6 +180,9 @@ class ResponseSwitch(SwitchEntity):
 class MembershipResponseSwitch(SwitchEntity):
     """Incident response switch for one BrandweerRooster membership."""
 
+    _attr_has_entity_name = True
+    _attr_translation_key = "incident_response_station"
+
     def __init__(
         self,
         coordinator,
@@ -204,14 +201,9 @@ class MembershipResponseSwitch(SwitchEntity):
         self._state = None
         self._state_attributes = {}
         self._state_icon = None
-
-    @property
-    def name(self) -> str:
-        """Return the dynamically discovered station-specific name."""
-        station_name = self._membership.get("station_name")
-        if station_name:
-            return f"Incident Response {station_name}"
-        return f"Incident Response {self._membership_id}"
+        self._attr_translation_placeholders = {
+            "station": membership.get("station_name") or str(membership_id)
+        }
 
     @property
     def icon(self) -> str:
@@ -263,12 +255,7 @@ class MembershipResponseSwitch(SwitchEntity):
         await self._async_set_membership_response("rejected")
 
     async def _async_set_membership_response(self, status: str) -> None:
-        """Create an incident response for the selected membership.
-
-        BrandweerRooster's POST /incidents/{id}/incident_responses request model
-        explicitly supports both status and membership_id. Only those confirmed
-        fields are sent here; optional fields are left for the server to derive.
-        """
+        """Create an incident response for the selected membership."""
         if not self.available:
             _LOGGER.debug(
                 "Cannot send incident response for membership %s while unavailable",
