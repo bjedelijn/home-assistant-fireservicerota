@@ -31,6 +31,12 @@
     "binary_sensor": {
       "duty": {
         "name": "Dienst"
+      },
+      "duty_station": {
+        "name": "Dienst {station}"
+      },
+      "do_not_disturb": {
+        "name": "Niet storen"
       }
     },
     "sensor": {
