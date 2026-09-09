@@ -1,26 +1,30 @@
 {
-    "config": {
-        "step": {
-            "user": {
-                "title": "FireServiceRota",
-                "data": { "username": "Gebruikersnaam", "password": "Wachtwoord", "url": "Website"}
-            },
-            "reauth": {
-                "description": "Authenticatietokens zijn ongeldig, login om ze te creëren.",
-                "data": {
-                    "password": "Password"
-                }
-            }
-        },
-        "error": {
-            "invalid_credentials": "Ongeldige authenticatie"
-        },
-        "abort": {
-            "already_configured": "Dit account is al geconfigureerd",
-            "reauth_successful": "Re-authenticatie was succesvol"
-        },
-        "create_entry": {
-            "default": "Succesvol aangemeld"
+  "config": {
+    "step": {
+      "user": {
+        "title": "FireServiceRota",
+        "data": {
+          "username": "Gebruikersnaam",
+          "password": "Wachtwoord",
+          "url": "Website"
         }
+      },
+      "reauth": {
+        "description": "De authenticatietokens zijn ongeldig geworden. Meld opnieuw aan om nieuwe tokens te maken.",
+        "data": {
+          "password": "Wachtwoord"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ongeldige authenticatie"
+    },
+    "abort": {
+      "already_configured": "Dit account is al geconfigureerd",
+      "reauth_successful": "Opnieuw authenticeren is gelukt"
+    },
+    "create_entry": {
+      "default": "Succesvol aangemeld"
     }
+  }
 }
