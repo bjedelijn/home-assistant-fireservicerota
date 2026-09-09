@@ -1,0 +1,46 @@
+send_pager_message:
+  name: Send pager message
+  description: Send a text message to a pager linked to the authenticated FireServiceRota / BrandweerRooster account.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional Home Assistant config entry ID. Required only when multiple FireServiceRota config entries are loaded.
+      example: 0123456789abcdef0123456789abcdef
+      selector:
+        text:
+    pager_id:
+      name: Pager ID
+      description: Optional pager ID. If exactly one pager is linked, it is selected automatically.
+      example: 12345
+      selector:
+        number:
+          mode: box
+    message:
+      name: Message
+      description: Text to send to the pager.
+      required: true
+      example: Test message from Home Assistant
+      selector:
+        text:
+          multiline: true
+    address:
+      name: Address
+      description: Optional pager address/capcode. Normally omitted when confirmation is used.
+      selector:
+        text:
+    addresses:
+      name: Addresses
+      description: Optional list of pager addresses/capcodes.
+      selector:
+        object:
+    confirmation:
+      name: Confirmation
+      description: Use the pager's own registered address. This is the normal mode when no explicit address is supplied.
+      default: true
+      selector:
+        boolean:
+    webhook_url:
+      name: Webhook URL
+      description: Optional callback URL for delivery status updates supported by the BrandweerRooster pager API.
+      selector:
+        text:
