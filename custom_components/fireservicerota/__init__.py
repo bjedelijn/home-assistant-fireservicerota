@@ -1,5 +1,4 @@
 """The FireServiceRota integration."""
-import asyncio
 from datetime import timedelta
 import logging
 
@@ -12,11 +11,8 @@ from pyfireservicerota import (
 )
 import voluptuous as vol
 
-from homeassistant.components.binary_sensor import DOMAIN as BINARYSENSOR_DOMAIN
-from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
-from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
-from homeassistant.const import CONF_TOKEN, CONF_URL, CONF_USERNAME
+from homeassistant.const import CONF_TOKEN, CONF_URL, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
@@ -42,7 +38,7 @@ MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=60)
 
 _LOGGER = logging.getLogger(__name__)
 
-SUPPORTED_PLATFORMS = {SENSOR_DOMAIN, BINARYSENSOR_DOMAIN, SWITCH_DOMAIN}
+SUPPORTED_PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SWITCH]
 
 SEND_PAGER_MESSAGE_SCHEMA = vol.Schema(
     {
@@ -92,10 +88,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _async_register_services(hass)
 
-    for platform in SUPPORTED_PLATFORMS:
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(entry, platform)
-        )
+    await hass.config_entries.async_forward_entry_setups(entry, SUPPORTED_PLATFORMS)
 
     return True
 
@@ -105,13 +98,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = hass.data[DOMAIN][entry.entry_id][DATA_CLIENT]
     await hass.async_add_executor_job(client.websocket.stop_listener)
 
-    unload_ok = all(
-        await asyncio.gather(
-            *[
-                hass.config_entries.async_forward_entry_unload(entry, platform)
-                for platform in SUPPORTED_PLATFORMS
-            ]
-        )
+    unload_ok = await hass.config_entries.async_unload_platforms(
+        entry, SUPPORTED_PLATFORMS
     )
 
     if unload_ok:
@@ -168,6 +156,11 @@ def _async_register_services(hass: HomeAssistant) -> None:
         if pager_id not in client.pagers_by_id:
             raise HomeAssistantError(
                 f"Pager {pager_id} is not linked to this FireServiceRota account"
+            )
+
+        if call.data.get(ATTR_ADDRESS) and call.data.get(ATTR_ADDRESSES):
+            raise HomeAssistantError(
+                "Use either address or addresses for a pager message, not both"
             )
 
         result = await client.async_send_pager_message(
@@ -420,7 +413,9 @@ class FireServiceRotaClient:
                 if task_id is None:
                     continue
                 task_info = {
-                    **task,
+                    "id": task_id,
+                    "name": task.get("name"),
+                    "alertable": task.get("alertable"),
                     "station_id": group.get("id"),
                     "station_name": group.get("name"),
                     "station_short_code": group.get("short_code"),
@@ -428,7 +423,7 @@ class FireServiceRotaClient:
                 self.task_index.setdefault(task_id, []).append(task_info)
 
     async def async_update(self) -> object:
-        """Get latest availability and pager data."""
+        """Get latest availability, pager data and last pager-message status."""
         data = await self.update_call(
             self.fsr.get_availability, str(self._hass.config.time_zone)
         )
@@ -445,6 +440,18 @@ class FireServiceRotaClient:
                 for pager in pagers
                 if pager.get("id") is not None
             }
+
+        if isinstance(self.last_pager_message, dict):
+            pager_id = self.last_pager_message.get("pager_id")
+            message_id = self.last_pager_message.get("id")
+            if pager_id is not None and message_id is not None:
+                status = await self.update_call(
+                    self.fsr.get_pager_message_status, pager_id, message_id
+                )
+                if isinstance(status, dict):
+                    merged_message = dict(self.last_pager_message)
+                    merged_message.update(status)
+                    self.last_pager_message = merged_message
 
         return data
 
