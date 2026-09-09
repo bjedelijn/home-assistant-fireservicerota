@@ -230,8 +230,13 @@ class MembershipResponseSwitch(SwitchEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether the response control can currently be used."""
-        return self._client.on_duty and self._client.incident_id is not None
+        """Return whether this station response control can currently be used."""
+        duty = self._client.membership_duty.get(self._membership_id)
+        return (
+            isinstance(duty, dict)
+            and bool(duty.get("available"))
+            and self._client.incident_id is not None
+        )
 
     @property
     def extra_state_attributes(self) -> dict:
