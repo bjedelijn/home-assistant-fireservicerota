@@ -26,5 +26,28 @@
     "create_entry": {
       "default": "Succesvol aangemeld"
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "duty": {
+        "name": "Dienst"
+      }
+    },
+    "sensor": {
+      "incidents": {
+        "name": "Incidenten"
+      },
+      "pager": {
+        "name": "Pager"
+      }
+    },
+    "switch": {
+      "incident_response": {
+        "name": "Incidentreactie"
+      },
+      "incident_response_station": {
+        "name": "Incidentreactie {station}"
+      }
+    }
   }
 }
