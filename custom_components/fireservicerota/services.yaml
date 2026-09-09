@@ -25,17 +25,18 @@ send_pager_message:
           multiline: true
     address:
       name: Address
-      description: Optional pager address/capcode. Normally omitted when confirmation is used.
+      description: Optional pager address/capcode. Do not use together with addresses.
       selector:
         text:
     addresses:
       name: Addresses
-      description: Optional list of pager addresses/capcodes.
+      description: Optional list of pager addresses/capcodes. Do not use together with address.
       selector:
-        object:
+        text:
+          multiple: true
     confirmation:
       name: Confirmation
-      description: Use the pager's own registered address. This is the normal mode when no explicit address is supplied.
+      description: Use the pager's own registered address when no explicit address or addresses are supplied.
       default: true
       selector:
         boolean:
@@ -44,3 +45,4 @@ send_pager_message:
       description: Optional callback URL for delivery status updates supported by the BrandweerRooster pager API.
       selector:
         text:
+          type: url
