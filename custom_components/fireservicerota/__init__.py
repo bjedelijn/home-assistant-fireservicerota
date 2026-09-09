@@ -1,5 +1,7 @@
 """The FireServiceRota integration."""
+import asyncio
 from datetime import timedelta
+import importlib
 import logging
 
 from pyfireservicerota import (
@@ -87,6 +89,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     _async_register_services(hass)
+
+    # Home Assistant 2026.x / Python 3.14 can flag lazy platform imports from
+    # async_forward_entry_setups() as blocking disk I/O. Pre-import the platform
+    # modules in executor threads so the subsequent loader lookup is served from
+    # sys.modules and remains event-loop safe.
+    await asyncio.gather(
+        *(
+            hass.async_add_executor_job(
+                importlib.import_module,
+                f"{__package__}.{platform.value}",
+            )
+            for platform in SUPPORTED_PLATFORMS
+        )
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, SUPPORTED_PLATFORMS)
 
