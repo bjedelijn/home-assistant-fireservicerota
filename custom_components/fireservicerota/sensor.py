@@ -139,9 +139,6 @@ class IncidentsSensor(RestoreEntity):
         if incident_id is not None:
             self._client.incident_id = incident_id
 
-        # Write websocket data immediately. Then enrich it asynchronously with
-        # the full REST incident, which contains incident_responses and other
-        # fields that may not be present in the websocket payload.
         self.async_write_ha_state()
 
         if incident_id is not None:
@@ -154,15 +151,12 @@ class IncidentsSensor(RestoreEntity):
         if not isinstance(incident, dict):
             return
 
-        # Ignore a slow REST response if a newer incident has already arrived.
         if self._client.incident_id != incident_id:
             return
 
         merged = dict(self._state_attributes)
         merged.update(incident)
 
-        # Preserve websocket trigger information when the REST representation
-        # does not provide it.
         if "trigger" not in incident and "trigger" in self._state_attributes:
             merged["trigger"] = self._state_attributes["trigger"]
 
@@ -178,6 +172,7 @@ class PagerSensor(RestoreEntity):
         """Initialize."""
         self._client = client
         self._coordinator = coordinator
+        self._entry_id = self._client.entry_id
         self._unique_id = f"{self._client.unique_id}_Pager"
 
     @property
@@ -215,66 +210,71 @@ class PagerSensor(RestoreEntity):
             return pagers[0].get("state", "unknown")
         return len(pagers)
 
+    def _pager_attributes(self, pager: dict) -> dict:
+        """Return selected, automation-friendly pager fields."""
+        return {
+            key: pager.get(key)
+            for key in (
+                "id",
+                "user_id",
+                "serial_number",
+                "firmware_version",
+                "type",
+                "battery_level",
+                "last_seen_at",
+                "state",
+                "signal_strength",
+                "signal_strength_status",
+                "paging_signal_strength",
+                "paging_signal_strength_status",
+                "mobile_operator",
+            )
+            if pager.get(key) is not None
+        }
+
     @property
     def extra_state_attributes(self) -> dict:
-        """Return pager details as attributes."""
+        """Return pager details and latest locally sent message."""
         pagers = self._client.pagers
         if not pagers:
             return {}
 
         if len(pagers) == 1:
-            pager = pagers[0]
-            return {
-                key: pager.get(key)
-                for key in (
-                    "id",
-                    "user_id",
-                    "serial_number",
-                    "firmware_version",
-                    "type",
-                    "battery_level",
-                    "last_seen_at",
-                    "state",
-                    "signal_strength",
-                    "signal_strength_status",
-                    "paging_signal_strength",
-                    "paging_signal_strength_status",
-                    "mobile_operator",
-                )
-                if pager.get(key) is not None
+            attr = self._pager_attributes(pagers[0])
+        else:
+            attr = {
+                "pager_count": len(pagers),
+                "pagers": [self._pager_attributes(pager) for pager in pagers],
             }
 
-        # Do not create one HA entity per pager by default. Multiple pagers are
-        # represented compactly under this sensor, while preserving all useful
-        # status information for templates and automations.
-        return {
-            "pager_count": len(pagers),
-            "pagers": [
-                {
-                    key: pager.get(key)
-                    for key in (
-                        "id",
-                        "serial_number",
-                        "firmware_version",
-                        "type",
-                        "battery_level",
-                        "last_seen_at",
-                        "state",
-                        "signal_strength",
-                        "signal_strength_status",
-                        "paging_signal_strength",
-                        "paging_signal_strength_status",
-                        "mobile_operator",
-                    )
-                    if pager.get(key) is not None
-                }
-                for pager in pagers
-            ],
-        }
+        if isinstance(self._client.last_pager_message, dict):
+            message = self._client.last_pager_message
+            attr["last_sent_message"] = {
+                key: message.get(key)
+                for key in (
+                    "id",
+                    "body",
+                    "pager_id",
+                    "acknowledgment_state",
+                    "address",
+                    "subaddress",
+                    "addresses",
+                )
+                if message.get(key) is not None
+            }
+
+        return attr
 
     async def async_added_to_hass(self) -> None:
-        """Register coordinator updates."""
+        """Register coordinator and pager-message updates."""
         await super().async_added_to_hass()
         self.async_on_remove(
             self._coordinator.async_add_listener(self.async_write_ha_state)
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{FIRESERVICEROTA_DOMAIN}_{self._entry_id}_pager_update",
+                self.async_write_ha_state,
+            )
         )
