@@ -30,6 +30,12 @@
     "binary_sensor": {
       "duty": {
         "name": "Duty"
+      },
+      "duty_station": {
+        "name": "Duty {station}"
+      },
+      "do_not_disturb": {
+        "name": "Do not disturb"
       }
     },
     "sensor": {
