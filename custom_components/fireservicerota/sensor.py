@@ -7,7 +7,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import HomeAssistantType
 
-from .const import DATA_CLIENT, DOMAIN as FIRESERVICEROTA_DOMAIN
+from .const import DATA_CLIENT, DATA_COORDINATOR, DOMAIN as FIRESERVICEROTA_DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -15,14 +15,20 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistantType, entry: ConfigEntry, async_add_entities
 ) -> None:
-    """Set up FireServiceRota sensor based on a config entry."""
+    """Set up FireServiceRota sensors based on a config entry."""
     client = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_CLIENT]
+    coordinator = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_COORDINATOR]
 
-    async_add_entities([IncidentsSensor(client)])
+    async_add_entities(
+        [
+            IncidentsSensor(client),
+            PagerSensor(client, coordinator),
+        ]
+    )
 
 
 class IncidentsSensor(RestoreEntity):
-    """Representation of FireServiceRota incidents sensor."""
+    """Representation of the latest FireServiceRota incident."""
 
     def __init__(self, client):
         """Initialize."""
@@ -31,6 +37,7 @@ class IncidentsSensor(RestoreEntity):
         self._unique_id = f"{self._client.unique_id}_Incidents"
         self._state = None
         self._state_attributes = {}
+        self._last_processing_id = None
 
     @property
     def name(self) -> str:
@@ -40,12 +47,9 @@ class IncidentsSensor(RestoreEntity):
     @property
     def icon(self) -> str:
         """Return the icon to use in the frontend."""
-        if (
-            "prio" in self._state_attributes
-            and self._state_attributes["prio"][0] == "a"
-        ):
+        prio = self._state_attributes.get("prio")
+        if isinstance(prio, str) and prio.startswith("a"):
             return "mdi:ambulance"
-
         return "mdi:fire-truck"
 
     @property
@@ -64,14 +68,13 @@ class IncidentsSensor(RestoreEntity):
         return False
 
     @property
-    def device_state_attributes(self) -> object:
-        """Return available attributes for sensor."""
-        attr = {}
+    def extra_state_attributes(self) -> dict:
+        """Return available incident attributes."""
         data = self._state_attributes
-
         if not data:
-            return attr
+            return {}
 
+        attr = {}
         for value in (
             "id",
             "trigger",
@@ -81,21 +84,25 @@ class IncidentsSensor(RestoreEntity):
             "type",
             "responder_mode",
             "can_respond_until",
+            "task_ids",
+            "groups",
+            "resolved_tasks",
+            "resolved_stations",
+            "responses_by_station",
         ):
-            if data.get(value):
+            if value in data and data[value] is not None:
                 attr[value] = data[value]
 
-            if "address" not in data:
-                continue
-
+        address = data.get("address")
+        if isinstance(address, dict):
             for address_value in (
                 "latitude",
                 "longitude",
                 "address_type",
                 "formatted_address",
             ):
-                if address_value in data["address"]:
-                    attr[address_value] = data["address"][address_value]
+                if address_value in address:
+                    attr[address_value] = address[address_value]
 
         return attr
 
@@ -106,7 +113,7 @@ class IncidentsSensor(RestoreEntity):
         state = await self.async_get_last_state()
         if state:
             self._state = state.state
-            self._state_attributes = state.attributes
+            self._state_attributes = dict(state.attributes)
             if "id" in self._state_attributes:
                 self._client.incident_id = self._state_attributes["id"]
             _LOGGER.debug("Restored entity 'Incidents' to: %s", self._state)
@@ -121,13 +128,153 @@ class IncidentsSensor(RestoreEntity):
 
     @callback
     def client_update(self) -> None:
-        """Handle updated data from the data client."""
+        """Handle updated incident data from the websocket client."""
         data = self._client.websocket.incident_data
         if not data or "body" not in data:
             return
 
         self._state = data["body"]
-        self._state_attributes = data
-        if "id" in self._state_attributes:
-            self._client.incident_id = self._state_attributes["id"]
+        self._state_attributes = self._client.enrich_incident_data(data)
+        incident_id = data.get("id")
+        if incident_id is not None:
+            self._client.incident_id = incident_id
+
+        # Write websocket data immediately. Then enrich it asynchronously with
+        # the full REST incident, which contains incident_responses and other
+        # fields that may not be present in the websocket payload.
         self.async_write_ha_state()
+
+        if incident_id is not None:
+            self.hass.async_create_task(self._async_enrich_from_rest(incident_id))
+
+    async def _async_enrich_from_rest(self, incident_id) -> None:
+        """Fetch full incident and merge richer per-station response data."""
+        self._last_processing_id = incident_id
+        incident = await self._client.async_get_incident(incident_id)
+        if not isinstance(incident, dict):
+            return
+
+        # Ignore a slow REST response if a newer incident has already arrived.
+        if self._client.incident_id != incident_id:
+            return
+
+        merged = dict(self._state_attributes)
+        merged.update(incident)
+
+        # Preserve websocket trigger information when the REST representation
+        # does not provide it.
+        if "trigger" not in incident and "trigger" in self._state_attributes:
+            merged["trigger"] = self._state_attributes["trigger"]
+
+        self._state_attributes = self._client.enrich_incident_data(merged)
+        self._state = self._state_attributes.get("body", self._state)
+        self.async_write_ha_state()
+
+
+class PagerSensor(RestoreEntity):
+    """Representation of pager status for the authenticated user."""
+
+    def __init__(self, client, coordinator):
+        """Initialize."""
+        self._client = client
+        self._coordinator = coordinator
+        self._unique_id = f"{self._client.unique_id}_Pager"
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Pager"
+
+    @property
+    def unique_id(self) -> str:
+        """Return the unique ID of the sensor."""
+        return self._unique_id
+
+    @property
+    def icon(self) -> str:
+        """Return pager icon."""
+        return "mdi:pager"
+
+    @property
+    def should_poll(self) -> bool:
+        """Coordinator handles polling."""
+        return False
+
+    @property
+    def available(self) -> bool:
+        """Return whether at least one pager is available from the API."""
+        return bool(self._client.pagers)
+
+    @property
+    def state(self):
+        """Return a useful state while keeping multiple pagers supported."""
+        pagers = self._client.pagers
+        if not pagers:
+            return None
+        if len(pagers) == 1:
+            return pagers[0].get("state", "unknown")
+        return len(pagers)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return pager details as attributes."""
+        pagers = self._client.pagers
+        if not pagers:
+            return {}
+
+        if len(pagers) == 1:
+            pager = pagers[0]
+            return {
+                key: pager.get(key)
+                for key in (
+                    "id",
+                    "user_id",
+                    "serial_number",
+                    "firmware_version",
+                    "type",
+                    "battery_level",
+                    "last_seen_at",
+                    "state",
+                    "signal_strength",
+                    "signal_strength_status",
+                    "paging_signal_strength",
+                    "paging_signal_strength_status",
+                    "mobile_operator",
+                )
+                if pager.get(key) is not None
+            }
+
+        # Do not create one HA entity per pager by default. Multiple pagers are
+        # represented compactly under this sensor, while preserving all useful
+        # status information for templates and automations.
+        return {
+            "pager_count": len(pagers),
+            "pagers": [
+                {
+                    key: pager.get(key)
+                    for key in (
+                        "id",
+                        "serial_number",
+                        "firmware_version",
+                        "type",
+                        "battery_level",
+                        "last_seen_at",
+                        "state",
+                        "signal_strength",
+                        "signal_strength_status",
+                        "paging_signal_strength",
+                        "paging_signal_strength_status",
+                        "mobile_operator",
+                    )
+                    if pager.get(key) is not None
+                }
+                for pager in pagers
+            ],
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Register coordinator updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._coordinator.async_add_listener(self.async_write_ha_state)
+        )
