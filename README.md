@@ -1,372 +1,296 @@
-[![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/) [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.me/cyberjunkynl/)
+# FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-# FireServiceRota / BrandweerRooster integration
+This repository is a fork of the original [`cyberjunky/home-assistant-fireservicerota`](https://github.com/cyberjunky/home-assistant-fireservicerota) integration.
 
-NOTE: This code is released as part of https://www.home-assistant.io/integrations/#version/2020.12 I suggest to upgrade you Home Assistant version to use this integration.
+The goal of the **Extended** branch is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-FireServiceRota is a powerful and flexible availability, scheduling and dispatching system for firefighters.
-It's the international brand of the Dutch [BrandweerRooster](https://www.brandweerrooster.nl), which is in use by more than 200 fire stations in The Netherlands.
+> **Status:** active development. The `extended` branch contains experimental functionality and may change while the new data model and services are being completed and tested.
 
-The FireServiceRota integration provides you real-time information about incidents (emergency calls) from your local fire station and the ability to send a response depending on your duty schedule.
+## Safety notice
 
-You will need a FireServiceRota or BrandweerRooster account.
+Do not rely on Home Assistant or this integration as your only emergency alerting method. Official pager, app, P2000 and/or other approved alerting channels remain leading.
 
-<div class='note'>
+## Main goals of the Extended version
 
-A word of caution: Do not solely rely on this integration for your emergency calls!
+The Extended version is designed around API discovery rather than hardcoded station IDs, task IDs or user IDs. It should therefore work for different FireServiceRota / BrandweerRooster users and organizations.
 
-</div>
+Planned and/or currently being implemented functionality includes:
+
+- Real-time incident reception through the existing WebSocket connection.
+- Preserve the existing `sensor.incidents`, duty sensor and incident response switch where possible for backwards compatibility.
+- Distinguish BrandweerRooster incident `trigger` values such as `new` and `update`.
+- Retrieve full incident data from the REST API after a WebSocket incident is received.
+- Discover the authenticated user automatically.
+- Discover stations/groups from `/groups` automatically.
+- Discover the authenticated user's membership per station.
+- Support users who belong to multiple stations.
+- Resolve incident `task_ids` to readable task / alert-group names.
+- Resolve tasks to the correct station/group.
+- Expose the user's own incident response per station/membership.
+- Show whether the user acknowledged (`acknowledged`) or rejected (`rejected`) an incident per station when the API provides this information.
+- Expose additional response metadata such as response time, channel, reported status and arrival-at-station information.
+- Discover pagers linked to the authenticated account.
+- Expose pager status, battery, last-seen time, firmware and radio/mobile signal information.
+- Add support for sending pager messages through the BrandweerRooster pager API.
+- Keep optional/detail information mainly as attributes instead of creating a large number of Home Assistant entities.
+
+## Architecture
+
+The integration uses the existing `pyfireservicerota` library for authentication, availability, incidents and pager API access.
+
+The Extended branch currently targets:
+
+```text
+pyfireservicerota 0.0.49
+```
+
+At startup the integration builds an internal, user-specific data model:
+
+```text
+Authenticated user
+    |
+    +-- stations/groups
+    |     +-- memberships for this user
+    |     +-- tasks / alert groups
+    |
+    +-- pagers
+    |
+    +-- incidents
+          +-- task_ids -> readable tasks / stations
+          +-- incident_responses -> own response per membership/station
+```
+
+No specific station, user, membership or task IDs should be hardcoded in the integration.
 
 ## Installation
 
-- Copy the directory `custom_components/fireservicerota` to your `<config dir>/custom_components` directory.
-- Restart Home-Assistant.
-- Goto Configuration -> Integrations, search for FireServiceRota and complete account data.
+During development, install the integration from the `extended` branch manually.
 
+1. Copy `custom_components/fireservicerota` to:
 
-This integration provides the following platforms:
+   ```text
+   <Home Assistant config>/custom_components/fireservicerota
+   ```
 
-- Sensor: Incoming emergency calls. Metadata contains _among other data_ the location of the incident and a text-to-speech URL. The integration uses a WebSocket client connection with the service to ensure a minimum delay.
-- Binary Sensor: Your current duty status (as scheduled via the FireServiceRota mobile app and/or website).
-- Switch: Enabled for 30 minutes after an emergency call. ‘on’ represents a confirmed response. Use this to automate your emergency call response and save valuable seconds.
+2. Restart Home Assistant.
+3. Go to **Settings -> Devices & services -> Add integration**.
+4. Search for **FireServiceRota**.
+5. Select BrandweerRooster or FireServiceRota and enter your account details.
 
-On how to write automations using these platform read the 'Advanced Configuration' section below.
-
-## Configuration
-
-1. From Home Assistant, navigate to ‘Configuration’ then ‘Integrations’. Click the plus icon and type/select ‘FireServiceRota’.
-1. Choose your platform `BrandweerRooster` or `FireServiceRota`.
-1. Enter your login credentials.
-
-1. Click the Save button.
+If the official/core FireServiceRota integration is already configured, use caution when replacing it with this custom version and keep a backup of your Home Assistant configuration.
 
 ## Entities
 
-The following entity types are created:
+The exact entity set may still change during development. The design principle is to keep the number of entities small and expose related detail as attributes.
 
-### Incidents Sensor
+### `sensor.incidents`
 
-This is the main entity of the integration containing the incident message as it's `value`, it has several attributes which are described below.
+The main incident sensor keeps the incident message as its state.
 
-| Attribute | Description |
-| --------- | ----------- |
-| `trigger` | Type of trigger, `new` or `update`.|
-| `state` | The state of the incident. |
-| `created_at` | Date and time when incident was created.|
-| `message_to_speech_url` | The URL of the mp3 file containing the spoken text of the incident.|
-| `prio` | Priority of the incident, `a1`, `a2`, `b1` or `b2`.|
-| `type` | Type of incident, e.g. `incident_alert`.|
-| `responder_mode` | Modes of response, e.g. `available_in_schedule_is_acknowledgment`.|
-| `can_respond_until` | Date and time until response is accepted.|
-| `latitude` | The Latitude of the incident.|
-| `longitude` | The Longitude of the incident.|
-| `address_type` | Type of address, e.g. `home`.|
-| `formatted_address` | Address in string format.|
+Existing attributes are retained where available, including:
 
-### Duty Binary Sensor
+- `id`
+- `trigger`
+- `created_at`
+- `message_to_speech_url`
+- `prio`
+- `type`
+- `responder_mode`
+- `can_respond_until`
+- incident address/location information
 
-This entity reflects the duty you have scheduled, the value can be `on` = on duty, `off` = no duty. When you have no duty the response switch is disabled which means you cannot respond to a call.
+Extended attributes include or are being added for:
 
-| Attribute | Description |
-| --------- | ----------- |
-| `start_time` | Start date and time of duty schedule.|
-| `end_time` | End date and time of duty schedule.|
-| `available` | `true` or `false`.|
-| `active` | `true` or `false`.|
-| `assigned_function_ids` | Function id's, e.g. `540`.|
-| `skill_ids` | Skill id's, e.g. `6, 8`.|
-| `type` | Type, e.g. `standby_duty`.|
-| `assigned function` | Assigned function, e.g. `Chauffeur`.|
+- `task_ids`
+- `resolved_tasks`
+- `resolved_stations`
+- `responses_by_station`
 
-### Incident Response Switch
+Example shape:
 
-With this switch you can respond to a incident, either by manually controlling the switch via the GUI, or by using an automation action.
-It gets reset to `unknown` value with every incident received. Switching it to `on` means you send a response acknowledgement, switching it back `off` sends a response rejected.
+```yaml
+state: "P 1 Brand woning ..."
+attributes:
+  id: 1234567
+  trigger: update
+  prio: prio1
+  task_ids:
+    - 4270
+    - 4272
+  resolved_tasks:
+    - id: 4270
+      name: TS
+      station_id: 3853
+      station_name: Example Station
+      alertable: true
+    - id: 4272
+      name: POST
+      station_id: 3853
+      station_name: Example Station
+      alertable: true
+  resolved_stations:
+    - id: 3853
+      name: Example Station
+  responses_by_station:
+    - station_id: 3853
+      station_name: Example Station
+      membership_id: 12345
+      status: acknowledged
+      response: accepted
+      responded_at: "2026-09-09T12:15:06+02:00"
+      channel: pager
+      arrived_at_station: false
+```
 
-The following attributes are available:
+The API's original response status is kept alongside a friendlier response value where possible.
 
-| Attribute | Description |
-| --------- | ----------- |
-| `user_name` | Your username.|
-| `assigned_skill_ids` | Assigned skill ID's.|
-| `responded_at` | Time you responded.|
-| `start_time` | Incident response start time.|
-| `status` | Status of response, e.g., `pending`.|
-| `reported_status` | Reported status, e.g., `shown_up`.|
-| `arrived_at_station` | `true` or `false`.|
-| `available_at_incident_creation` | `true` or `false`.|
-| `active_duty_function_ids` | Active function ID's, e.g., `540`.|
+Typical status mapping:
 
-## Advanced Configuration
+```text
+acknowledged -> accepted / turnout
+rejected     -> rejected
+no response  -> unknown / no response
+```
 
-With Automation you can configure one or more of the following useful actions:
+## Stations, memberships and alert groups
 
-1. Sound an alarm and/or switch on lights when an emergency incident is received.
-1. Use text to speech to play incident details via a media player while getting dressed.
-1. Respond with a response acknowledgment using a door-sensor when leaving the house or by pressing a button to let your teammates know you are underway.
-1. Cast a FireServiceRota dashboard to a Chromecast device. (this requires a Nabu Casa subscription)
+The Extended version reads `/groups` and automatically finds station groups where the authenticated user has an active membership.
 
-These are documented below.
+This is important for users who are members of more than one fire station. The same BrandweerRooster `user_id` can have a different `membership_id` for every station. Incident responses are therefore matched primarily through `membership_id` instead of relying only on `user_id`.
 
-### Example Automation
+Tasks / alert groups are also read from the group data. This allows an incident's `task_ids` to be resolved into readable names without hardcoding local task IDs.
+
+This data is intended to be available for Home Assistant templates and automations even when the user does not actively use it.
+
+## Pager sensor
+
+The Extended branch adds a pager sensor for pagers linked to the authenticated BrandweerRooster account.
+
+For a single pager the sensor can expose attributes such as:
+
+- pager ID
+- pager type
+- serial number
+- firmware version
+- battery level
+- pager state
+- last seen
+- mobile signal strength
+- mobile signal status
+- paging/P2000 signal strength
+- paging/P2000 signal status
+- mobile operator
+
+If an account has multiple pagers, the intention is to keep them grouped under one sensor instead of automatically creating a large number of entities.
+
+## Pager messages
+
+`pyfireservicerota` 0.0.49 supports the BrandweerRooster pager API, including:
+
+- listing pagers
+- sending a message to a pager
+- retrieving pager-message acknowledgment status
+
+The Extended integration is adding a Home Assistant service so messages can be sent without defining a separate `rest_command`.
+
+Intended service example:
+
+```yaml
+action: fireservicerota.send_pager_message
+data:
+  message: "Test message from Home Assistant"
+  confirmation: true
+```
+
+For accounts with multiple pagers a `pager_id` can be supplied explicitly.
+
+> Pager-message service syntax may still change until this functionality has completed testing.
+
+## Incident responses
+
+The original integration exposes one generic incident response switch. The Extended version keeps backwards compatibility where practical, while also making the user's per-station response visible in `sensor.incidents`.
+
+Relevant API response data can include:
+
+- `membership_id`
+- `group_id`
+- `status`
+- `responded_at`
+- `channel`
+- `reported_status`
+- `estimated_time_of_arrival`
+- `arrived_at_station`
+- `available_at_incident_creation`
+- `alerted_at`
+
+This makes it possible to see which station the user responded for and whether the user chose to turn out or reject the call.
+
+## Example automations
+
+### React only to a new incident
+
+A changing text-to-speech URL should not be used as the only indication of a new incident. BrandweerRooster supplies a `trigger` attribute that can be `new` or `update`.
 
 ```yaml
 automation:
-  - alias: 'Switch on a light when incident is received'
-    trigger:
-      platform: state
-      entity_id: sensor.incidents
-    action:
-      service: light.turn_on
-      entity_id: light.bedroom
-
-  - alias: 'Play TTS incident details when incident is received'
-    trigger:
-      platform: state
-      entity_id: sensor.incidents
-      attribute: message_to_speech_url
-    condition:
-      - condition: not
-        conditions:
-          - condition: state
-            entity_id: sensor.incidents
-            attribute: message_to_speech_url
-            state: None
-    action:
-      - service: media_player.play_media
-        data_template:
-          entity_id: media_player.nest_hub_bedroom
-          media_content_id: >
-              {{ state_attr('sensor.incidents','message_to_speech_url') }}
-          media_content_type: 'audio/mp4'
-
-  - alias: 'Send response acknowledgement when a button is pressed'
-    trigger:
-      platform: state
-      entity_id: switch.response_button
-    action:
-      service: homeassistant.turn_on
-      entity_id: switch.incident_response
-
-  - alias: 'Cast FireServiceRota dashboard to Nest Hub'
-    trigger: 
-      platform: homeassistant
-      event: start
-    action:
-      service: cast.show_lovelace_view
-      data: 
-        entity_id: media_player.nest_hub_bedroom
-        view_path: fsr
-```
-
-
-### Example Lovelace Dashboard
-
-Without custom frontend components:
-
-```yaml
-panel: true
-title: Home
-views:
-  - badges: []
-    cards:
-      - entity: sensor.incidents
-        type: entity
-      - cards:
-          - cards:
-              - default_zoom: 15
-                entities:
-                  - entity: sensor.incidents
-                hours_to_show: 0
-                type: map
-            type: vertical-stack
-          - cards:
-              - entities:
-                  - entity: sensor.incidents
-                hours_to_show: 1
-                refresh_interval: 0
-                type: history-graph
-            type: vertical-stack
-        type: horizontal-stack
-      - content: |
-          {{ states('sensor.incidents') }}
-        title: Incident
-        type: markdown
-      - entities:
-          - entity: binary_sensor.duty
-          - entity: switch.incident_response
-        type: entities
-    path: fsr
-    title: FireServiceRota
-    type: horizontal-stack
-```
-
-## Other examples with custom components and frontend items:
-
-If you want to have your browser to function as audio player, and have screen control you need to install the 'browser_mod' integration (via HACS)
-
-Set the device alias below to match your media player id.
-
-You also need to install the following plugin for lovelace (HACS is again your friend)
-- 'custom:layout-card'
-- 'custom:bignumber-card'
-- 'custom:vertical-stack-in-card'
-- 'custom:home-feed-card'
-
-If you have a better layout without/or less custom plugins, please let me know.
-
-If you want to cast it to a Nest Hub or other ChromeCast capable device, you need a Nabu Casa subscription or use Catt to Cast.
-Home Assistant Cast can be a bit buggy, custom cards or map may stop working sometimes.
-
-Below is the result of above code, an audio player via browser_mod player, screen gets enabled when an incident arrives, and goes dark after 2 minutes. You can toggle TTS and screen display on and off.
-
-I have muted the announcements outside 23:00-6:30h using a automation condition, if you are on duty, that's something to remove.
-
-### Example Automation with custom components
-
-```
-browser_mod:
-  devices:
-    3184e47f_bac9b576:  # <--- change this
-      name: bwr-nesthub
-
-sensor:
-  - platform: template
-    sensors:
-      incidents_speech:
-        value_template: "{{ state_attr('sensor.incidents', 'message_to_speech_url') }}"
-        friendly_name: "Speech Sensor"
-
-input_boolean:
-  bwr_tts:
-    name: Text to Speech
-    icon: mdi:text-to-speech
-
-homeassistant:
-  customize:
-    light.bwr_nesthub:
-      friendly_name: 'Display On/Off'
-
-automation:
-  - alias: Play Incident Speech
-    trigger:
-      platform: state
-      entity_id: sensor.incidents
-    action:
-      - service: media_player.play_media
-        data_template:
-          entity_id: media_player.bwr_nesthub
-          media_content_id: >
-            {{ states('sensor.incidents_speech') }}
-          media_content_type: 'audio/mp4'
-      - service: homeassistant.turn_on
-        data_template: 
-          entity_id: >
-              light.bwr_nesthub
-      - service: timer.start
-        data:
-          entity_id: timer.bwr_nesthub
-    condition:
-      condition: and
-      conditions:
-      - condition: time
-        after: '06:30:00'
-        before: '23:00:00'
+  - alias: FireServiceRota - new incident
+    triggers:
+      - trigger: state
+        entity_id: sensor.incidents
+    conditions:
       - condition: template
-        value_template: "{{ not is_state('sensor.incidents_speech', 'None') }}"
-      - condition: state
-        entity_id: input_boolean.bwr_tts
-        state: 'on'
-
-  - alias: Turn off Nest Hub screen 2 minutes after trigger
-    trigger:
-      platform: event
-      event_type: timer.finished
-      event_data:
-        entity_id: timer.bwr_nesthub
-    action:
-      service: light.turn_off
-      data:
-        entity_id:
-          - light.bwr_nesthub
-
-  - alias: Cast to Nest Hub
-    trigger: 
-      platform: homeassistant
-      event: start
-    action:
-      service: cast.show_lovelace_view
-      data: 
-        entity_id: media_player.nest_hub_slaapkamer
-        view_path: bwr
-
-timer:
-  bwr_nesthub:
-    duration: '00:02:00'
-    name: Nest Hub Screen Timer
+        value_template: >
+          {{ state_attr('sensor.incidents', 'trigger') == 'new' }}
+    actions:
+      - action: light.turn_on
+        target:
+          entity_id: light.example
 ```
 
-### Example Lovelace Dashboard with custom components
+### Check whether a task / alert group was included
 
-```
-title: BWR
-path: bwr
-panel: true
-icon: mdi:fire-truck
-cards:
-  - type: 'custom:layout-card'
-    cards:
-      - type: 'custom:bignumber-card'
-        entity: sensor.incidents
-        scale: 15px
-      - type: map
-        entities:
-          - entity: sensor.incidents
-        hours_to_show: 0
-        default_zoom: 15
-      - type: 'custom:vertical-stack-in-card'
-        cards:
-          - type: history-graph
-            entities:
-              - entity: sensor.incidents
-            hours_to_show: 1
-            refresh_interval: 0
-          - type: 'custom:home-feed-card'
-            show_empty: false
-            entities:
-              - entity: sensor.incidents
-                max_history: 3
-                include_history: true
-          - type: entities
-            show_header_toggle: false
-            entities:
-              - input_boolean.bwr_tts
-              - light.bwr_nesthub
-          - type: 'custom:bignumber-card'
-            entity: sensor.time
-            scale: 25px
+```yaml
+condition:
+  - condition: template
+    value_template: >
+      {{ 4270 in (state_attr('sensor.incidents', 'task_ids') or []) }}
 ```
 
+Using the resolved task attributes is preferable when building reusable dashboards; numeric IDs are organization-specific.
 
+## Development principles
 
-### Screenshots
+The Extended branch follows these principles:
 
-This screenshot shows what a FireServiceRota dashboard can look like.
-
-![alt text](https://github.com/cyberjunky/home-assistant-brandweerrooster/blob/master/screenshots/bwr-nesthub-dash.png?raw=true "Screenshot BrandweerRooster Dashboard")
-
-My Nest Hub 'at work'.
-
-![alt text](https://github.com/cyberjunky/home-assistant-brandweerrooster/blob/master/screenshots/nesthub.jpg?raw=true "Photo Nest Hub at work")
+1. **Universal discovery** - no hardcoded user, station, membership or task IDs.
+2. **Backwards compatibility** - existing FireServiceRota entities should keep working where practical.
+3. **Small entity footprint** - related detail belongs in attributes unless a separate entity adds clear Home Assistant value.
+4. **Preserve raw API values** - translated/friendly values should complement rather than replace API data.
+5. **Multi-station support** - membership identity is taken into account when resolving responses.
+6. **Optional functionality** - users do not have to use pager, task or response extensions simply because the data is available.
+7. **Safety first** - Home Assistant remains an additional automation/information layer, not the primary emergency alerting path.
 
 ## Debugging
 
-The FireServiceRota integration will log additional information about WebSocket incidents received, response and duty status gathered, and other messages when the log level is set to `debug`. Add the relevant lines below to the `configuration.yaml`:
+Enable debug logging with:
 
 ```yaml
 logger:
   default: info
   logs:
-    homeassistant.components.fireservicerota: debug
+    custom_components.fireservicerota: debug
     pyfireservicerota: debug
 ```
+
+Useful debug information includes WebSocket incidents, discovered stations/memberships/tasks, pager API information, availability and incident response data.
+
+## Upstream and credits
+
+This project builds on the work of the original FireServiceRota Home Assistant integration and `pyfireservicerota` by Ron Klinkien / Cyberjunky and contributors.
+
+Original repositories:
+
+- https://github.com/cyberjunky/home-assistant-fireservicerota
+- https://github.com/cyberjunky/python-fireservicerota
+
+The Extended branch is intended to explore broader BrandweerRooster API support while retaining the original integration's useful real-time incident and availability functionality.
