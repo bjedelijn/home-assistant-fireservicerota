@@ -1,10 +1,10 @@
 {
   "domain": "fireservicerota",
-  "name": "FireServiceRota",
+  "name": "FireServiceRota Extended",
   "config_flow": true,
-  "version": "1.1.0",
-  "documentation": "https://www.home-assistant.io/integrations/fireservicerota",
-  "issue_tracker": "https://www.home-assistant.io/integrations/fireservicerota/issues",
+  "version": "1.1.0-extended.1",
+  "documentation": "https://github.com/bjedelijn/home-assistant-fireservicerota/tree/extended",
+  "issue_tracker": "https://github.com/bjedelijn/home-assistant-fireservicerota/issues",
   "requirements": ["pyfireservicerota==0.0.49"],
-  "codeowners": ["@cyberjunky"]
+  "codeowners": ["@bjedelijn"]
 }
