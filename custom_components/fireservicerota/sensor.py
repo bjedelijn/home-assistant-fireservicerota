@@ -105,6 +105,13 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
         if state:
             self._state = state.state
             self._state_attributes = dict(state.attributes)
+
+            # A restored entity is historical state, not a newly received
+            # WebSocket incident. Never replay the previous raw "new" trigger
+            # after an integration reload or Home Assistant restart; otherwise
+            # automations that key on trigger == "new" can announce an old call.
+            self._state_attributes.pop("trigger", None)
+
             incident_id = self._state_attributes.get("id")
             if incident_id is not None:
                 self._client.incident_id = incident_id
