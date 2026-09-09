@@ -1,6 +1,7 @@
 """Sensor platform for FireServiceRota integration."""
 import logging
 
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -27,17 +28,18 @@ async def async_setup_entry(
     )
 
 
-class IncidentsSensor(RestoreEntity):
+class IncidentsSensor(RestoreEntity, SensorEntity):
     """Representation of the latest FireServiceRota incident."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "incidents"
+    _attr_should_poll = False
 
     def __init__(self, client):
         """Initialize."""
         self._client = client
         self._entry_id = self._client.entry_id
-        self._unique_id = f"{self._client.unique_id}_Incidents"
+        self._attr_unique_id = f"{self._client.unique_id}_Incidents"
         self._state = None
         self._state_attributes = {}
         self._task_ids_by_incident = {}
@@ -51,19 +53,9 @@ class IncidentsSensor(RestoreEntity):
         return "mdi:fire-truck"
 
     @property
-    def state(self) -> str:
-        """Return the state of the sensor."""
+    def native_value(self) -> str | None:
+        """Return the sensor value."""
         return self._state
-
-    @property
-    def unique_id(self) -> str:
-        """Return the unique ID of the sensor."""
-        return self._unique_id
-
-    @property
-    def should_poll(self) -> bool:
-        """No polling needed."""
-        return False
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -152,8 +144,6 @@ class IncidentsSensor(RestoreEntity):
 
         enriched["previous_task_ids"] = sorted(previous_task_ids)
         enriched["new_task_ids"] = sorted(new_task_ids)
-        self._task_ids_by_incident[incident_id] = current_task_ids
-
         self._task_ids_by_incident = {incident_id: current_task_ids}
         return enriched
 
@@ -200,23 +190,19 @@ class IncidentsSensor(RestoreEntity):
         self.async_write_ha_state()
 
 
-class PagerSensor(RestoreEntity):
+class PagerSensor(RestoreEntity, SensorEntity):
     """Representation of pager status for the authenticated user."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "pager"
+    _attr_should_poll = False
 
     def __init__(self, client, coordinator):
         """Initialize."""
         self._client = client
         self._coordinator = coordinator
         self._entry_id = self._client.entry_id
-        self._unique_id = f"{self._client.unique_id}_Pager"
-
-    @property
-    def unique_id(self) -> str:
-        """Return the unique ID of the sensor."""
-        return self._unique_id
+        self._attr_unique_id = f"{self._client.unique_id}_Pager"
 
     @property
     def icon(self) -> str:
@@ -224,18 +210,13 @@ class PagerSensor(RestoreEntity):
         return "mdi:pager"
 
     @property
-    def should_poll(self) -> bool:
-        """Coordinator handles polling."""
-        return False
-
-    @property
     def available(self) -> bool:
         """Return whether at least one pager is available from the API."""
         return bool(self._client.pagers)
 
     @property
-    def state(self):
-        """Return a useful state while keeping multiple pagers supported."""
+    def native_value(self):
+        """Return a useful value while keeping multiple pagers supported."""
         pagers = self._client.pagers
         if not pagers:
             return None
