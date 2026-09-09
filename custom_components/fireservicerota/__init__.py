@@ -347,6 +347,86 @@ class FireServiceRotaClient:
             False,
         )
 
+    @staticmethod
+    def _sanitize_debug_value(value):
+        """Return API structure useful for debugging without personal fields."""
+        blocked_keys = {
+            "address",
+            "addresses",
+            "coordinates",
+            "email",
+            "emails",
+            "first_name",
+            "last_name",
+            "members",
+            "memberships",
+            "name_of_user",
+            "phone",
+            "phone_number",
+            "token",
+            "tokens",
+            "user",
+            "users",
+        }
+        if isinstance(value, dict):
+            return {
+                key: FireServiceRotaClient._sanitize_debug_value(item)
+                for key, item in value.items()
+                if key not in blocked_keys
+            }
+        if isinstance(value, list):
+            return [FireServiceRotaClient._sanitize_debug_value(item) for item in value]
+        return value
+
+    @staticmethod
+    def _extract_alerting_debug(data, path="user") -> dict:
+        """Extract communication/alerting preference fields and their paths."""
+        keywords = (
+            "alert",
+            "communication",
+            "disturb",
+            "mute",
+            "notification",
+            "preference",
+            "silent",
+        )
+        found = {}
+
+        if isinstance(data, dict):
+            for key, value in data.items():
+                child_path = f"{path}.{key}"
+                if any(keyword in key.lower() for keyword in keywords):
+                    found[child_path] = FireServiceRotaClient._sanitize_debug_value(value)
+                if isinstance(value, (dict, list)):
+                    found.update(
+                        FireServiceRotaClient._extract_alerting_debug(value, child_path)
+                    )
+        elif isinstance(data, list):
+            for index, value in enumerate(data):
+                if isinstance(value, (dict, list)):
+                    found.update(
+                        FireServiceRotaClient._extract_alerting_debug(
+                            value, f"{path}[{index}]"
+                        )
+                    )
+
+        return found
+
+    def _log_discovery_debug(self) -> None:
+        """Log safe API structure needed while validating Extended discovery."""
+        for group in self.groups:
+            safe_group = self._sanitize_debug_value(group)
+            _LOGGER.debug(
+                "Extended group debug id=%s type=%s name=%s structure=%s",
+                group.get("id"),
+                group.get("type"),
+                group.get("name"),
+                safe_group,
+            )
+
+        alerting = self._extract_alerting_debug(self.user_data or {})
+        _LOGGER.debug("Extended alerting preference debug: %s", alerting)
+
     async def async_discover(self) -> None:
         """Discover current user, stations, memberships, tasks and pagers."""
         user_data = await self.update_call(self.fsr.get_user)
@@ -375,6 +455,7 @@ class FireServiceRotaClient:
             len(self.task_index),
             len(self.pagers),
         )
+        self._log_discovery_debug()
 
     def _rebuild_group_indexes(self) -> None:
         """Build indexes for this user's stations, memberships and tasks."""
