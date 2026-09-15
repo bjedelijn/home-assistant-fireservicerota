@@ -28,31 +28,19 @@
   },
   "entity": {
     "binary_sensor": {
-      "duty": {
-        "name": "Duty"
-      },
-      "duty_station": {
-        "name": "Duty {station}"
-      },
-      "do_not_disturb": {
-        "name": "Do not disturb"
-      }
+      "duty": {"name": "Duty"},
+      "duty_station": {"name": "Duty {station}"},
+      "do_not_disturb": {"name": "Do not disturb"}
     },
     "sensor": {
-      "incidents": {
-        "name": "Incidents"
-      },
-      "pager": {
-        "name": "Pager"
-      }
+      "incidents": {"name": "Incidents"},
+      "active_incidents": {"name": "Active incidents"},
+      "incident_history": {"name": "Incident history"},
+      "pager": {"name": "Pager"}
     },
     "switch": {
-      "incident_response": {
-        "name": "Incident response"
-      },
-      "incident_response_station": {
-        "name": "Incident response {station}"
-      }
+      "incident_response": {"name": "Incident response"},
+      "incident_response_station": {"name": "Incident response {station}"}
     }
   }
 }

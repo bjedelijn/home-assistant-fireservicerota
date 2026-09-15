@@ -1,5 +1,8 @@
 """Sensor platform for FireServiceRota integration."""
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -8,6 +11,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DATA_CLIENT, DATA_COORDINATOR, DOMAIN as FIRESERVICEROTA_DOMAIN
+from .incident_store import ACTIVE_INCIDENT_REFRESH_SECONDS, HISTORY_LIMIT, IncidentStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,10 +22,13 @@ async def async_setup_entry(
     """Set up FireServiceRota sensors based on a config entry."""
     client = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_CLIENT]
     coordinator = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_COORDINATOR]
+    incident_store = IncidentStore(hass, client, entry.entry_id)
 
     async_add_entities(
         [
-            IncidentsSensor(client),
+            IncidentsSensor(client, incident_store),
+            ActiveIncidentsSensor(client, coordinator, incident_store),
+            IncidentHistorySensor(client, incident_store),
             PagerSensor(client, coordinator),
         ]
     )
@@ -34,14 +41,15 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
     _attr_translation_key = "incidents"
     _attr_should_poll = False
 
-    def __init__(self, client):
+    def __init__(self, client, incident_store: IncidentStore):
         """Initialize."""
         self._client = client
+        self._incident_store = incident_store
         self._entry_id = self._client.entry_id
         self._attr_unique_id = f"{self._client.unique_id}_Incidents"
         self._state = None
         self._state_attributes = {}
-        self._task_ids_by_incident = {}
+        self._task_ids_by_incident: dict[Any, set] = {}
 
     @property
     def icon(self) -> str:
@@ -80,6 +88,8 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
             "resolved_tasks",
             "resolved_stations",
             "responses_by_station",
+            "first_seen_at",
+            "last_seen_at",
         ):
             if value in data and data[value] is not None:
                 attr[value] = data[value]
@@ -94,6 +104,20 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
             ):
                 if address_value in address:
                     attr[address_value] = address[address_value]
+
+        incident_id = data.get("id")
+        overview = self._incident_store.get_public(incident_id)
+        if overview:
+            for key in (
+                "incident_active",
+                "incident_status",
+                "incident_ended_at",
+                "duration_seconds",
+                "lifecycle_known",
+                "lifecycle_fields",
+            ):
+                if key in overview:
+                    attr[key] = overview[key]
 
         return attr
 
@@ -118,12 +142,15 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
                 self._task_ids_by_incident[incident_id] = set(
                     self._state_attributes.get("task_ids") or []
                 )
-                # A restored incident only contains attributes saved by the
-                # previous entity state. Re-fetch the incident so Extended
-                # attributes such as resolved_tasks, resolved_stations and
-                # responses_by_station are available immediately after a
-                # Home Assistant restart instead of waiting for the next
-                # WebSocket incident update.
+                restored = dict(self._state_attributes)
+                restored["body"] = self._state
+                self._incident_store.upsert(
+                    restored,
+                    source="restore",
+                    default_active=True,
+                )
+                # Re-fetch the incident so Extended attributes and lifecycle
+                # information are refreshed after a Home Assistant restart.
                 self.hass.async_create_task(self._async_enrich_from_rest(incident_id))
             _LOGGER.debug("Restored entity 'Incidents' to: %s", self._state)
 
@@ -157,7 +184,9 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
 
         enriched["previous_task_ids"] = sorted(previous_task_ids)
         enriched["new_task_ids"] = sorted(new_task_ids)
-        self._task_ids_by_incident = {incident_id: current_task_ids}
+        # Keep task history for multiple concurrent incidents instead of
+        # replacing the whole dictionary whenever another incident is updated.
+        self._task_ids_by_incident[incident_id] = current_task_ids
         return enriched
 
     @callback
@@ -174,17 +203,31 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
         if incident_id is not None:
             self._client.incident_id = incident_id
 
+        self._incident_store.upsert(self._state_attributes, source="websocket")
         self.async_write_ha_state()
 
         if incident_id is not None:
             self.hass.async_create_task(self._async_enrich_from_rest(incident_id))
 
     async def _async_enrich_from_rest(self, incident_id) -> None:
-        """Fetch full incident and merge richer per-station response data."""
+        """Fetch full incident and merge richer response/lifecycle data."""
         incident = await self._client.async_get_incident(incident_id)
         if not isinstance(incident, dict):
             return
 
+        existing = self._incident_store.get_raw(incident_id) or {"id": incident_id}
+        store_merged = dict(existing)
+        store_merged.update(incident)
+        for key in ("trigger", "previous_task_ids", "new_task_ids"):
+            if key not in incident and key in existing:
+                store_merged[key] = existing[key]
+        store_enriched = self._client.enrich_incident_data(store_merged)
+        self._incident_store.upsert(store_enriched, source="rest")
+        self._incident_store.mark_rest_refreshed(incident_id)
+
+        # A REST request for an older concurrent incident may finish after a
+        # newer one became the central sensor. Enrich the store regardless,
+        # but only replace sensor.incidents when it still represents this id.
         if self._client.incident_id != incident_id:
             return
 
@@ -200,6 +243,119 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
 
         self._state_attributes = self._client.enrich_incident_data(merged)
         self._state = self._state_attributes.get("body", self._state)
+        self.async_write_ha_state()
+
+
+class ActiveIncidentsSensor(RestoreEntity, SensorEntity):
+    """Representation of all currently active incidents seen by Extended."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "active_incidents"
+    _attr_should_poll = False
+    _attr_icon = "mdi:fire-alert"
+
+    def __init__(self, client, coordinator, incident_store: IncidentStore):
+        """Initialize."""
+        self._client = client
+        self._coordinator = coordinator
+        self._incident_store = incident_store
+        self._attr_unique_id = f"{self._client.unique_id}_ActiveIncidents"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of active incidents."""
+        return len(self._incident_store.active_incidents)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return active incident snapshots for dashboards."""
+        return {
+            "latest_incident_id": self._incident_store.latest_incident_id,
+            "incidents": self._incident_store.active_incidents,
+            "refresh_seconds": ACTIVE_INCIDENT_REFRESH_SECONDS,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Restore snapshots and register live/coordinator updates."""
+        await super().async_added_to_hass()
+        state = await self.async_get_last_state()
+        if state:
+            incidents = state.attributes.get("incidents")
+            if isinstance(incidents, list):
+                self._incident_store.restore(incidents, active=True)
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                self._incident_store.signal,
+                self._handle_store_update,
+            )
+        )
+        self.async_on_remove(
+            self._coordinator.async_add_listener(self._handle_coordinator_update)
+        )
+        if self._incident_store.active_incidents:
+            self.hass.async_create_task(self._incident_store.async_refresh_active())
+
+    @callback
+    def _handle_store_update(self) -> None:
+        """Write state when the shared incident store changes."""
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Tick live durations and periodically refresh active REST records."""
+        self.async_write_ha_state()
+        self.hass.async_create_task(self._incident_store.async_refresh_active())
+
+
+class IncidentHistorySensor(RestoreEntity, SensorEntity):
+    """Representation of unique closed incident history."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "incident_history"
+    _attr_should_poll = False
+    _attr_icon = "mdi:history"
+
+    def __init__(self, client, incident_store: IncidentStore):
+        """Initialize."""
+        self._client = client
+        self._incident_store = incident_store
+        self._attr_unique_id = f"{self._client.unique_id}_IncidentHistory"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of retained closed incidents."""
+        return len(self._incident_store.history)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return unique closed incident snapshots."""
+        return {
+            "incidents": self._incident_store.history,
+            "history_limit": HISTORY_LIMIT,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Restore history and register store updates."""
+        await super().async_added_to_hass()
+        state = await self.async_get_last_state()
+        if state:
+            incidents = state.attributes.get("incidents")
+            if isinstance(incidents, list):
+                self._incident_store.restore(incidents, active=False)
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                self._incident_store.signal,
+                self._handle_store_update,
+            )
+        )
+
+    @callback
+    def _handle_store_update(self) -> None:
+        """Write state when the shared incident store changes."""
         self.async_write_ha_state()
 
 
