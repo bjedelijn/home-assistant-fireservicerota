@@ -263,6 +263,7 @@ class IncidentStore:
 
         active = previous.get("incident_active")
         lifecycle_known = bool(previous.get("lifecycle_known", False))
+        explicit_lifecycle = False
         if source == "restore" and isinstance(data.get("incident_active"), bool):
             active = data["incident_active"]
         if source == "restore" and isinstance(data.get("lifecycle_known"), bool):
@@ -271,18 +272,22 @@ class IncidentStore:
         if ended_at is not None:
             active = False
             lifecycle_known = True
+            explicit_lifecycle = True
         else:
             status_text = str(raw_status).strip().lower() if raw_status is not None else ""
             if status_text in CLOSED_STATUS_VALUES:
                 active = False
                 lifecycle_known = True
+                explicit_lifecycle = True
             elif status_text in OPEN_STATUS_VALUES:
                 active = True
                 lifecycle_known = True
+                explicit_lifecycle = True
 
             if isinstance(data.get("active"), bool):
                 active = data["active"]
                 lifecycle_known = True
+                explicit_lifecycle = True
 
             for key in (
                 "closed",
@@ -296,13 +301,22 @@ class IncidentStore:
                 if data.get(key) is True:
                     active = False
                     lifecycle_known = True
+                    explicit_lifecycle = True
                     break
 
             trigger = str(data.get("trigger") or "").strip().lower()
             if trigger in CLOSED_TRIGGER_VALUES:
                 active = False
                 lifecycle_known = True
-            elif source == "websocket" and trigger in {"new", "update"}:
+            elif (
+                source == "websocket"
+                and trigger in {"new", "update"}
+                and not explicit_lifecycle
+            ):
+                # A websocket update means the incident is live only when the
+                # payload does not itself contain an explicit lifecycle state.
+                # For example, BrandweerRooster can send trigger=update together
+                # with state=finished; finished must win in that case.
                 active = True
 
         if active is None and default_active is not None:
