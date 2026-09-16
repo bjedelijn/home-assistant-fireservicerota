@@ -2,9 +2,11 @@
 
 **Current release candidate: `1.1.0-rc.1`**
 
+**Extended maintainer:** Bernd Edelijn
+
 This repository is a fork of the original [`cyberjunky/home-assistant-fireservicerota`](https://github.com/cyberjunky/home-assistant-fireservicerota) integration by Ron Klinkien / Cyberjunky and contributors.
 
-The original integration and its core design remain credited to Ron Klinkien / Cyberjunky. This fork does **not** claim maintainership of the original project. The `extended` branch is an independent extension built on top of that work.
+The original integration and its core design remain credited to Ron Klinkien / Cyberjunky. This fork does **not** claim maintainership of the original project. The `extended` branch is an independent extension built on top of that work and maintained by Bernd Edelijn.
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
@@ -323,7 +325,7 @@ Please remove private incident, location and household information before postin
 
 The original FireServiceRota Home Assistant integration and `pyfireservicerota` were created and maintained upstream by Ron Klinkien / Cyberjunky and contributors. All original-project credit remains with them.
 
-This repository is a fork. The fork owner maintains only the Extended changes in this repository/branch and is **not** presented as maintainer of the original project.
+This repository is a fork. Bernd Edelijn maintains only the Extended changes in this repository/branch and is **not** presented as maintainer of the original project.
 
 Original repositories:
 
