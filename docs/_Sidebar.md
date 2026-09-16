@@ -5,4 +5,5 @@
 - [Incident lifecycle and history](Incident-Lifecycle-and-History.md)
 - [Crew staffing and assignments](Crew-Staffing.md)
 - [Dashboard examples](Dashboard-Examples.md)
+- [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)

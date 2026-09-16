@@ -2,7 +2,7 @@
 
 ## Install the integration
 
-For the current public test release, install the contents of:
+For the current release candidate, install the contents of:
 
 ```text
 custom_components/fireservicerota
@@ -92,6 +92,10 @@ condition:
 ## Multi-station installations
 
 Use the station-specific duty and response entities where practical. The legacy generic Duty/Incident Response entities are kept for compatibility, but station-specific membership entities provide the clearest behavior on accounts connected to multiple stations.
+
+## Updating
+
+An optional Git-based updater for Home Assistant OS / Supervised installations is documented in [Updating from Git](Updating.md). It updates the local clone but restarts Home Assistant only when the actual integration directory changed.
 
 ## Next steps
 

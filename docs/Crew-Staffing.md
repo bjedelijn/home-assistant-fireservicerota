@@ -1,6 +1,6 @@
 # Crew staffing and assignments
 
-FireServiceRota Extended `1.1.0-extended.4` adds dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
+FireServiceRota Extended `1.1.0-rc.1` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
 
 The integration does not require local vehicle numbers, fixed station IDs or hardcoded function names.
 
@@ -41,7 +41,6 @@ assignments
 Example template:
 
 ```jinja
-{% set wanted = states('sensor.incidents') %}
 {% set incidents = state_attr('sensor.actieve_incidenten', 'incidents') or [] %}
 {% for i in incidents %}
   {% if i.own_assignment is defined %}
