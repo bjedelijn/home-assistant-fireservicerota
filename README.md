@@ -1,5 +1,7 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
+**Current public test version: `1.1.0-extended.4`**
+
 This repository is a fork of the original [`cyberjunky/home-assistant-fireservicerota`](https://github.com/cyberjunky/home-assistant-fireservicerota) integration by Ron Klinkien / Cyberjunky and contributors.
 
 The original integration and its core design remain credited to Ron Klinkien / Cyberjunky. This fork does **not** claim maintainership of the original project. The `extended` branch is an independent extension built on top of that work.
@@ -8,7 +10,7 @@ The practical reason for creating the Extended version is multi-station use. The
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** public test release. Multi-station discovery, per-station duty state, global Do Not Disturb, task/station resolution, pager data and restart-safe incident restore behavior have been validated in Home Assistant. Incident responses per membership are implemented and should still be considered test functionality until more real-world acknowledge/reject cases have been validated.
+> **Status:** public test release. Multi-station discovery, per-station duty state, global Do Not Disturb, task/station resolution, pager data, restart-safe incident restore, multi-incident tracking and unique incident history are implemented. Dynamic crew staffing / assignments are available in `1.1.0-extended.4` and should still be considered test functionality until more real-world incidents and acknowledge/reject cases have been validated.
 
 ## Safety notice
 
@@ -24,6 +26,12 @@ Extended adds or expands:
 - REST enrichment of received incidents.
 - `trigger` handling for `new` and `update` incidents.
 - Restart/reload protection so a restored historic incident is not replayed as a fresh `new` incident.
+- Multi-incident tracking: several incidents can remain active at the same time.
+- Incident updates are merged by API incident ID instead of creating duplicate history rows.
+- Unique closed incident history with start time, end time and duration where available.
+- Live duration for active incidents.
+- Lifecycle handling where explicit API lifecycle/end-time data takes precedence over WebSocket trigger semantics.
+- A detected/estimated end time only when Home Assistant actually observes a live active-to-finished transition and the API has no real end time.
 - Automatic discovery of the authenticated user.
 - Automatic station/group discovery through `/groups`.
 - Active membership discovery per station.
@@ -34,6 +42,11 @@ Extended adds or expands:
 - One global user-level Do Not Disturb sensor.
 - Per-station incident response information using `membership_id`.
 - Per-membership response switches for multi-station accounts.
+- Dynamic incident crew assignments based on `incident_skill_assignments`.
+- Dynamic crew requirements and sufficiency based on `warning_statuses` and availability requirements.
+- Responding / assigned / reserve counts per requirement and for the complete incident snapshot.
+- Own incident response and own assignment/skill information where available.
+- Short high-frequency REST refresh after a live incident/update so late crew assignments are picked up quickly.
 - Pager discovery and pager-status attributes.
 - Pager-message sending through a Home Assistant action/service.
 - Pager-message acknowledgment-status polling.
@@ -66,10 +79,13 @@ Authenticated user
     |
     +-- incidents
           +-- task_ids -> readable tasks / stations
-          +-- incident_responses -> own response per membership/station
+          +-- incident_responses -> response information
+          +-- incident_skill_assignments -> live crew assignments
+          +-- warning_statuses -> requirements / skills / sufficiency
+          +-- lifecycle -> active / finished / duration
 ```
 
-No specific station, user, membership or task IDs are hardcoded in the integration.
+No specific station, user, membership, task, vehicle or local priority mapping is hardcoded in the integration.
 
 ## Installation
 
@@ -88,11 +104,23 @@ For the current test release, install from the `extended` branch manually.
 
 If the official/core FireServiceRota integration is already configured, keep a backup before replacing it with this custom integration.
 
-## Main entities
+## Main incident entities
 
-### Incident sensor
+Extended keeps the original incident sensor and adds two overview sensors for concurrent incidents and history.
 
-The existing incidents sensor remains the central incident entity. Its state is the incident body/message.
+Typical Dutch entity IDs are:
+
+```text
+sensor.incidents
+sensor.actieve_incidenten
+sensor.incidenthistorie
+```
+
+The exact entity ID can depend on Home Assistant entity naming and language settings.
+
+### Latest incident sensor
+
+The existing incidents sensor remains the central latest-incident entity. Its state is the latest incident body/message.
 
 Common attributes include:
 
@@ -111,6 +139,11 @@ Common attributes include:
 - `resolved_tasks`
 - `resolved_stations`
 - `responses_by_station`
+- `incident_active`
+- `incident_status`
+- `incident_ended_at`
+- `duration_seconds`
+- lifecycle diagnostics where available
 
 Example:
 
@@ -144,7 +177,63 @@ attributes:
       status: acknowledged
       responded_at: "2026-09-09T12:15:06+02:00"
       channel: pager
+  incident_active: true
+  duration_seconds: 420
 ```
+
+### Active incidents sensor
+
+The active-incidents sensor contains **all incidents currently considered active** by Extended.
+
+Its state is the number of active incidents. The `incidents` attribute is a list of compact incident snapshots, newest first.
+
+Example shape:
+
+```yaml
+state: 2
+attributes:
+  latest_incident_id: 1234568
+  refresh_seconds: 120
+  incidents:
+    - id: 1234568
+      body: "P 1 ..."
+      incident_active: true
+      duration_seconds: 180
+    - id: 1234567
+      body: "P 2 ..."
+      incident_active: true
+      duration_seconds: 540
+```
+
+This sensor is the preferred source for dashboards that need to show more than one simultaneous incident or the dynamic crew/staffing information described below.
+
+### Incident history sensor
+
+The incident-history sensor contains unique closed incidents. An incident ID appears only once even if BrandweerRooster sent several updates for the same incident.
+
+Its state is the number of retained closed incidents. The `incidents` attribute contains the closed snapshots, newest first. Extended currently keeps up to 25 closed incidents in the in-memory/restored history.
+
+Closed snapshots can contain:
+
+- `created_at`
+- `incident_ended_at`
+- `duration_seconds`
+- final task/station information
+- final crew/assignment snapshot where available
+
+## Incident lifecycle and restart safety
+
+Extended keeps incident state in a shared incident store keyed by the BrandweerRooster incident ID. This is what allows several incidents to remain active at the same time and prevents repeated updates from becoming duplicate history records.
+
+Lifecycle handling follows these rules:
+
+1. Explicit API end timestamps or explicit finished/closed lifecycle state take precedence.
+2. A WebSocket `new` or `update` trigger indicates a live incident only when the same payload does not contain an explicit finished/closed state.
+3. If Home Assistant is running and Extended observes an incident move from active to finished, but the API does not supply an end timestamp, Extended may record the detection time as an estimated fallback.
+4. An incident that was already finished when Home Assistant starts is **not** given an invented end time.
+5. A real API end timestamp always remains preferred over an estimated/detected timestamp.
+
+For active incidents `duration_seconds` is calculated live from `created_at` until now. For closed incidents it is calculated from `created_at` to the available incident end time.
 
 ### Restart and reload safety
 
@@ -160,7 +249,129 @@ For automations, prefer explicitly checking:
 
 instead of reacting to every generic state change.
 
-### Task / alert-group resolution
+## Dynamic crew staffing and assignments
+
+Version `1.1.0-extended.4` adds generic crew staffing information by joining BrandweerRooster incident structures such as:
+
+```text
+incident_responses
+incident_skill_assignments
+warning_statuses
+```
+
+This is intentionally discovery-driven. Extended does not contain local vehicle numbers, local station IDs or fixed local function names.
+
+The richest staffing information is exposed in the incident snapshots on the active-incidents and incident-history sensors.
+
+### `crew_assignments`
+
+Contains normalized live assignments where available, for example:
+
+- assignment ID
+- membership ID
+- user ID / API user name
+- station/group information
+- assigned skill IDs
+- resolved skill metadata / short codes
+- task IDs and dynamically resolved tasks
+- response status
+- reported status
+- response timestamp
+- arrival-at-station information
+- whether the response is interpreted as responding
+
+### `crew_requirements`
+
+Contains requirement-level staffing information derived from BrandweerRooster warning/availability structures, including:
+
+- availability requirement ID
+- requirement name / short code
+- task IDs and resolved tasks
+- station IDs where they can be resolved
+- required skills/functions
+- required positions
+- filled positions
+- sufficient / insufficient state
+- responding count
+- assigned member count
+- reserve responding count
+
+Each skill entry can contain values such as:
+
+```text
+skill_id
+short_code
+required
+standby_required
+assigned
+filled
+sufficient
+level
+minimum
+buffer
+available_count
+api_assigned_count
+```
+
+### `crew_summary`
+
+Provides a compact incident-wide summary:
+
+```text
+sufficient
+responding_count
+assigned_member_count
+reserve_responding_count
+```
+
+### Own response and assignment
+
+Where the authenticated user is present in the incident payload, Extended also exposes:
+
+```text
+own_responses
+own_response
+own_responding
+own_assignment
+```
+
+`own_assignment` includes whether the user is assigned plus discovered skill codes, task names and the matching assignment objects.
+
+### Assignment revisions
+
+When assignment/staffing data changes, Extended can expose:
+
+```text
+assignment_revision
+assignment_last_changed_at
+assignment_final
+assignment_finalized_at
+```
+
+A new WebSocket incident/update marks the assignment snapshot as not final and starts a short high-frequency observation window. After that observation window, the assignment snapshot is marked final unless another live WebSocket update starts a new observation window.
+
+## Incident refresh strategy
+
+BrandweerRooster WebSocket data is used for the fast incoming notification path. REST enrichment is then used to retrieve richer lifecycle, response and staffing data.
+
+For a new or updated active incident, Extended starts a short fast refresh window:
+
+```text
+approximately every 10 seconds
+for approximately 100 seconds
+```
+
+This is intended to pick up late responses, functions/skills and crew assignments shortly after dispatch.
+
+After the fast window, active incidents continue to be REST-refreshed with a throttle of approximately:
+
+```text
+120 seconds
+```
+
+This also allows Extended to detect that an incident has finished even when no later useful WebSocket payload is received.
+
+## Task / alert-group resolution
 
 `task_ids` remain the raw API identifiers. Their labels are **not translated or hardcoded** by Extended. They are resolved dynamically from `/groups` and exposed in `resolved_tasks`.
 
@@ -273,7 +484,7 @@ or:
 
 Only API-confirmed fields are sent. Other optional response fields are left to BrandweerRooster unless explicitly implemented later.
 
-`responses_by_station` on the incident sensor can be used in dashboards and automations to distinguish, per station, whether the authenticated user acknowledged, rejected or has no response object for that incident.
+`responses_by_station` on the latest incident sensor can be used in dashboards and automations to distinguish, per station, whether the authenticated user acknowledged, rejected or has no response object for that incident.
 
 ## Pager sensor
 
@@ -340,9 +551,9 @@ powered_on
 
 Extended does **not** replace these values with Dutch or other translated data values.
 
-Fixed Home Assistant UI labels such as Duty, Do Not Disturb, Incidents, Pager and Incident Response use Home Assistant translation keys. English and Dutch are maintained in the Extended branch. Existing translations from the original project remain credited to their original contributors; missing new Extended strings in other languages may fall back to English until contributed by a speaker of that language.
+Fixed Home Assistant UI labels such as Duty, Do Not Disturb, Incidents, Active Incidents, Incident History, Pager and Incident Response use Home Assistant translation keys. English and Dutch are maintained in the Extended branch. Existing translations from the original project remain credited to their original contributors; missing new Extended strings in other languages may fall back to English until contributed by a speaker of that language.
 
-Dynamic station names, task names and other organization-configured labels always come directly from the API and are not part of the translation files.
+Dynamic station names, task names, skill/function short codes and other organization-configured labels always come directly from the API and are not part of the translation files.
 
 ## Example automations
 
@@ -382,6 +593,14 @@ condition:
       {{ (state_attr('sensor.incidents', 'new_task_ids') or []) | count > 0 }}
 ```
 
+### Check whether active incidents exist
+
+```jinja
+{{ states('sensor.actieve_incidenten') | int(0) > 0 }}
+```
+
+Use the actual entity ID created by Home Assistant if your installation uses another language/name.
+
 ### Check one station's duty state
 
 ```yaml
@@ -395,14 +614,16 @@ Use the actual entity ID created by Home Assistant for your station.
 
 ## Development principles
 
-1. **Universal discovery** - no hardcoded user, station, membership or task IDs.
+1. **Universal discovery** - no hardcoded user, station, membership, task or vehicle IDs.
 2. **Unlimited membership count by design** - behavior is based on discovered active memberships, not an assumed maximum of two stations.
 3. **Backwards compatibility** - existing FireServiceRota entities should keep working where practical.
-4. **Small entity footprint** - related detail belongs in attributes unless a separate entity adds clear Home Assistant value.
-5. **Preserve raw API values** - translations belong in the presentation layer, not in API data.
-6. **Multi-station support** - membership identity is used for duty, response resolution and response submission.
-7. **Optional functionality** - users can ignore pager/task/response extensions they do not need.
-8. **Safety first** - Home Assistant is an additional information/automation layer, not the primary emergency alerting path.
+4. **Multi-incident lifecycle** - updates are merged by incident ID and concurrent incidents remain independently available.
+5. **Small entity footprint** - related detail belongs in attributes unless a separate entity adds clear Home Assistant value.
+6. **Preserve raw API values** - translations belong in the presentation layer, not in API data.
+7. **Multi-station support** - membership identity is used for duty, response resolution and response submission.
+8. **Dynamic staffing** - crew requirements, skills and assignments are derived from API data, never local station configuration in the integration.
+9. **Optional functionality** - users can ignore pager/task/response/staffing extensions they do not need.
+10. **Safety first** - Home Assistant is an additional information/automation layer, not the primary emergency alerting path.
 
 ## Current validation status
 
@@ -415,13 +636,22 @@ The Extended branch has been validated in a live Home Assistant installation for
 - pager power, battery, signal and last-seen data;
 - task resolution where incident tasks originate from non-station/team groups;
 - mapping resolved tasks back to the correct active station;
-- preserving the last incident across restart without replaying it as a fresh `new` incident.
+- preserving the last incident across restart without replaying it as a fresh `new` incident;
+- restoration of active and closed incident snapshots;
+- unique history keyed by incident ID;
+- explicit finished lifecycle overriding an ordinary WebSocket `update` trigger;
+- detected end-time fallback only for an observed live active-to-finished transition.
 
-Still recommended before a stable release:
+Still recommended before treating Extended as a stable release:
 
 - validate more real `acknowledged` incident responses per membership;
 - validate more real `rejected` incident responses per membership;
-- validate incident updates where tasks/units are added later;
+- validate late incident updates where tasks/units are added after the initial notification;
+- validate `incident_skill_assignments`, `warning_statuses`, required/filled functions and crew sufficiency with more real incidents;
+- validate responding / assigned / reserve counts against the BrandweerRooster UI during a real turnout;
+- validate the fast 10-second assignment refresh during the first approximately 100 seconds of real incidents;
+- validate closure/end-time/duration on more real incidents;
+- validate two or more simultaneous real incidents end-to-end;
 - validate edge cases with more than two active station memberships if test accounts are available.
 
 ## Debugging
@@ -436,7 +666,7 @@ logger:
     pyfireservicerota: debug
 ```
 
-Useful debug information includes WebSocket incidents, discovered stations/memberships/tasks, pager information, per-membership availability and incident response data.
+Useful debug information includes WebSocket incidents, discovered stations/memberships/tasks, pager information, per-membership availability, incident response data, lifecycle updates and staffing/assignment refreshes.
 
 ## Upstream and credits
 
@@ -449,4 +679,4 @@ Original repositories:
 - https://github.com/cyberjunky/home-assistant-fireservicerota
 - https://github.com/cyberjunky/python-fireservicerota
 
-Extended builds on that foundation with broader BrandweerRooster API support, particularly multi-station memberships, per-station duty state, global Do Not Disturb, task/alert-group resolution, pager integration and richer incident responses.
+Extended builds on that foundation with broader BrandweerRooster API support, particularly multi-station memberships, per-station duty state, global Do Not Disturb, task/alert-group resolution, pager integration, richer incident responses, multi-incident lifecycle/history and dynamic crew staffing.
