@@ -49,6 +49,8 @@ Useful attributes include:
 id
 trigger
 created_at
+start_time
+end_time
 prio
 type
 task_ids
@@ -93,13 +95,22 @@ condition:
 
 Use the station-specific duty and response entities where practical. The legacy generic Duty/Incident Response entities are kept for compatibility, but station-specific membership entities provide the clearest behavior on accounts connected to multiple stations.
 
+## Complete package example
+
+For a single, privacy-safe Home Assistant package containing live-incident handling, deduplication, queued TTS, own-response handling and finalized staffing notifications, see:
+
+[`examples/Complete-Automation-Package.yaml`](examples/Complete-Automation-Package.yaml)
+
+It uses placeholder entities only. Replace them with your own entity IDs before use.
+
 ## Updating
 
 An optional Git-based updater for Home Assistant OS / Supervised installations is documented in [Updating from Git](Updating.md). It updates the local clone but restarts Home Assistant only when the actual integration directory changed.
 
 ## Next steps
 
-- Use [Incident automations](Incident-Automations.md) for notification/TTS examples.
+- Use [Incident automations](Incident-Automations.md) for smaller notification/TTS building blocks.
+- Use [Complete automation package](examples/Complete-Automation-Package.yaml) for one combined package.
 - Use [iPhone critical alerts](iPhone-Critical-Alerts.md) for iOS critical notifications.
-- Use [Crew staffing and assignments](Crew-Staffing.md) for `own_assignment` and `crew_requirements`.
+- Use [Crew staffing and assignments](Crew-Staffing.md) for RC2 staffing semantics.
 - Use [Dashboard examples](Dashboard-Examples.md) for a privacy-neutral incident card and popup.
