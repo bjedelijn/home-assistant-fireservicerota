@@ -2,6 +2,8 @@
 
 These examples intentionally contain no local station IDs, vehicle lists, addresses or personal device names.
 
+> For one combined, privacy-safe package with live incident handling, deduplication, queued TTS, own-response handling and finalized staffing notifications, use [Complete-Automation-Package.yaml](examples/Complete-Automation-Package.yaml).
+
 ## Basic live incident notification
 
 This example reacts only to a live `new` or `update` payload and therefore ignores restored historic state.
@@ -61,7 +63,7 @@ Readable task information is available in `resolved_tasks`.
 
 ## Prevent duplicate custom actions
 
-If your own automation must perform an action only once per incident, keep a small list of processed incident IDs in an `input_text` helper.
+If your own automation must perform an action only once per incident or update, keep a small list of processed keys in an `input_text` helper.
 
 ```yaml
 input_text:
@@ -116,6 +118,8 @@ Store the ID after the action:
 
 Replace the TTS action with the TTS integration used by your Home Assistant installation.
 
+For multiple incident/reaction speech paths, a queued script is recommended so one message does not interrupt another. The complete package includes this pattern.
+
 ## Pause media without turning devices on
 
 Only pause media players that already report an active/on-like state:
@@ -144,6 +148,7 @@ This avoids calling `media_pause` on devices that are off/unavailable.
 
 ## More advanced examples
 
+- [Complete automation package](examples/Complete-Automation-Package.yaml)
 - [iPhone critical alerts](iPhone-Critical-Alerts.md)
 - [Crew staffing and assignments](Crew-Staffing.md)
 - [Incident lifecycle and history](Incident-Lifecycle-and-History.md)
