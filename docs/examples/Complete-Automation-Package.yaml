@@ -1,0 +1,476 @@
+###############################################################################
+# FireServiceRota Extended - Complete Automation Package
+# Target: 1.1.0-rc.2
+#
+# Privacy-safe example package. It intentionally contains no station IDs,
+# vehicle numbers, addresses, coordinates, personal names, Telegram settings,
+# alarm codes or installation-specific mappings.
+#
+# Before use, replace these example entity IDs with your own:
+# - notify.mobile_app_your_phone
+# - notify.mobile_app_household_phone
+# - media_player.example_upstairs_group
+# - media_player.example_night_speaker
+# - media_player.example_tablet
+# - media_player.example_tv
+#
+# Put the edited file in a Home Assistant package directory, for example:
+# /config/packages/fireservicerota_extended.yaml
+###############################################################################
+
+input_text:
+  fireservicerota_processed_updates:
+    name: FireServiceRota processed updates
+    max: 255
+    initial: ""
+    icon: mdi:fire-alert
+
+  fireservicerota_response_notifications:
+    name: FireServiceRota response notifications
+    max: 255
+    initial: ""
+    icon: mdi:account-check-outline
+
+  fireservicerota_assignment_notifications:
+    name: FireServiceRota assignment notifications
+    max: 255
+    initial: ""
+    icon: mdi:account-hard-hat-outline
+
+
+script:
+  fireservicerota_tts_queue:
+    alias: FireServiceRota - queued TTS
+    description: Serializes FireServiceRota speech so messages do not interrupt each other.
+    mode: queued
+    max: 20
+    sequence:
+      - variables:
+          tts_message: "{{ message | default('') | string | trim }}"
+          tts_target_1: "{{ target_1 | default('') | string | trim }}"
+          tts_target_2: "{{ target_2 | default('') | string | trim }}"
+          tts_volume: "{{ volume | default(0.7) | float(0.7) }}"
+          old_volume_1: >-
+            {% if tts_target_1 %}
+              {{ state_attr(tts_target_1, 'volume_level') }}
+            {% else %}
+              {{ none }}
+            {% endif %}
+          old_volume_2: >-
+            {% if tts_target_2 %}
+              {{ state_attr(tts_target_2, 'volume_level') }}
+            {% else %}
+              {{ none }}
+            {% endif %}
+
+      - condition: template
+        value_template: "{{ tts_message != '' }}"
+
+      - parallel:
+          - sequence:
+              - condition: template
+                value_template: "{{ tts_target_1 != '' }}"
+              - action: media_player.volume_set
+                target:
+                  entity_id: "{{ tts_target_1 }}"
+                data:
+                  volume_level: "{{ tts_volume }}"
+                continue_on_error: true
+              - action: tts.google_translate_say
+                data:
+                  entity_id: "{{ tts_target_1 }}"
+                  message: "{{ tts_message }}"
+                  cache: false
+                continue_on_error: true
+              - wait_template: "{{ is_state(tts_target_1, 'playing') }}"
+                timeout: "00:00:10"
+                continue_on_timeout: true
+              - wait_template: "{{ not is_state(tts_target_1, 'playing') }}"
+                timeout: "00:02:00"
+                continue_on_timeout: true
+              - if:
+                  - condition: template
+                    value_template: "{{ old_volume_1 is number }}"
+                then:
+                  - action: media_player.volume_set
+                    target:
+                      entity_id: "{{ tts_target_1 }}"
+                    data:
+                      volume_level: "{{ old_volume_1 | float }}"
+                    continue_on_error: true
+
+          - sequence:
+              - condition: template
+                value_template: "{{ tts_target_2 != '' }}"
+              - action: media_player.volume_set
+                target:
+                  entity_id: "{{ tts_target_2 }}"
+                data:
+                  volume_level: "{{ tts_volume }}"
+                continue_on_error: true
+              - action: tts.google_translate_say
+                data:
+                  entity_id: "{{ tts_target_2 }}"
+                  message: "{{ tts_message }}"
+                  cache: false
+                continue_on_error: true
+              - wait_template: "{{ is_state(tts_target_2, 'playing') }}"
+                timeout: "00:00:10"
+                continue_on_timeout: true
+              - wait_template: "{{ not is_state(tts_target_2, 'playing') }}"
+                timeout: "00:02:00"
+                continue_on_timeout: true
+              - if:
+                  - condition: template
+                    value_template: "{{ old_volume_2 is number }}"
+                then:
+                  - action: media_player.volume_set
+                    target:
+                      entity_id: "{{ tts_target_2 }}"
+                    data:
+                      volume_level: "{{ old_volume_2 | float }}"
+                    continue_on_error: true
+
+
+automation:
+  - id: fireservicerota_extended_live_incident_example
+    alias: FireServiceRota - live incident example
+    description: >-
+      Handles only live new/update events, groups repeat updates, pauses already
+      active media and announces the incident through the queued TTS script.
+    mode: queued
+    max: 10
+
+    triggers:
+      - trigger: state
+        entity_id: sensor.incidents
+
+    actions:
+      - variables:
+          incident_id: >-
+            {{ trigger.to_state.attributes.get('id', '') | string | trim }}
+          incident_trigger: >-
+            {{ trigger.to_state.attributes.get('trigger', '') | string | trim }}
+          incident_text: >-
+            {{ trigger.to_state.state | string }}
+          new_task_ids: >-
+            {{ trigger.to_state.attributes.get('new_task_ids', []) or [] }}
+
+      - condition: template
+        alias: Live FireServiceRota event only
+        value_template: >-
+          {{ trigger.to_state is not none
+             and incident_trigger in ['new', 'update']
+             and incident_id not in ['', 'None', 'unknown', 'unavailable'] }}
+
+      - variables:
+          update_key: >-
+            {% if incident_trigger == 'new' %}
+              {{ incident_id }}:new
+            {% elif new_task_ids | count > 0 %}
+              {{ incident_id }}:tasks:{{ new_task_ids | map('string') | sort | join('-') }}
+            {% else %}
+              {{ '' }}
+            {% endif %}
+
+      - condition: template
+        alias: New incident or meaningful task update
+        value_template: "{{ update_key | trim != '' }}"
+
+      - condition: template
+        alias: Update not handled before
+        value_template: >-
+          {% set sent = states('input_text.fireservicerota_processed_updates')
+             .split(',') | map('trim') | reject('equalto', '') | list %}
+          {{ update_key not in sent }}
+
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.fireservicerota_processed_updates
+        data:
+          value: >-
+            {% set current = states('input_text.fireservicerota_processed_updates')
+               .split(',') | map('trim') | reject('equalto', '')
+               | reject('equalto', update_key) | list %}
+            {{ (current + [update_key])[-10:] | join(',') }}
+
+      - variables:
+          clean_text: >-
+            {{ incident_text
+               | regex_replace('\b[0-9]{6}\b', '')
+               | regex_replace('\s+', ' ')
+               | trim }}
+          tts_text: >-
+            {{ clean_text
+               | regex_replace('^P 1(?=\s)', 'Priority 1')
+               | regex_replace('^P 2(?=\s)', 'Priority 2')
+               | regex_replace('^P 3(?=\s)', 'Priority 3') }}
+
+      - action: notify.mobile_app_your_phone
+        data:
+          title: "FireServiceRota incident"
+          message: "{{ clean_text }}"
+          data:
+            tag: "fireservicerota-{{ incident_id }}"
+        continue_on_error: true
+
+      - if:
+          - condition: template
+            value_template: >-
+              {{ states('media_player.example_tv')
+                 in ['playing', 'paused', 'idle', 'on', 'buffering'] }}
+        then:
+          - action: media_player.media_pause
+            target:
+              entity_id: media_player.example_tv
+            continue_on_error: true
+
+      - choose:
+          - conditions:
+              - condition: time
+                after: "07:00:00"
+                before: "23:00:00"
+            sequence:
+              - action: script.fireservicerota_tts_queue
+                data:
+                  message: "{{ tts_text }}"
+                  target_1: media_player.example_upstairs_group
+                  target_2: media_player.example_tablet
+                  volume: 0.7
+        default:
+          - action: script.fireservicerota_tts_queue
+            data:
+              message: "{{ tts_text }}"
+              target_1: media_player.example_night_speaker
+              target_2: media_player.example_tablet
+              volume: 0.7
+
+
+  - id: fireservicerota_extended_response_example
+    alias: FireServiceRota - own response example
+    description: >-
+      Detects a recent acknowledged/rejected response from the authenticated user,
+      sends a normal household notification and optionally speaks acknowledged
+      responses during daytime.
+    mode: queued
+    max: 10
+
+    triggers:
+      - trigger: state
+        entity_id: sensor.actieve_incidenten
+        attribute: incidents
+
+    actions:
+      - variables:
+          response_candidate_json: >-
+            {% set ns = namespace(candidate={}, newest=0) %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% for i in state_attr('sensor.actieve_incidenten', 'incidents') or [] %}
+              {% for r in i.own_responses or [] %}
+                {% set status = r.status | default('') | string %}
+                {% set ts = as_timestamp(r.responded_at, 0) %}
+                {% set age = now_ts - ts %}
+                {% if status in ['acknowledged', 'rejected']
+                      and ts > ns.newest
+                      and age >= 0
+                      and age <= 180 %}
+                  {% set ns.newest = ts %}
+                  {% set ns.candidate = {
+                    'incident_id': i.id | string,
+                    'status': status,
+                    'responded_at': r.responded_at | string
+                  } %}
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+            {{ ns.candidate | to_json }}
+
+      - variables:
+          response_candidate: "{{ response_candidate_json | from_json }}"
+          response_key: >-
+            {% if response_candidate %}
+              {{ response_candidate.incident_id }}:
+              {{ 'A' if response_candidate.status == 'acknowledged' else 'R' }}:
+              {{ response_candidate.responded_at }}
+            {% else %}
+              {{ '' }}
+            {% endif %}
+
+      - condition: template
+        value_template: "{{ response_key | trim != '' }}"
+
+      - condition: template
+        alias: Response not announced before
+        value_template: >-
+          {% set sent = states('input_text.fireservicerota_response_notifications')
+             .split(',') | map('trim') | reject('equalto', '') | list %}
+          {{ response_key not in sent }}
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ response_candidate.status == 'acknowledged' }}"
+            sequence:
+              - action: notify.mobile_app_household_phone
+                data:
+                  title: "FireServiceRota response"
+                  message: "A responder confirmed attendance and may be responding."
+                continue_on_error: true
+
+              - if:
+                  - condition: time
+                    after: "07:00:00"
+                    before: "23:00:00"
+                  - condition: template
+                    value_template: "{{ states('zone.home') | int(0) > 0 }}"
+                then:
+                  - action: script.fireservicerota_tts_queue
+                    data:
+                      message: "A responder confirmed attendance and may be responding."
+                      target_1: media_player.example_tablet
+                      target_2: ""
+                      volume: 0.7
+
+          - conditions:
+              - condition: template
+                value_template: "{{ response_candidate.status == 'rejected' }}"
+            sequence:
+              - action: notify.mobile_app_household_phone
+                data:
+                  title: "FireServiceRota response"
+                  message: "The FireServiceRota incident was declined."
+                continue_on_error: true
+
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.fireservicerota_response_notifications
+        data:
+          value: >-
+            {% set current = states('input_text.fireservicerota_response_notifications')
+               .split(',') | map('trim') | reject('equalto', '')
+               | reject('equalto', response_key) | list %}
+            {{ (current + [response_key])[-10:] | join(',') }}
+
+
+  - id: fireservicerota_extended_assignment_finalized_example
+    alias: FireServiceRota - finalized assignment example
+    description: >-
+      Sends one critical notification after the fast staffing observation window.
+      It distinguishes unavailable individual assignments from a known not-assigned state.
+    mode: queued
+    max: 10
+
+    triggers:
+      - trigger: event
+        event_type: fireservicerota_assignment_finalized
+
+    actions:
+      - variables:
+          incident_id: "{{ trigger.event.data.incident_id | string }}"
+          incident_json: >-
+            {% set ns = namespace(item={}) %}
+            {% for i in state_attr('sensor.actieve_incidenten', 'incidents') or [] %}
+              {% if (i.id | string) == incident_id %}
+                {% set ns.item = i %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.item | to_json }}
+
+      - variables:
+          incident: "{{ incident_json | from_json }}"
+
+      - condition: template
+        alias: Finalized snapshot and authenticated user is responding
+        value_template: >-
+          {{ incident
+             and incident.assignment_final == true
+             and incident.own_responding == true }}
+
+      - condition: template
+        alias: No assignment notification sent yet
+        value_template: >-
+          {% set sent = states('input_text.fireservicerota_assignment_notifications')
+             .split(',') | map('trim') | reject('equalto', '') | list %}
+          {{ incident_id not in sent }}
+
+      - variables:
+          assignment_text: >-
+            {% set summary = incident.crew_summary or {} %}
+            {% set individual = summary.individual_assignments_available
+               | default(false) %}
+            {% set a = incident.own_assignment or {} %}
+            {% if individual == false %}
+              You confirmed responding. Individual assignment is not available via the API.
+            {% elif a.assigned == true %}
+              {% set skills = (a.skill_codes or []) | join(', ') %}
+              {% set tasks = (a.task_names or []) | join(', ') %}
+              {% set detail = [skills, tasks] | reject('equalto', '') | join(' - ') %}
+              Assigned{{ ': ' ~ detail if detail else '' }}.
+            {% else %}
+              You confirmed responding, but are not present in the individual assignment.
+            {% endif %}
+
+          crew_text: >-
+            {% set ns = namespace(lines=[]) %}
+            {% for r in incident.crew_requirements or [] %}
+              {% set tasks = (r.tasks or []) | map(attribute='name') | select | list %}
+              {% set label = tasks | join(', ')
+                 if tasks else (r.short_code or r.name or 'Requirement') %}
+              {% if r.sufficient == true %}
+                {% set status = 'sufficient' %}
+              {% elif r.sufficient == false %}
+                {% set status = 'insufficient' %}
+              {% else %}
+                {% set status = 'unknown' %}
+              {% endif %}
+              {% set skill_ns = namespace(parts=[]) %}
+              {% for skill in r.skills or [] %}
+                {% set code = skill.short_code or ('skill ' ~ skill.skill_id) %}
+                {% set skill_ns.parts = skill_ns.parts
+                   + [code ~ ' ' ~ (skill.assigned | int(0))
+                      ~ '/' ~ (skill.required | int(0))] %}
+              {% endfor %}
+              {% set coverage = (' - ' ~ skill_ns.parts | join(' · '))
+                 if skill_ns.parts else '' %}
+              {% set ns.lines = ns.lines + [
+                label ~ ': ' ~ status
+                ~ ' - responding ' ~ (r.responding_count | int(0))
+                ~ coverage
+              ] %}
+            {% endfor %}
+            {{ ns.lines | join('\n') if ns.lines else 'Staffing state unavailable' }}
+
+          clean_incident_text: >-
+            {{ (incident.body or '')
+               | regex_replace('\b[0-9]{6}\b', '')
+               | regex_replace('\s+', ' ')
+               | trim }}
+
+      - action: notify.mobile_app_your_phone
+        data:
+          title: "FireServiceRota - assignment"
+          message: |-
+            {{ assignment_text }}
+
+            {{ crew_text }}
+
+            {{ clean_incident_text }}
+          data:
+            tag: "fireservicerota-assignment-{{ incident_id }}"
+            push:
+              sound:
+                name: default
+                critical: 1
+                volume: 1.0
+              interruption-level: critical
+        continue_on_error: true
+
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.fireservicerota_assignment_notifications
+        data:
+          value: >-
+            {% set current = states('input_text.fireservicerota_assignment_notifications')
+               .split(',') | map('trim') | reject('equalto', '')
+               | reject('equalto', incident_id) | list %}
+            {{ (current + [incident_id])[-10:] | join(',') }}
