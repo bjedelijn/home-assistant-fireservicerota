@@ -1,6 +1,6 @@
 # Crew staffing and assignments
 
-FireServiceRota Extended `1.1.0-rc.1` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
+FireServiceRota Extended `1.1.0-rc.2` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
 
 The integration does not require local vehicle numbers, fixed station IDs or hardcoded function names.
 
@@ -63,13 +63,29 @@ task_ids
 tasks
 station_ids
 skills
-required_positions
-filled_positions
 sufficient
 responding_count
 assigned_member_count
 reserve_responding_count
+individual_assignments_available
 ```
+
+Each skill entry can contain:
+
+```text
+short_code
+required
+assigned
+filled
+sufficient
+coverage_source
+api_assigned_count
+available_count
+```
+
+RC2 treats skill requirements as **overlapping qualification requirements**, not as separate seats. For example, a requirement can need six members with a general crew skill while one of those six also covers commander and another covers driver. Therefore skill requirements such as 6 + 1 + 1 must not be summed into eight personnel positions.
+
+The API `warning_statuses` coverage is used for sufficient/insufficient status when available. `incident_skill_assignments` remains useful for individual person-to-function details, but some organizations/incidents return no individual assignments.
 
 Example summary:
 
@@ -80,12 +96,16 @@ Example summary:
   {% for r in i.crew_requirements or [] %}
     {% set tasks = (r.tasks or []) | map(attribute='name') | select | list %}
     - {{ tasks | join(', ') if tasks else (r.short_code or r.name or 'Requirement') }}:
-      {{ r.filled_positions | int(0) }}/{{ r.required_positions | int(0) }}
       sufficient={{ r.sufficient }}
-      reserve={{ r.reserve_responding_count | int(0) }}
+      responding={{ r.responding_count }}
+      {% for skill in r.skills or [] %}
+      {{ skill.short_code }} {{ skill.assigned }}/{{ skill.required }}
+      {% endfor %}
   {% endfor %}
 {% endfor %}
 ```
+
+When individual assignments are unavailable, `assigned_member_count` and `reserve_responding_count` are left unknown instead of incorrectly treating every responding member as reserve.
 
 ## `crew_summary`
 
