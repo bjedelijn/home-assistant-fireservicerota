@@ -24,7 +24,8 @@ This example uses Mushroom and opens a Bubble Card popup.
        | regex_replace('\\s+', ' ') | trim %}
     {% set active = state_attr('sensor.incidents', 'incident_active') %}
     {% if active == true %}
-      {% set start = state_attr('sensor.incidents', 'created_at') %}
+      {% set start = state_attr('sensor.incidents', 'start_time')
+         or state_attr('sensor.incidents', 'created_at') %}
       {% if start %}
         {% set mins = [0, ((as_timestamp(now()) - as_timestamp(start)) / 60) | int] | max %}
         ACTIVE · {{ mins }} min · {{ text }}
@@ -70,7 +71,8 @@ This popup uses Bubble Card plus Mushroom cards. It shows the latest incident an
         {% set text = states('sensor.incidents')
            | regex_replace('\\b[0-9]{6}\\b', '')
            | regex_replace('\\s+', ' ') | trim %}
-        {% set start = state_attr('sensor.incidents', 'created_at') %}
+        {% set start = state_attr('sensor.incidents', 'start_time')
+           or state_attr('sensor.incidents', 'created_at') %}
         {% set ended = state_attr('sensor.incidents', 'incident_ended_at') %}
         {% set seconds = state_attr('sensor.incidents', 'duration_seconds') | int(0) %}
         {{ text }}
@@ -91,8 +93,8 @@ This popup uses Bubble Card plus Mushroom cards. It shows the latest incident an
         {% for i in incidents %}
         **{{ i.prio | default('') }}** {{ (i.body | default('Incident'))
           | regex_replace('\\b[0-9]{6}\\b', '')
-          | regex_replace('\\s+', ' ') | trim }}  
-        Duration: {{ ((i.duration_seconds | int(0)) / 60) | int }} min  
+          | regex_replace('\\s+', ' ') | trim }}
+        Duration: {{ ((i.duration_seconds | int(0)) / 60) | int }} min
         {% set tasks = (i.resolved_tasks or []) | map(attribute='name') | select | unique | list %}
         {% if tasks %}Tasks: {{ tasks | join(', ') }}{% endif %}
 
@@ -102,7 +104,7 @@ This popup uses Bubble Card plus Mushroom cards. It shows the latest incident an
 
 ## Staffing card
 
-A small Markdown card can expose the current user's assignment without hardcoded station IDs:
+This example distinguishes "no individual assignment data" from "not assigned":
 
 ```yaml
 - type: markdown
@@ -113,12 +115,22 @@ A small Markdown card can expose the current user's assignment without hardcoded
     No active incidents.
     {% else %}
       {% for i in incidents %}
+        {% set summary = i.crew_summary or {} %}
+        {% set individual = summary.individual_assignments_available | default(false) %}
         {% set a = i.own_assignment or {} %}
-        **Incident {{ i.id }}**  
-        Responding: {{ i.own_responding | default(false) }}  
-        Assigned: {{ a.assigned | default(false) }}  
-        {% if a.skill_codes %}Skills: {{ a.skill_codes | join(', ') }}  {% endif %}
+
+        **Incident {{ i.id }}**
+        Responding: {{ i.own_responding | default(false) }}
+        {% if individual == false %}
+        Individual assignment: unavailable via API
+        {% elif a.assigned == true %}
+        Assigned: yes
+        {% if a.skill_codes %}Skills: {{ a.skill_codes | join(', ') }}{% endif %}
         {% if a.task_names %}Tasks: {{ a.task_names | join(', ') }}{% endif %}
+        {% else %}
+        Assigned: no individual assignment found
+        {% endif %}
+        Responding total: {{ summary.responding_count | default('unknown') }}
 
       {% endfor %}
     {% endif %}
