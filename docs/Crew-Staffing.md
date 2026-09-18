@@ -18,9 +18,9 @@ and, for closed incidents:
 state_attr('sensor.incidenthistorie', 'incidents')
 ```
 
-## `own_assignment`
+## Own response and assignment
 
-Where available, the authenticated user's incident snapshot can contain:
+An incident snapshot can contain:
 
 ```text
 own_responses
@@ -28,6 +28,8 @@ own_response
 own_responding
 own_assignment
 ```
+
+`own_response` prefers a responding own response when one exists. `own_responding` indicates whether any own response currently counts as responding.
 
 Typical `own_assignment` fields include:
 
@@ -38,18 +40,7 @@ task_names
 assignments
 ```
 
-Example template:
-
-```jinja
-{% set incidents = state_attr('sensor.actieve_incidenten', 'incidents') or [] %}
-{% for i in incidents %}
-  {% if i.own_assignment is defined %}
-    Assigned: {{ i.own_assignment.assigned | default(false) }}
-    Skills: {{ (i.own_assignment.skill_codes or []) | join(', ') }}
-    Tasks: {{ (i.own_assignment.task_names or []) | join(', ') }}
-  {% endif %}
-{% endfor %}
-```
+Important: `own_assignment.assigned == false` is not enough to conclude that a user is reserve. Check `crew_summary.individual_assignments_available` first.
 
 ## `crew_requirements`
 
@@ -63,12 +54,21 @@ task_ids
 tasks
 station_ids
 skills
+required_positions
+filled_positions
 sufficient
 responding_count
 assigned_member_count
 reserve_responding_count
 individual_assignments_available
 ```
+
+In RC2:
+
+- `required_positions` = `None`
+- `filled_positions` = `None`
+
+They remain in the schema only for compatibility and must not be used to calculate personnel counts.
 
 Each skill entry can contain:
 
@@ -116,7 +116,16 @@ sufficient
 responding_count
 assigned_member_count
 reserve_responding_count
+individual_assignments_available
+staffing_source
 ```
+
+Interpretation:
+
+- `responding_count` can still be known without individual assignments.
+- `individual_assignments_available == false` means exact person-to-function assignment data is not available.
+- `assigned_member_count` and `reserve_responding_count` are then `None`.
+- `staffing_source` indicates whether coverage primarily came from `warning_statuses` or individual assignments.
 
 ## Assignment revision fields
 
@@ -153,7 +162,7 @@ actions:
       incident_id: "{{ trigger.event.data.incident_id | string }}"
 ```
 
-See [iPhone critical alerts](iPhone-Critical-Alerts.md) for a complete generic notification example.
+See [iPhone critical alerts](iPhone-Critical-Alerts.md) or the [complete automation package](examples/Complete-Automation-Package.yaml) for complete generic notification examples.
 
 ## Refresh behavior
 
