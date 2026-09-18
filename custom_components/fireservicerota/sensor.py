@@ -1,7 +1,6 @@
 """Sensor platform for FireServiceRota integration."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import logging
 from typing import Any
 
@@ -15,45 +14,6 @@ from .const import DATA_CLIENT, DATA_COORDINATOR, DOMAIN as FIRESERVICEROTA_DOMA
 from .incident_store import ACTIVE_INCIDENT_REFRESH_SECONDS, HISTORY_LIMIT, IncidentStore
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _now_iso() -> str:
-    """Return the current UTC time as ISO 8601."""
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _add_detected_end_if_transition(
-    incident_store: IncidentStore,
-    previous: dict | None,
-    current: dict | None,
-) -> dict | None:
-    """Add an estimated end time only for an observed active->finished transition.
-
-    BrandweerRooster currently exposes lifecycle state (for example ``finished``)
-    in the incident payload, but the tested payload does not include an explicit
-    finished/closed timestamp. Never invent an end time for an incident that was
-    already finished when Home Assistant started. When Extended actually observes
-    an incident change from active to finished while running, record the detection
-    time as a fallback. A real API end timestamp always remains preferred.
-    """
-    if not previous or not current:
-        return current
-    if previous.get("incident_active") is not True:
-        return current
-    if previous.get("last_source") == "restore":
-        return current
-    if current.get("incident_active") is not False:
-        return current
-    if current.get("incident_ended_at"):
-        return current
-
-    detected = dict(current)
-    detected["incident_ended_at"] = _now_iso()
-    # These diagnostic values are intentionally lifecycle-shaped so the shared
-    # store keeps them in lifecycle_fields without expanding the public schema.
-    detected["ended_at_source"] = "detected"
-    detected["ended_at_estimated"] = True
-    return incident_store.upsert(detected, source="detected")
 
 
 async def async_setup_entry(
@@ -243,12 +203,10 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
         if incident_id is not None:
             self._client.incident_id = incident_id
 
-        previous = self._incident_store.get_raw(incident_id)
-        current = self._incident_store.upsert(
+        self._incident_store.upsert(
             self._state_attributes,
             source="websocket",
         )
-        _add_detected_end_if_transition(self._incident_store, previous, current)
         self.async_write_ha_state()
 
         if incident_id is not None:
@@ -267,8 +225,7 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
             if key not in incident and key in existing:
                 store_merged[key] = existing[key]
         store_enriched = self._client.enrich_incident_data(store_merged)
-        current = self._incident_store.upsert(store_enriched, source="rest")
-        _add_detected_end_if_transition(self._incident_store, existing, current)
+        self._incident_store.upsert(store_enriched, source="rest")
         self._incident_store.mark_rest_refreshed(incident_id)
 
         # A REST request for an older concurrent incident may finish after a
@@ -349,28 +306,8 @@ class ActiveIncidentsSensor(RestoreEntity, SensorEntity):
         self.async_write_ha_state()
 
     async def _async_refresh_active(self) -> None:
-        """Refresh active incidents and timestamp observed finish transitions."""
-        before = {
-            str(item.get("id")): self._incident_store.get_raw(item.get("id"))
-            for item in self._incident_store.active_incidents
-            if item.get("id") is not None
-        }
+        """Refresh active incidents from the REST API."""
         await self._incident_store.async_refresh_active()
-
-        active_ids = {
-            str(item.get("id"))
-            for item in self._incident_store.active_incidents
-            if item.get("id") is not None
-        }
-        for key, previous in before.items():
-            if key in active_ids or previous is None:
-                continue
-            current = self._incident_store.get_raw(previous.get("id"))
-            _add_detected_end_if_transition(
-                self._incident_store,
-                previous,
-                current,
-            )
 
     @callback
     def _handle_coordinator_update(self) -> None:
