@@ -15,6 +15,7 @@ HISTORY_LIMIT = 25
 ACTIVE_INCIDENT_REFRESH_SECONDS = 120
 FAST_INCIDENT_REFRESH_SECONDS = 10
 FAST_INCIDENT_REFRESH_WINDOW_SECONDS = 100
+FAST_INCIDENT_REFRESH_GRACE_SECONDS = 20
 
 END_TIME_KEYS = (
     "end_time",
@@ -36,7 +37,8 @@ STATUS_KEYS = (
 CLOSED_STATUS_VALUES = {
     "closed",
     "ended",
-    "finished",
+    # BrandweerRooster uses state=finished when the response/alerting phase
+    # is complete. It is not the operational incident end; end_time is.
     "resolved",
     "completed",
     "cancelled",
@@ -57,8 +59,6 @@ CLOSED_TRIGGER_VALUES = {
     "closed",
     "end",
     "ended",
-    "finish",
-    "finished",
     "resolve",
     "resolved",
     "complete",
@@ -323,9 +323,16 @@ class IncidentStore:
 
         skill_meta: dict[Any, dict] = {}
         skill_to_tasks: dict[Any, set] = {}
+        incident_task_ids = set(data.get("task_ids") or [])
         for warning in warnings:
             requirement = warning.get("availability_requirement") or {}
-            task_ids = list(requirement.get("task_ids") or [])
+            configured_task_ids = list(requirement.get("task_ids") or [])
+            matching_task_ids = [
+                task_id
+                for task_id in configured_task_ids
+                if task_id in incident_task_ids
+            ]
+            task_ids = matching_task_ids or configured_task_ids
             for status in warning.get("skill_statuses", []) or []:
                 if not isinstance(status, dict) or status.get("skill_id") is None:
                     continue
@@ -404,9 +411,16 @@ class IncidentStore:
                     own_task_names.append(name)
 
         crew_requirements = []
+        individual_assignments_available = bool(assignments)
         for warning in warnings:
             requirement = warning.get("availability_requirement") or {}
-            task_ids = list(requirement.get("task_ids") or [])
+            configured_task_ids = list(requirement.get("task_ids") or [])
+            matching_task_ids = [
+                task_id
+                for task_id in configured_task_ids
+                if task_id in incident_task_ids
+            ]
+            task_ids = matching_task_ids or configured_task_ids
             resolved_tasks = self._resolved_task_entries(task_ids)
             station_ids = sorted(
                 {
@@ -426,13 +440,27 @@ class IncidentStore:
                     continue
                 skill_id = spec.get("skill_id")
                 required = max(0, _as_int(spec.get("assigned"), 0))
-                actual = sum(
+                individual_assignment_count = sum(
                     1
                     for assignment in assignments
                     if skill_id in (assignment.get("skill_ids") or [])
                 )
                 api_status = skill_status_index.get(skill_id, {})
-                short_code = api_status.get("short_code") or skill_meta.get(skill_id, {}).get("short_code")
+                api_assigned_value = api_status.get("assigned_count")
+                if api_assigned_value is not None:
+                    actual = max(0, _as_int(api_assigned_value, 0))
+                    coverage_source = "warning_statuses"
+                elif "available_memberships" in api_status:
+                    actual = len(api_status.get("available_memberships") or [])
+                    coverage_source = "warning_statuses_available_memberships"
+                else:
+                    actual = individual_assignment_count
+                    coverage_source = "incident_skill_assignments"
+
+                short_code = (
+                    api_status.get("short_code")
+                    or skill_meta.get(skill_id, {}).get("short_code")
+                )
                 skills.append(
                     {
                         "skill_id": skill_id,
@@ -442,6 +470,8 @@ class IncidentStore:
                         "assigned": actual,
                         "filled": min(actual, required) if required else 0,
                         "sufficient": actual >= required,
+                        "coverage_source": coverage_source,
+                        "individual_assignment_count": individual_assignment_count,
                         "level": api_status.get("level"),
                         "minimum": api_status.get("minimum"),
                         "buffer": api_status.get("buffer"),
@@ -450,9 +480,11 @@ class IncidentStore:
                     }
                 )
 
+            # Skill requirements overlap. For example, a TS6 can require six
+            # members with the generic crew skill while one of those six also
+            # covers commander and another covers driver. Summing 6+1+1 into
+            # eight personnel positions would therefore be incorrect.
             sufficient = all(skill.get("sufficient") for skill in skills) if skills else None
-            required_total = sum(skill.get("required", 0) for skill in skills)
-            filled_total = sum(skill.get("filled", 0) for skill in skills)
             required_skill_ids = {skill.get("skill_id") for skill in skills}
             assigned_members = {
                 assignment.get("membership_id")
@@ -474,7 +506,6 @@ class IncidentStore:
                 if response.get("membership_id") is not None
                 and self._response_is_responding(response)
             }
-            reserve_members = responding_members - assigned_members
 
             crew_requirements.append(
                 {
@@ -487,12 +518,23 @@ class IncidentStore:
                     "tasks": resolved_tasks,
                     "station_ids": station_ids,
                     "skills": skills,
-                    "required_positions": required_total,
-                    "filled_positions": filled_total,
+                    # Kept for schema compatibility, but deliberately unknown:
+                    # overlapping skill requirements are not separate seats.
+                    "required_positions": None,
+                    "filled_positions": None,
                     "sufficient": sufficient,
                     "responding_count": len(responding_members),
-                    "assigned_member_count": len(assigned_members),
-                    "reserve_responding_count": len(reserve_members),
+                    "assigned_member_count": (
+                        len(assigned_members)
+                        if individual_assignments_available
+                        else None
+                    ),
+                    "reserve_responding_count": (
+                        len(responding_members - assigned_members)
+                        if individual_assignments_available
+                        else None
+                    ),
+                    "individual_assignments_available": individual_assignments_available,
                 }
             )
 
@@ -520,8 +562,22 @@ class IncidentStore:
             "crew_summary": {
                 "sufficient": overall_sufficient,
                 "responding_count": len(all_responding_members),
-                "assigned_member_count": len(all_assigned_members),
-                "reserve_responding_count": len(all_responding_members - all_assigned_members),
+                "assigned_member_count": (
+                    len(all_assigned_members)
+                    if individual_assignments_available
+                    else None
+                ),
+                "reserve_responding_count": (
+                    len(all_responding_members - all_assigned_members)
+                    if individual_assignments_available
+                    else None
+                ),
+                "individual_assignments_available": individual_assignments_available,
+                "staffing_source": (
+                    "warning_statuses"
+                    if warnings
+                    else "incident_skill_assignments"
+                ),
             },
             "own_responses": own_responses,
             "own_response": next(
@@ -579,6 +635,11 @@ class IncidentStore:
             "trigger",
             "created_at",
             "updated_at",
+            "start_time",
+            "end_time",
+            "external_id",
+            "description",
+            "radio_channels",
             "prio",
             "type",
             "responder_mode",
@@ -631,17 +692,55 @@ class IncidentStore:
         restored_lifecycle = data.get("lifecycle_fields")
         if isinstance(restored_lifecycle, dict):
             lifecycle.update(restored_lifecycle)
-        lifecycle.update(self._lifecycle_fields(data))
+        current_lifecycle = self._lifecycle_fields(data)
+        lifecycle.update(current_lifecycle)
+
+        # BrandweerRooster exposes a real operational end_time. An earlier RC
+        # treated state=finished as incident end and created a detected timestamp;
+        # discard that legacy estimate once RC2 sees the incident again.
+        api_ended_at = self._first_value(data, END_TIME_KEYS)
+        if api_ended_at is None:
+            api_ended_at = self._first_value(current_lifecycle, END_TIME_KEYS)
+        if (
+            api_ended_at is None
+            and isinstance(restored_lifecycle, dict)
+            and restored_lifecycle.get("ended_at_estimated") is not True
+        ):
+            api_ended_at = self._first_value(restored_lifecycle, END_TIME_KEYS)
+
+        legacy_estimated_end = bool(
+            data.get("ended_at_estimated") is True
+            or (
+                isinstance(restored_lifecycle, dict)
+                and restored_lifecycle.get("ended_at_estimated") is True
+            )
+            or lifecycle.get("ended_at_estimated") is True
+        )
+
+        if api_ended_at is not None:
+            ended_at = api_ended_at
+            lifecycle["incident_ended_at"] = api_ended_at
+            lifecycle["ended_at_source"] = "api"
+            lifecycle["ended_at_estimated"] = False
+            snapshot["ended_at_source"] = "api"
+            snapshot["ended_at_estimated"] = False
+        elif legacy_estimated_end:
+            ended_at = None
+            lifecycle.pop("incident_ended_at", None)
+            lifecycle.pop("ended_at_source", None)
+            lifecycle.pop("ended_at_estimated", None)
+            snapshot.pop("incident_ended_at", None)
+            snapshot.pop("ended_at_source", None)
+            snapshot.pop("ended_at_estimated", None)
+        else:
+            ended_at = data.get("incident_ended_at")
+            if ended_at is None:
+                ended_at = previous.get("incident_ended_at")
+
         if lifecycle:
             snapshot["lifecycle_fields"] = lifecycle
-
-        ended_at = self._first_value(data, END_TIME_KEYS)
-        if ended_at is None:
-            ended_at = self._first_value(lifecycle, END_TIME_KEYS)
-        if ended_at is None:
-            ended_at = data.get("incident_ended_at")
-        if ended_at is None:
-            ended_at = previous.get("incident_ended_at")
+        else:
+            snapshot.pop("lifecycle_fields", None)
 
         raw_status = self._first_value(data, STATUS_KEYS)
         if raw_status is None:
@@ -654,6 +753,12 @@ class IncidentStore:
             active = data["incident_active"]
         if source == "restore" and isinstance(data.get("lifecycle_known"), bool):
             lifecycle_known = data["lifecycle_known"]
+
+        if source != "restore" and legacy_estimated_end and api_ended_at is None:
+            # Migrate RC1 snapshots that were closed when state=finished was
+            # observed. Without a real API end_time the incident is still active.
+            active = True
+            lifecycle_known = False
 
         if ended_at is not None:
             active = False
@@ -678,7 +783,6 @@ class IncidentStore:
             for key in (
                 "closed",
                 "ended",
-                "finished",
                 "resolved",
                 "completed",
                 "cancelled",
@@ -699,10 +803,9 @@ class IncidentStore:
                 and trigger in {"new", "update"}
                 and not explicit_lifecycle
             ):
-                # A websocket update means the incident is live only when the
-                # payload does not itself contain an explicit lifecycle state.
-                # For example, BrandweerRooster can send trigger=update together
-                # with state=finished; finished must win in that case.
+                # A normal WebSocket new/update keeps the incident live unless
+                # the payload contains a reliable operational close signal.
+                # BrandweerRooster state=finished only marks the response phase.
                 active = True
 
         if active is None and default_active is not None:
@@ -723,6 +826,8 @@ class IncidentStore:
             snapshot["incident_ended_at"] = ended_at
         elif active:
             snapshot.pop("incident_ended_at", None)
+            snapshot.pop("ended_at_source", None)
+            snapshot.pop("ended_at_estimated", None)
 
         snapshot.setdefault("first_seen_at", _now_iso())
         if source != "restore":
@@ -769,9 +874,32 @@ class IncidentStore:
         key = self._key(incident_id)
         elapsed = 0
         try:
-            while elapsed < FAST_INCIDENT_REFRESH_WINDOW_SECONDS:
+            while True:
+                current = self._incidents.get(key)
+                if not current or current.get("incident_active") is False:
+                    return
+
+                refresh_window = FAST_INCIDENT_REFRESH_WINDOW_SECONDS
+                started = _parse_datetime(
+                    current.get("start_time") or current.get("created_at")
+                )
+                respond_until = _parse_datetime(current.get("can_respond_until"))
+                if started is not None and respond_until is not None:
+                    response_window = max(
+                        0,
+                        int((respond_until - started).total_seconds()),
+                    )
+                    refresh_window = max(
+                        refresh_window,
+                        response_window + FAST_INCIDENT_REFRESH_GRACE_SECONDS,
+                    )
+
+                if elapsed >= refresh_window:
+                    break
+
                 await asyncio.sleep(FAST_INCIDENT_REFRESH_SECONDS)
                 elapsed += FAST_INCIDENT_REFRESH_SECONDS
+
                 current = self._incidents.get(key)
                 if not current or current.get("incident_active") is False:
                     return
@@ -824,10 +952,18 @@ class IncidentStore:
             self._latest_incident_id = incident_id
             if snapshot.get("incident_active") is not False:
                 # WebSocket updates can include task/vehicle changes; if a prior
-                # fast window has finished, start a fresh short observation window.
+                # fast window has finished, start a fresh observation window.
                 snapshot["assignment_final"] = False
                 snapshot.pop("assignment_finalized_at", None)
                 self._ensure_fast_refresh(incident_id)
+        elif (
+            source == "rest"
+            and snapshot.get("incident_active") is not False
+            and snapshot.get("assignment_final") is False
+        ):
+            # If staffing changes later during periodic REST refreshes, observe
+            # the new revision at high frequency as well.
+            self._ensure_fast_refresh(incident_id)
         elif self._latest_incident_id is None:
             self._latest_incident_id = incident_id
 
@@ -876,7 +1012,7 @@ class IncidentStore:
                 if address.get(key) is not None:
                     public[key] = address[key]
 
-        start = _parse_datetime(public.get("created_at"))
+        start = _parse_datetime(public.get("start_time") or public.get("created_at"))
         if start is not None:
             if public.get("incident_active"):
                 end = datetime.now(timezone.utc)
