@@ -55,122 +55,67 @@ Extended fires:
 fireservicerota_assignment_finalized
 ```
 
-after the short high-frequency staffing observation window for an incident. This is a useful moment to notify the authenticated user about their own assignment and the current staffing state.
+after the short high-frequency staffing observation window for an incident. The event can occur again after a later live update, so a notification automation should deduplicate incident IDs.
 
-The event can occur again if a later live incident update starts another staffing observation window, so the example stores processed incident IDs.
+The complete privacy-safe implementation is available in [Complete-Automation-Package.yaml](examples/Complete-Automation-Package.yaml).
 
-```yaml
-input_text:
-  fireservicerota_assignment_notifications:
-    name: FireServiceRota assignment notifications
-    max: 255
+### RC2 assignment semantics
+
+Do not interpret `own_assignment.assigned == false` by itself as "reserve".
+
+First inspect:
+
+```jinja
+{% set summary = incident.crew_summary or {} %}
+{{ summary.individual_assignments_available | default(false) }}
 ```
 
-```yaml
-alias: FireServiceRota - critical assignment notification
-mode: queued
-max: 10
+Use these meanings:
 
-triggers:
-  - trigger: event
-    event_type: fireservicerota_assignment_finalized
+- `individual_assignments_available == false`: the API did not provide individual person-to-function assignments. The user's exact assignment is unknown.
+- `individual_assignments_available == true` and `own_assignment.assigned == true`: the authenticated user is present in the individual assignment data.
+- `individual_assignments_available == true` and `own_assignment.assigned == false`: the authenticated user is not present in the individual assignment data.
 
-conditions:
-  - condition: template
-    alias: User is responding and assignment snapshot is final
-    value_template: >-
-      {% set wanted = trigger.event.data.incident_id | string %}
-      {% set ns = namespace(ok=false) %}
-      {% for i in state_attr('sensor.actieve_incidenten', 'incidents') or [] %}
-        {% if (i.id | string) == wanted
-              and i.assignment_final == true
-              and i.own_responding == true %}
-          {% set ns.ok = true %}
-        {% endif %}
-      {% endfor %}
-      {{ ns.ok }}
+A safe assignment message template is:
 
-  - condition: template
-    alias: No notification sent for this incident yet
-    value_template: >-
-      {% set wanted = trigger.event.data.incident_id | string %}
-      {% set sent = states('input_text.fireservicerota_assignment_notifications')
-         .split(',') | map('trim') | reject('equalto', '') | list %}
-      {{ wanted not in sent }}
+```jinja
+{% set summary = incident.crew_summary or {} %}
+{% set individual = summary.individual_assignments_available | default(false) %}
+{% set a = incident.own_assignment or {} %}
 
-actions:
-  - variables:
-      incident_id: "{{ trigger.event.data.incident_id | string }}"
-
-      assignment_text: >-
-        {% set wanted = trigger.event.data.incident_id | string %}
-        {% set ns = namespace(text='Assignment unknown') %}
-        {% for i in state_attr('sensor.actieve_incidenten', 'incidents') or [] %}
-          {% if (i.id | string) == wanted %}
-            {% set a = i.own_assignment or {} %}
-            {% if a.assigned == true %}
-              {% set skills = (a.skill_codes or []) | join(', ') %}
-              {% set tasks = (a.task_names or []) | join(', ') %}
-              {% set detail = [skills, tasks] | reject('equalto', '') | join(' - ') %}
-              {% set ns.text = 'Assigned' ~ ((': ' ~ detail) if detail else '') %}
-            {% else %}
-              {% set ns.text = 'Responding, but not assigned to a function yet' %}
-            {% endif %}
-          {% endif %}
-        {% endfor %}
-        {{ ns.text }}
-
-      crew_text: >-
-        {% set wanted = trigger.event.data.incident_id | string %}
-        {% set ns = namespace(lines=[]) %}
-        {% for i in state_attr('sensor.actieve_incidenten', 'incidents') or [] %}
-          {% if (i.id | string) == wanted %}
-            {% for r in i.crew_requirements or [] %}
-              {% set tasks = (r.tasks or []) | map(attribute='name') | select | list %}
-              {% set label = (tasks | join(', ')) if tasks else (r.short_code or r.name or 'Incident') %}
-              {% if r.sufficient == true %}
-                {% set status = 'sufficient' %}
-              {% elif r.sufficient == false %}
-                {% set status = 'insufficient' %}
-              {% else %}
-                {% set status = 'unknown' %}
-              {% endif %}
-              {% set positions = '' %}
-              {% if (r.required_positions | int(0)) > 0 %}
-                {% set positions = ' - ' ~ (r.filled_positions | int(0)) ~ '/' ~ (r.required_positions | int(0)) %}
-              {% endif %}
-              {% set ns.lines = ns.lines + [label ~ ': ' ~ status ~ positions] %}
-            {% endfor %}
-          {% endif %}
-        {% endfor %}
-        {{ ns.lines | join('\n') if ns.lines else 'Staffing state unavailable' }}
-
-  - action: notify.mobile_app_your_iphone
-    data:
-      title: "FireServiceRota - assignment"
-      message: |-
-        {{ assignment_text }}
-
-        {{ crew_text }}
-      data:
-        tag: "fireservicerota-assignment-{{ incident_id }}"
-        push:
-          sound:
-            name: default
-            critical: 1
-            volume: 1.0
-          interruption-level: critical
-    continue_on_error: true
-
-  - action: input_text.set_value
-    target:
-      entity_id: input_text.fireservicerota_assignment_notifications
-    data:
-      value: >-
-        {% set current = states('input_text.fireservicerota_assignment_notifications')
-           .split(',') | map('trim') | reject('equalto', '')
-           | reject('equalto', incident_id) | list %}
-        {{ (current + [incident_id])[-10:] | join(',') }}
+{% if individual == false %}
+  You confirmed responding. Individual assignment is not available via the API.
+{% elif a.assigned == true %}
+  {% set skills = (a.skill_codes or []) | join(', ') %}
+  {% set tasks = (a.task_names or []) | join(', ') %}
+  {% set detail = [skills, tasks] | reject('equalto', '') | join(' - ') %}
+  Assigned{{ ': ' ~ detail if detail else '' }}.
+{% else %}
+  You confirmed responding, but are not present in the individual assignment.
+{% endif %}
 ```
 
-This example deliberately does not filter on a local station ID. If a multi-station user wants station-specific behavior, filter dynamically using the station/task information returned in the incident snapshot rather than copying another installation's numeric IDs.
+### RC2 staffing summary
+
+Do not use `required_positions` / `filled_positions` to calculate total staffing. RC2 deliberately keeps those compatibility fields unknown because skill requirements can overlap.
+
+Instead, show `responding_count` plus per-skill coverage:
+
+```jinja
+{% for r in incident.crew_requirements or [] %}
+  {% set tasks = (r.tasks or []) | map(attribute='name') | select | list %}
+  {% set label = tasks | join(', ') if tasks else (r.short_code or r.name or 'Requirement') %}
+  {{ label }} - responding {{ r.responding_count }}
+  {% for skill in r.skills or [] %}
+    · {{ skill.short_code or skill.skill_id }} {{ skill.assigned }}/{{ skill.required }}
+  {% endfor %}
+{% endfor %}
+```
+
+This remains meaningful when individual assignments are unavailable because coverage can come from `warning_statuses`.
+
+## Full example
+
+For deduplication, critical push configuration, finalized staffing checks and privacy-safe incident text, use:
+
+[`examples/Complete-Automation-Package.yaml`](examples/Complete-Automation-Package.yaml)
