@@ -42,25 +42,25 @@ Not every field is present on every API payload.
 
 ## End-time rules
 
-Extended prefers lifecycle information from the API:
+Extended prefers the operational timestamps from the BrandweerRooster incident payload:
 
-1. An explicit API end time or explicit finished/closed state wins over a normal WebSocket `update` trigger.
-2. If Home Assistant observes a live active -> finished transition and the API does not provide an end time, the detection time can be used as an estimated fallback.
-3. Extended does not invent a detected end time for an incident that was already finished when Home Assistant starts.
-4. If a real API end time later becomes available, it is preferred over an estimate.
+1. An explicit API `end_time` (or another explicit end timestamp) closes the operational incident.
+2. BrandweerRooster can expose `state: finished` while the incident is still operationally active. Extended therefore does **not** use `finished` by itself as an incident end.
+3. RC2 no longer invents an estimated end time when `state` changes to `finished`.
+4. When `end_time` becomes available, it is stored as the incident end time and the duration is calculated from `start_time` (falling back to `created_at`).
 
 ## Duration
 
 For active incidents:
 
 ```text
-created_at -> current time
+start_time (or created_at) -> current time
 ```
 
 For closed incidents:
 
 ```text
-created_at -> incident_ended_at
+start_time (or created_at) -> incident_ended_at / API end_time
 ```
 
 The result is exposed as `duration_seconds`.
