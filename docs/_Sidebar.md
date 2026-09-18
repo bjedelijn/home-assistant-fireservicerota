@@ -1,6 +1,7 @@
 - [Home](README.md)
 - [Getting started](Getting-Started.md)
 - [Incident automations](Incident-Automations.md)
+- [Complete automation package](examples/Complete-Automation-Package.yaml)
 - [iPhone critical alerts](iPhone-Critical-Alerts.md)
 - [Incident lifecycle and history](Incident-Lifecycle-and-History.md)
 - [Crew staffing and assignments](Crew-Staffing.md)
