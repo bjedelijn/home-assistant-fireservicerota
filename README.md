@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current release candidate: `1.1.0-rc.1`**
+**Current release candidate: `1.1.0-rc.2`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** release candidate. The main Extended feature set is implemented and the focus for RC1 is real-world validation and bug fixing. Dynamic crew staffing / assignments should still be treated as test functionality until more real incidents and acknowledge/reject cases have been validated.
+> **Status:** release candidate. The main Extended feature set is implemented and the focus for RC2 is real-world validation and bug fixing. RC2 corrects incident end-time handling and staffing coverage based on real BrandweerRooster incident payloads. Individual crew assignments remain dependent on what the API exposes for a given organization/account.
 
 ## Safety notice
 
