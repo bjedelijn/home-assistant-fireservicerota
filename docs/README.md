@@ -12,6 +12,7 @@ Current examples target **`1.1.0-rc.2`**.
 
 - [Getting started](Getting-Started.md)
 - [Incident automations](Incident-Automations.md)
+- [Complete automation package](examples/Complete-Automation-Package.yaml)
 - [iPhone critical alerts](iPhone-Critical-Alerts.md)
 - [Incident lifecycle and history](Incident-Lifecycle-and-History.md)
 - [Crew staffing and assignments](Crew-Staffing.md)
@@ -42,6 +43,7 @@ The examples focus on information exposed by the integration itself:
 - per-membership responses
 - `own_assignment`
 - `crew_requirements`
+- `crew_summary.individual_assignments_available`
 - `fireservicerota_assignment_finalized`
 
-Copy examples only after replacing placeholder entity IDs with the entities from your own Home Assistant installation.
+The complete package combines these building blocks in one privacy-safe example. Copy examples only after replacing placeholder entity IDs with the entities from your own Home Assistant installation.
