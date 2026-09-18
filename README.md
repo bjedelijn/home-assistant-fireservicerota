@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** release candidate. The main Extended feature set is implemented and the focus for RC2 is real-world validation and bug fixing. RC2 corrects incident end-time handling and staffing coverage based on real BrandweerRooster incident payloads. Individual crew assignments remain dependent on what the API exposes for a given organization/account.
+> **Status:** release candidate. RC2 incorporates real-world validation fixes for incident end-time handling, response semantics and crew/staffing coverage. Individual crew assignments remain dependent on what the API exposes for a given organization/account.
 
 ## Safety notice
 
@@ -24,6 +24,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Documentation index](docs/README.md)
 - [Getting started](docs/Getting-Started.md)
 - [Incident automations](docs/Incident-Automations.md)
+- [Complete automation package](docs/examples/Complete-Automation-Package.yaml)
 - [iPhone critical alerts](docs/iPhone-Critical-Alerts.md)
 - [Incident lifecycle and history](docs/Incident-Lifecycle-and-History.md)
 - [Crew staffing and assignments](docs/Crew-Staffing.md)
@@ -31,7 +32,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
 
-The public examples intentionally avoid private addresses, personal device names, local vehicle mappings and other installation-specific data.
+The public examples intentionally avoid private addresses, personal device names, local vehicle mappings, station IDs and other installation-specific data.
 
 ## Extended functionality
 
@@ -44,14 +45,14 @@ Extended adds or expands:
 - Multi-incident tracking.
 - Unique incident history keyed by incident ID.
 - Live duration and closed-incident duration.
-- API lifecycle/end-time handling with a detected fallback only for observed live active-to-finished transitions.
+- Operational end-time handling based on actual API end timestamps.
 - Automatic authenticated-user, station/group and membership discovery.
 - Multi-station duty / availability support.
 - Global user-level Do Not Disturb state.
 - Dynamic task / alert-group resolution.
 - Per-membership incident response data and response switches.
-- Dynamic incident crew assignments.
-- Dynamic crew requirements, filled/required positions and sufficiency.
+- Dynamic incident crew assignments where the API exposes them.
+- Dynamic crew requirements and skill coverage.
 - Own response / own assignment information where available.
 - Short high-frequency REST refresh after a live incident/update for late staffing changes.
 - Pager discovery, pager status and pager-message support.
@@ -86,9 +87,9 @@ Authenticated user
     +-- incidents
           +-- task_ids -> readable tasks / stations
           +-- incident_responses -> response information
-          +-- incident_skill_assignments -> live crew assignments
-          +-- warning_statuses -> requirements / skills / sufficiency
-          +-- lifecycle -> active / finished / duration
+          +-- incident_skill_assignments -> individual assignments when available
+          +-- warning_statuses -> requirements / skills / coverage
+          +-- lifecycle -> active / end_time / duration
 ```
 
 ## Installation
@@ -132,6 +133,8 @@ Common attributes include:
 id
 trigger
 created_at
+start_time
+end_time
 prio
 type
 responder_mode
@@ -168,19 +171,19 @@ This is the preferred source for dashboards, concurrent incidents and dynamic cr
 
 Extended keeps incident state in a shared store keyed by incident ID.
 
-Lifecycle handling follows these rules:
+RC2 follows these rules:
 
-1. Explicit API end timestamps or explicit finished/closed state take precedence.
-2. A normal WebSocket `new` / `update` does not override an explicit closed state.
-3. If Home Assistant observes a live active-to-finished transition and the API supplies no end time, the detected time can be used as an estimated fallback.
-4. An incident already finished at Home Assistant startup is not given an invented end time.
-5. A real API end timestamp remains preferred over a detected estimate.
+1. An explicit API `end_time` (or another explicit operational end timestamp) closes the incident.
+2. BrandweerRooster `state=finished` describes the response/alerting phase and does **not** by itself mean that the operational incident has ended.
+3. RC2 does not invent an estimated operational end from `finished`.
+4. Duration is calculated from `start_time` (falling back to `created_at`) to the real operational end when available.
+5. Restored historic state is useful for dashboards but does not replay a live `trigger`.
 
 See [Incident lifecycle and history](docs/Incident-Lifecycle-and-History.md) for details.
 
 ## Dynamic crew staffing and assignments
 
-RC1 exposes dynamic staffing information by joining API incident structures such as:
+RC2 exposes staffing information by joining API incident structures such as:
 
 ```text
 incident_responses
@@ -204,13 +207,42 @@ assignment_final
 assignment_finalized_at
 ```
 
+Important RC2 semantics:
+
+- Skill requirements overlap; they are not separate personnel seats.
+- Do not add requirements such as 6 + 1 + 1 and interpret them as eight people.
+- `required_positions` and `filled_positions` are retained only as compatibility fields and are deliberately `None`.
+- `warning_statuses` is preferred for skill coverage counts.
+- `responding_count` remains useful even when individual assignments are unavailable.
+- `assigned_member_count` and `reserve_responding_count` are unknown when the API does not provide individual assignments.
+- Check `individual_assignments_available` before interpreting `own_assignment.assigned == false`.
+
 After the short fast-refresh observation window, Extended fires:
 
 ```text
 fireservicerota_assignment_finalized
 ```
 
-with the incident ID in the event data. This can be used for a more settled assignment notification. A privacy-safe iPhone critical-alert example is included in [iPhone critical alerts](docs/iPhone-Critical-Alerts.md).
+with the incident ID in the event data. This can be used for a more settled assignment notification.
+
+## Complete automation package
+
+A privacy-safe full Home Assistant package example is available at:
+
+[`docs/examples/Complete-Automation-Package.yaml`](docs/examples/Complete-Automation-Package.yaml)
+
+It demonstrates:
+
+- live `new` / `update` protection;
+- deduplication;
+- queued TTS;
+- day/night speaker routing;
+- media pause without powering devices on;
+- own acknowledged/rejected response handling;
+- `fireservicerota_assignment_finalized`;
+- RC2-safe staffing output and `individual_assignments_available`.
+
+Replace all placeholder entities before using it.
 
 ## Refresh strategy
 
@@ -285,16 +317,15 @@ If exactly one pager is linked it can be selected automatically. With multiple p
 9. **Optional functionality** - users can ignore extensions they do not need.
 10. **Safety first** - Home Assistant is an additional information/automation layer.
 
-## RC1 validation focus
+## RC2 validation focus
 
-Before promoting RC1 to `1.1.0`, further real-world validation is recommended for:
+Before promoting RC2 to `1.1.0`, continued real-world validation is useful for:
 
 - acknowledged and rejected incident responses per membership;
 - late task/unit updates after the initial incident;
-- `incident_skill_assignments` and `warning_statuses` across more real incidents;
-- required/filled functions and crew sufficiency against the BrandweerRooster UI;
-- responding / assigned / reserve counts;
-- the fast assignment refresh window;
+- `incident_skill_assignments` availability across organizations;
+- `warning_statuses` skill coverage and sufficiency;
+- assignment-finalized behavior after late updates;
 - closure/end-time/duration behavior across more incidents;
 - two or more simultaneous real incidents end-to-end;
 - accounts with more than two active station memberships where available.
