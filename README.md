@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current release candidate: `1.1.0-rc.2`**
+**Current release candidate: `1.1.0-rc.3`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** release candidate. RC2 incorporates real-world validation fixes for incident end-time handling, response semantics and crew/staffing coverage. Individual crew assignments remain dependent on what the API exposes for a given organization/account.
+> **Status:** release candidate. RC3 keeps the RC2 lifecycle/staffing semantics and adds a final staffing capture after operational closure plus an opt-in manual history backfill action. Individual crew assignments and historic backfill remain dependent on what the API exposes for a given organization/account.
 
 ## Safety notice
 
@@ -55,6 +55,8 @@ Extended adds or expands:
 - Dynamic crew requirements and skill coverage.
 - Own response / own assignment information where available.
 - Short high-frequency REST refresh after a live incident/update for late staffing changes.
+- One final REST staffing capture after an incident receives a real operational end time.
+- Manual, opt-in staffing backfill for retained closed history that predates staffing support.
 - Pager discovery, pager status and pager-message support.
 - Task-change tracking through `previous_task_ids` and `new_task_ids`.
 - Home Assistant translations for fixed UI labels while preserving raw API values.
@@ -171,11 +173,11 @@ This is the preferred source for dashboards, concurrent incidents and dynamic cr
 
 Extended keeps incident state in a shared store keyed by incident ID.
 
-RC2 follows these rules:
+RC3 follows these lifecycle rules:
 
 1. An explicit API `end_time` (or another explicit operational end timestamp) closes the incident.
 2. BrandweerRooster `state=finished` describes the response/alerting phase and does **not** by itself mean that the operational incident has ended.
-3. RC2 does not invent an estimated operational end from `finished`.
+3. RC3 does not invent an estimated operational end from `finished`.
 4. Duration is calculated from `start_time` (falling back to `created_at`) to the real operational end when available.
 5. Restored historic state is useful for dashboards but does not replay a live `trigger`.
 
@@ -183,7 +185,7 @@ See [Incident lifecycle and history](docs/Incident-Lifecycle-and-History.md) for
 
 ## Dynamic crew staffing and assignments
 
-RC2 exposes staffing information by joining API incident structures such as:
+RC3 exposes staffing information by joining API incident structures such as:
 
 ```text
 incident_responses
@@ -207,7 +209,7 @@ assignment_final
 assignment_finalized_at
 ```
 
-Important RC2 semantics:
+Important RC3 semantics:
 
 - Skill requirements overlap; they are not separate personnel seats.
 - Do not add requirements such as 6 + 1 + 1 and interpret them as eight people.
@@ -240,7 +242,7 @@ It demonstrates:
 - media pause without powering devices on;
 - own acknowledged/rejected response handling;
 - `fireservicerota_assignment_finalized`;
-- RC2-safe staffing output and `individual_assignments_available`.
+- RC3-safe staffing output and `individual_assignments_available`.
 
 Replace all placeholder entities before using it.
 
@@ -259,6 +261,19 @@ After that, active incidents continue to be REST-refreshed with a throttle of ap
 ```
 
 A later live WebSocket update can start a new short observation window.
+
+When an incident transitions from active to closed because a real operational end time becomes available, Extended performs one additional REST read. This captures the latest available response, requirement and assignment data into the closed history snapshot. The final closure read does not replay the live assignment-finalized event.
+
+Older restored history is **not** automatically re-fetched at startup or on a schedule. If a retained historic snapshot is missing staffing fields, use the opt-in service:
+
+```yaml
+action: fireservicerota.backfill_history_staffing
+data:
+  incident_id: "1234567"
+response_variable: backfill_result
+```
+
+Omit `incident_id` to inspect recent retained history, optionally with `limit` (1-25). Only records missing normalized staffing data are requested. The action returns counts such as `checked`, `updated`, `unavailable`, `failed` and `skipped`. Historic staffing can only be recovered when BrandweerRooster still returns the underlying data.
 
 ## Multi-station duty and incident response
 
@@ -317,9 +332,9 @@ If exactly one pager is linked it can be selected automatically. With multiple p
 9. **Optional functionality** - users can ignore extensions they do not need.
 10. **Safety first** - Home Assistant is an additional information/automation layer.
 
-## RC2 validation focus
+## RC3 validation focus
 
-Before promoting RC2 to `1.1.0`, continued real-world validation is useful for:
+Before promoting RC3 to `1.1.0`, continued real-world validation is useful for:
 
 - acknowledged and rejected incident responses per membership;
 - late task/unit updates after the initial incident;
@@ -327,6 +342,8 @@ Before promoting RC2 to `1.1.0`, continued real-world validation is useful for:
 - `warning_statuses` skill coverage and sufficiency;
 - assignment-finalized behavior after late updates;
 - closure/end-time/duration behavior across more incidents;
+- final staffing capture on operational closure;
+- manual staffing backfill on older retained history where the API still exposes source data;
 - two or more simultaneous real incidents end-to-end;
 - accounts with more than two active station memberships where available.
 
