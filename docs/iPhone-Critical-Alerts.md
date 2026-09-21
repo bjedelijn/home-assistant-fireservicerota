@@ -59,7 +59,7 @@ after the short high-frequency staffing observation window for an incident. The 
 
 The complete privacy-safe implementation is available in [Complete-Automation-Package.yaml](examples/Complete-Automation-Package.yaml).
 
-### RC2 assignment semantics
+### RC3 assignment semantics
 
 Do not interpret `own_assignment.assigned == false` by itself as "reserve".
 
@@ -95,9 +95,9 @@ A safe assignment message template is:
 {% endif %}
 ```
 
-### RC2 staffing summary
+### RC3 staffing summary
 
-Do not use `required_positions` / `filled_positions` to calculate total staffing. RC2 deliberately keeps those compatibility fields unknown because skill requirements can overlap.
+Do not use `required_positions` / `filled_positions` to calculate total staffing. RC3 deliberately keeps those compatibility fields unknown because skill requirements can overlap.
 
 Instead, show `responding_count` plus per-skill coverage:
 
