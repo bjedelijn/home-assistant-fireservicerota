@@ -1,6 +1,6 @@
 # Crew staffing and assignments
 
-FireServiceRota Extended `1.1.0-rc.2` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
+FireServiceRota Extended `1.1.0-rc.3` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
 
 The integration does not require local vehicle numbers, fixed station IDs or hardcoded function names.
 
@@ -63,7 +63,7 @@ reserve_responding_count
 individual_assignments_available
 ```
 
-In RC2:
+In RC3:
 
 - `required_positions` = `None`
 - `filled_positions` = `None`
@@ -83,7 +83,7 @@ api_assigned_count
 available_count
 ```
 
-RC2 treats skill requirements as **overlapping qualification requirements**, not as separate seats. For example, a requirement can need six members with a general crew skill while one of those six also covers commander and another covers driver. Therefore skill requirements such as 6 + 1 + 1 must not be summed into eight personnel positions.
+RC3 treats skill requirements as **overlapping qualification requirements**, not as separate seats. For example, a requirement can need six members with a general crew skill while one of those six also covers commander and another covers driver. Therefore skill requirements such as 6 + 1 + 1 must not be summed into eight personnel positions.
 
 The API `warning_statuses` coverage is used for sufficient/insufficient status when available. `incident_skill_assignments` remains useful for individual person-to-function details, but some organizations/incidents return no individual assignments.
 
@@ -179,3 +179,26 @@ After that, active incident REST refreshes are throttled to approximately:
 ```
 
 The fast window is intended to capture later responses and assignments shortly after dispatch.
+
+## Final closure capture
+
+When a real operational end timestamp closes an incident, Extended performs one final REST read. This stores the latest available staffing/response state in the closed history snapshot and sets `staffing_final_checked_at`.
+
+The final closure read is deliberately separate from the live fast-refresh window and does not fire `fireservicerota_assignment_finalized` again.
+
+## Manual history backfill
+
+Older retained history can predate the staffing fields. Extended does not automatically re-fetch all old history at startup or on a daily schedule. Use the manual service only when needed:
+
+```yaml
+action: fireservicerota.backfill_history_staffing
+data:
+  incident_id: "1234567"
+response_variable: backfill_result
+```
+
+Or omit `incident_id` and set `limit` to check recent retained history for records that are missing `crew_summary` / `crew_requirements`.
+
+If the API still exposes the historic source structures, the snapshot is enriched and gets `staffing_backfilled_at`. If those source structures are no longer available, the record is left unchanged and counted as `unavailable`.
+
+This backfill is intentionally opt-in. Users who want a periodic backfill can call the same service from a normal Home Assistant automation at their preferred cadence.
