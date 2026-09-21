@@ -10,7 +10,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DATA_CLIENT, DATA_COORDINATOR, DOMAIN as FIRESERVICEROTA_DOMAIN
+from .const import (
+    DATA_CLIENT,
+    DATA_COORDINATOR,
+    DATA_INCIDENT_STORE,
+    DOMAIN as FIRESERVICEROTA_DOMAIN,
+)
 from .incident_store import ACTIVE_INCIDENT_REFRESH_SECONDS, HISTORY_LIMIT, IncidentStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +28,9 @@ async def async_setup_entry(
     client = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_CLIENT]
     coordinator = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_COORDINATOR]
     incident_store = IncidentStore(hass, client, entry.entry_id)
+    hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
+        DATA_INCIDENT_STORE
+    ] = incident_store
 
     async_add_entities(
         [
