@@ -40,6 +40,8 @@ ended_at_estimated
 
 Not every field is present on every API payload.
 
+Closed snapshots can also retain staffing fields such as `crew_summary`, `crew_requirements`, `crew_assignments` and own response/assignment data when the API exposes them.
+
 ## End-time rules
 
 Extended prefers the operational timestamps from the BrandweerRooster incident payload:
@@ -48,6 +50,7 @@ Extended prefers the operational timestamps from the BrandweerRooster incident p
 2. BrandweerRooster can expose `state: finished` while the incident is still operationally active. Extended therefore does **not** use `finished` by itself as an incident end.
 3. RC2 no longer invents an estimated end time when `state` changes to `finished`.
 4. When `end_time` becomes available, it is stored as the incident end time and the duration is calculated from `start_time` (falling back to `created_at`).
+5. On the active -> closed transition, Extended performs one final REST read to capture the latest available staffing/response data into history. This is a single closure check, not a continuing history refresh.
 
 ## Duration
 
@@ -74,6 +77,32 @@ For that reason, incident automations should explicitly check:
 ```jinja
 {{ state_attr('sensor.incidents', 'trigger') in ['new', 'update'] }}
 ```
+
+## Historical staffing backfill
+
+Older history restored from versions that did not yet store staffing fields is not automatically re-fetched on every Home Assistant restart. This avoids unnecessary API traffic.
+
+A retained closed incident can be checked manually:
+
+```yaml
+action: fireservicerota.backfill_history_staffing
+data:
+  incident_id: "1234567"
+response_variable: backfill_result
+```
+
+To check recent retained history for missing staffing fields, omit `incident_id` and optionally set `limit` from 1 to 25:
+
+```yaml
+action: fireservicerota.backfill_history_staffing
+data:
+  limit: 25
+response_variable: backfill_result
+```
+
+The service only requests closed records that are missing normalized staffing data. It returns summary counts including `matched`, `checked`, `updated`, `unavailable`, `failed` and `skipped`.
+
+Backfill is best-effort: if BrandweerRooster no longer exposes the underlying historic responses, warning statuses or assignments, Extended leaves that snapshot unchanged rather than manufacturing empty staffing data.
 
 ## Concurrent incidents
 
