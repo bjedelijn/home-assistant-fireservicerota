@@ -161,6 +161,19 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
                 self.client_update,
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                self._incident_store.signal,
+                self._handle_store_update,
+            )
+        )
+
+    @callback
+    def _handle_store_update(self) -> None:
+        """Refresh latest-incident attributes when REST/store lifecycle changes."""
+        if self._state_attributes.get("id") is not None:
+            self.async_write_ha_state()
 
     def _with_task_changes(self, data: dict) -> dict:
         """Add task-change metadata for the current incident update."""
