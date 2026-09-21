@@ -46,3 +46,29 @@ send_pager_message:
       selector:
         text:
           type: url
+
+backfill_history_staffing:
+  name: Backfill history staffing
+  description: Re-fetch retained closed incidents that do not yet contain normalized staffing data. This action runs only when called and does not create a periodic history refresh.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional Home Assistant config entry ID. Required only when multiple FireServiceRota config entries are loaded.
+      example: 0123456789abcdef0123456789abcdef
+      selector:
+        text:
+    incident_id:
+      name: Incident ID
+      description: Optional retained closed incident ID. Leave empty to check missing staffing data in recent retained history.
+      example: "1234567"
+      selector:
+        text:
+    limit:
+      name: History limit
+      description: Maximum number of retained history records to consider when incident_id is not supplied.
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 25
+          mode: box
