@@ -14,6 +14,7 @@ from .const import DOMAIN as FIRESERVICEROTA_DOMAIN
 HISTORY_LIMIT = 25
 ACTIVE_INCIDENT_REFRESH_SECONDS = 120
 FAST_INCIDENT_REFRESH_SECONDS = 10
+FINAL_CLOSED_REFRESH_DELAY_SECONDS = 2
 FAST_INCIDENT_REFRESH_WINDOW_SECONDS = 100
 FAST_INCIDENT_REFRESH_GRACE_SECONDS = 20
 
@@ -138,6 +139,7 @@ class IncidentStore:
         self._last_rest_refresh: dict[str, float] = {}
         self._refresh_lock = asyncio.Lock()
         self._fast_refresh_tasks: dict[str, asyncio.Task] = {}
+        self._final_refresh_tasks: dict[str, asyncio.Task] = {}
 
     @property
     def signal(self) -> str:
@@ -857,6 +859,52 @@ class IncidentStore:
             self._incidents.pop(key, None)
             self._last_rest_refresh.pop(key, None)
 
+    def _ensure_final_closed_refresh(self, incident_id: Any) -> None:
+        """Schedule one final REST read after an incident transitions to closed."""
+        if incident_id is None:
+            return
+        key = self._key(incident_id)
+        existing = self._final_refresh_tasks.get(key)
+        if existing is not None and not existing.done():
+            return
+        self._final_refresh_tasks[key] = self._hass.async_create_task(
+            self._async_final_closed_refresh(incident_id)
+        )
+
+    async def _async_final_closed_refresh(self, incident_id: Any) -> None:
+        """Capture the final staffing snapshot once after operational closure."""
+        key = self._key(incident_id)
+        try:
+            await asyncio.sleep(FINAL_CLOSED_REFRESH_DELAY_SECONDS)
+            async with self._refresh_lock:
+                current = self._incidents.get(key)
+                if not current or current.get("incident_active") is not False:
+                    return
+
+                incident = await self._client.async_get_incident(incident_id)
+                self._last_rest_refresh[key] = time.monotonic()
+                if not isinstance(incident, dict):
+                    return
+
+                existing = self.get_raw(incident_id) or {"id": incident_id}
+                merged = dict(existing)
+                merged.update(incident)
+                for preserve in ("trigger", "previous_task_ids", "new_task_ids"):
+                    if preserve not in incident and preserve in existing:
+                        merged[preserve] = existing[preserve]
+
+                enriched = self._client.enrich_incident_data(merged)
+                snapshot = self.upsert(enriched, source="rest", notify=False)
+                if snapshot is None:
+                    return
+
+                snapshot["assignment_final"] = True
+                snapshot["assignment_finalized_at"] = _now_iso()
+                snapshot["staffing_final_checked_at"] = _now_iso()
+                self._notify()
+        finally:
+            self._final_refresh_tasks.pop(key, None)
+
     def _ensure_fast_refresh(self, incident_id: Any) -> None:
         """Start a short high-frequency REST refresh window for live assignments."""
         if incident_id is None:
@@ -945,8 +993,16 @@ class IncidentStore:
 
         key = self._key(incident_id)
         previous = self._incidents.get(key)
+        was_active = previous is not None and previous.get("incident_active") is not False
         snapshot = self._compact_snapshot(data, previous, source, default_active)
         self._incidents[key] = snapshot
+
+        if (
+            source != "restore"
+            and was_active
+            and snapshot.get("incident_active") is False
+        ):
+            self._ensure_final_closed_refresh(incident_id)
 
         if source == "websocket":
             self._latest_incident_id = incident_id
@@ -1068,6 +1124,96 @@ class IncidentStore:
         """Record when an incident was last refreshed through REST."""
         if incident_id is not None:
             self._last_rest_refresh[self._key(incident_id)] = time.monotonic()
+
+    @staticmethod
+    def _staffing_missing(snapshot: dict) -> bool:
+        """Return whether a history snapshot lacks normalized staffing data."""
+        return not isinstance(snapshot.get("crew_summary"), dict) or not isinstance(
+            snapshot.get("crew_requirements"), list
+        )
+
+    async def async_backfill_history_staffing(
+        self,
+        *,
+        incident_id: Any = None,
+        limit: int = HISTORY_LIMIT,
+    ) -> dict[str, Any]:
+        """Manually enrich closed history records that lack staffing data."""
+        limit_value = max(1, min(_as_int(limit, HISTORY_LIMIT), HISTORY_LIMIT))
+        history = list(self.history)
+        matching = (
+            [i for i in history if str(i.get("id")) == str(incident_id)]
+            if incident_id is not None
+            else history[:limit_value]
+        )
+        result: dict[str, Any] = {
+            "matched": len(matching),
+            "checked": 0,
+            "updated": 0,
+            "unavailable": 0,
+            "failed": 0,
+            "skipped": 0,
+            "updated_incident_ids": [],
+            "unavailable_incident_ids": [],
+            "failed_incident_ids": [],
+        }
+        if not matching:
+            return result
+
+        async with self._refresh_lock:
+            changed = False
+            for public in matching:
+                current_id = public.get("id")
+                if current_id is None:
+                    continue
+                if not self._staffing_missing(public):
+                    result["skipped"] += 1
+                    continue
+
+                result["checked"] += 1
+                incident = await self._client.async_get_incident(current_id)
+                if not isinstance(incident, dict):
+                    result["failed"] += 1
+                    result["failed_incident_ids"].append(current_id)
+                    continue
+
+                has_staffing_source = any(
+                    isinstance(incident.get(key), list) and bool(incident.get(key))
+                    for key in (
+                        "incident_responses",
+                        "incident_skill_assignments",
+                        "warning_statuses",
+                    )
+                )
+                if not has_staffing_source:
+                    result["unavailable"] += 1
+                    result["unavailable_incident_ids"].append(current_id)
+                    continue
+
+                existing = self.get_raw(current_id) or {"id": current_id}
+                merged = dict(existing)
+                merged.update(incident)
+                for preserve in ("trigger", "previous_task_ids", "new_task_ids"):
+                    if preserve not in incident and preserve in existing:
+                        merged[preserve] = existing[preserve]
+
+                enriched = self._client.enrich_incident_data(merged)
+                snapshot = self.upsert(enriched, source="rest", notify=False)
+                if snapshot is None or self._staffing_missing(snapshot):
+                    result["unavailable"] += 1
+                    result["unavailable_incident_ids"].append(current_id)
+                    continue
+
+                snapshot["assignment_final"] = True
+                snapshot.setdefault("assignment_finalized_at", _now_iso())
+                snapshot["staffing_backfilled_at"] = _now_iso()
+                result["updated"] += 1
+                result["updated_incident_ids"].append(current_id)
+                changed = True
+
+            if changed:
+                self._notify()
+        return result
 
     async def async_refresh_active(self) -> None:
         """Periodically refresh active incidents so API closure is detected."""
