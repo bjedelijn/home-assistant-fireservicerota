@@ -10,10 +10,14 @@ WSS_BWRURL = "wss://{0}/cable?access_token={1}"
 
 DATA_CLIENT = "client"
 DATA_COORDINATOR = "coordinator"
+DATA_INCIDENT_STORE = "incident_store"
 
 SERVICE_SEND_PAGER_MESSAGE = "send_pager_message"
+SERVICE_BACKFILL_HISTORY_STAFFING = "backfill_history_staffing"
 
 ATTR_ENTRY_ID = "entry_id"
+ATTR_INCIDENT_ID = "incident_id"
+ATTR_LIMIT = "limit"
 ATTR_PAGER_ID = "pager_id"
 ATTR_MESSAGE = "message"
 ATTR_ADDRESS = "address"
