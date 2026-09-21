@@ -4,7 +4,7 @@
 
 These pages contain practical examples for **FireServiceRota Extended**. They are written to be reusable for different users and organizations and intentionally avoid local station IDs, vehicle numbers, private addresses, personal device names and other installation-specific data.
 
-Current examples target **`1.1.0-rc.2`**.
+Current examples target **`1.1.0-rc.3`**.
 
 > Home Assistant is an additional information and automation layer. Do not use it as the only emergency alerting method. Official pager, app, P2000 and/or other approved alerting channels remain leading.
 
@@ -45,5 +45,7 @@ The examples focus on information exposed by the integration itself:
 - `crew_requirements`
 - `crew_summary.individual_assignments_available`
 - `fireservicerota_assignment_finalized`
+- final staffing capture on operational closure
+- opt-in `fireservicerota.backfill_history_staffing` for older retained history
 
 The complete package combines these building blocks in one privacy-safe example. Copy examples only after replacing placeholder entity IDs with the entities from your own Home Assistant installation.
