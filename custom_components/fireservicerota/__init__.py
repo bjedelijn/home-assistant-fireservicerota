@@ -16,7 +16,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
 from homeassistant.const import CONF_TOKEN, CONF_URL, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import dispatcher_send
@@ -27,12 +27,16 @@ from .const import (
     ATTR_ADDRESSES,
     ATTR_CONFIRMATION,
     ATTR_ENTRY_ID,
+    ATTR_INCIDENT_ID,
+    ATTR_LIMIT,
     ATTR_MESSAGE,
     ATTR_PAGER_ID,
     ATTR_WEBHOOK_URL,
     DATA_CLIENT,
     DATA_COORDINATOR,
+    DATA_INCIDENT_STORE,
     DOMAIN,
+    SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_SEND_PAGER_MESSAGE,
     WSS_BWRURL,
 )
@@ -52,6 +56,16 @@ SEND_PAGER_MESSAGE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_ADDRESSES): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional(ATTR_CONFIRMATION, default=True): cv.boolean,
         vol.Optional(ATTR_WEBHOOK_URL): cv.url,
+    }
+)
+
+BACKFILL_HISTORY_STAFFING_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Optional(ATTR_INCIDENT_ID): vol.Coerce(str),
+        vol.Optional(ATTR_LIMIT, default=25): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=25)
+        ),
     }
 )
 
@@ -117,16 +131,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         del hass.data[DOMAIN][entry.entry_id]
 
-    if not hass.data[DOMAIN] and hass.services.has_service(
-        DOMAIN, SERVICE_SEND_PAGER_MESSAGE
-    ):
-        hass.services.async_remove(DOMAIN, SERVICE_SEND_PAGER_MESSAGE)
+    if not hass.data[DOMAIN]:
+        for service in (
+            SERVICE_SEND_PAGER_MESSAGE,
+            SERVICE_BACKFILL_HISTORY_STAFFING,
+        ):
+            if hass.services.has_service(DOMAIN, service):
+                hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
 
 
-def _service_client(hass: HomeAssistant, entry_id: str | None):
-    """Return the client targeted by a Home Assistant service call."""
+def _service_entry_data(hass: HomeAssistant, entry_id: str | None) -> dict:
+    """Return the config-entry data targeted by a Home Assistant service call."""
     entries = hass.data.get(DOMAIN, {})
 
     if entry_id:
@@ -135,10 +152,10 @@ def _service_client(hass: HomeAssistant, entry_id: str | None):
             raise HomeAssistantError(
                 f"Unknown FireServiceRota config entry: {entry_id}"
             )
-        return entry_data[DATA_CLIENT]
+        return entry_data
 
     if len(entries) == 1:
-        return next(iter(entries.values()))[DATA_CLIENT]
+        return next(iter(entries.values()))
 
     if not entries:
         raise HomeAssistantError("No FireServiceRota config entry is loaded")
@@ -148,10 +165,13 @@ def _service_client(hass: HomeAssistant, entry_id: str | None):
     )
 
 
+def _service_client(hass: HomeAssistant, entry_id: str | None):
+    """Return the client targeted by a Home Assistant service call."""
+    return _service_entry_data(hass, entry_id)[DATA_CLIENT]
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register integration services once."""
-    if hass.services.has_service(DOMAIN, SERVICE_SEND_PAGER_MESSAGE):
-        return
 
     async def async_send_pager_message(call: ServiceCall) -> None:
         """Send a message through a discovered BrandweerRooster pager."""
@@ -190,12 +210,38 @@ def _async_register_services(hass: HomeAssistant) -> None:
         client.last_pager_message = result
         dispatcher_send(hass, f"{DOMAIN}_{client.entry_id}_pager_update")
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SEND_PAGER_MESSAGE,
-        async_send_pager_message,
-        schema=SEND_PAGER_MESSAGE_SCHEMA,
-    )
+    async def async_backfill_history_staffing(call: ServiceCall) -> dict:
+        """Re-fetch retained closed incidents that lack staffing data."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        if incident_store is None:
+            raise HomeAssistantError(
+                "FireServiceRota incident history is not ready yet"
+            )
+
+        result = await incident_store.async_backfill_history_staffing(
+            incident_id=call.data.get(ATTR_INCIDENT_ID),
+            limit=call.data.get(ATTR_LIMIT, 25),
+        )
+        _LOGGER.info("History staffing backfill result: %s", result)
+        return result
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SEND_PAGER_MESSAGE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SEND_PAGER_MESSAGE,
+            async_send_pager_message,
+            schema=SEND_PAGER_MESSAGE_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_HISTORY_STAFFING):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_BACKFILL_HISTORY_STAFFING,
+            async_backfill_history_staffing,
+            schema=BACKFILL_HISTORY_STAFFING_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
 
 
 class FireServiceRotaOauth:
