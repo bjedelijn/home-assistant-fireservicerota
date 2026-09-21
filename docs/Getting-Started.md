@@ -112,5 +112,5 @@ An optional Git-based updater for Home Assistant OS / Supervised installations i
 - Use [Incident automations](Incident-Automations.md) for smaller notification/TTS building blocks.
 - Use [Complete automation package](examples/Complete-Automation-Package.yaml) for one combined package.
 - Use [iPhone critical alerts](iPhone-Critical-Alerts.md) for iOS critical notifications.
-- Use [Crew staffing and assignments](Crew-Staffing.md) for RC2 staffing semantics.
+- Use [Crew staffing and assignments](Crew-Staffing.md) for RC3 staffing semantics.
 - Use [Dashboard examples](Dashboard-Examples.md) for a privacy-neutral incident card and popup.
