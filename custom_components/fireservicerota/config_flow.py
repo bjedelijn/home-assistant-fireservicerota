@@ -4,8 +4,17 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_URL, CONF_USERNAME
+from homeassistant.core import callback
 
-from .const import DOMAIN, URL_LIST
+from .const import (
+    CONF_P2000_ENABLED,
+    CONF_P2000_SCAN_INTERVAL,
+    CONF_P2000_SOURCE,
+    DOMAIN,
+    P2000_DEFAULT_SCAN_INTERVAL,
+    P2000_SOURCE_ONLINE,
+    URL_LIST,
+)
 
 DATA_SCHEMA = vol.Schema(
     {
@@ -30,6 +39,12 @@ class FireServiceRotaFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._password = None
         self._existing_entry = None
         self._description_placeholders = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """Return the options flow handler."""
+        return FireServiceRotaOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input=None):
         """Handle a flow initiated by the user."""
@@ -127,3 +142,45 @@ class FireServiceRotaFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return await self._validate_and_create_entry(
             user_input, config_entries.SOURCE_REAUTH
         )
+
+class FireServiceRotaOptionsFlow(config_entries.OptionsFlow):
+    """Configure optional Extended features."""
+
+    def __init__(self, config_entry):
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        """Configure Netherlands-only P2000 enrichment."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        if self.config_entry.data.get(CONF_URL) != "www.brandweerrooster.nl":
+            return self.async_show_form(
+                step_id="init",
+                data_schema=vol.Schema({}),
+                description_placeholders={"p2000_availability": "P2000 is only available for BrandweerRooster Netherlands."},
+            )
+
+        current = {**self.config_entry.data, **self.config_entry.options}
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_P2000_ENABLED,
+                    default=bool(current.get(CONF_P2000_ENABLED, False)),
+                ): bool,
+                vol.Optional(
+                    CONF_P2000_SOURCE,
+                    default=current.get(CONF_P2000_SOURCE, P2000_SOURCE_ONLINE),
+                ): vol.In({P2000_SOURCE_ONLINE: "Online feed (beta)"}),
+                vol.Optional(
+                    CONF_P2000_SCAN_INTERVAL,
+                    default=int(
+                        current.get(
+                            CONF_P2000_SCAN_INTERVAL,
+                            P2000_DEFAULT_SCAN_INTERVAL,
+                        )
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)
