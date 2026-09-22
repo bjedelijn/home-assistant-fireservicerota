@@ -15,7 +15,7 @@ from .model import P2000Event
 _LOGGER = logging.getLogger(__name__)
 
 _API_URL = "https://beta.alarmeringdroid.nl/api2/find/"
-_VEHICLE_RE = re.compile(r"(?<!\\d)0\\d{5}(?!\\d)")
+_VEHICLE_RE = re.compile(r"(?<!\\d)\\d{6}(?!\\d)")
 
 
 class P2000OnlineProvider:
@@ -101,6 +101,26 @@ class P2000OnlineProvider:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _normalize_city(value: Any, postcode: str | None) -> str | None:
+        """Strip a duplicated postcode prefix from provider city values."""
+        city = str(value or "").strip()
+        if not city:
+            return None
+
+        if postcode:
+            pattern = rf"^{re.escape(postcode)}\\s+"
+            city = re.sub(pattern, "", city, flags=re.IGNORECASE).strip()
+
+        # Defensive fallback for provider values such as "4411BT  Rilland".
+        city = re.sub(r"^[1-9][0-9]{3}\\s?[A-Z]{2}\\s+", "", city, flags=re.IGNORECASE).strip()
+        return city or None
+
+    @staticmethod
+    def _extract_units(message: str) -> list[str]:
+        """Extract six-digit Dutch appliance/unit numbers from P2000 text."""
+        return sorted(set(_VEHICLE_RE.findall(message)))
+
     @classmethod
     def _normalize(
         cls, item: dict[str, Any], received_at: str
@@ -111,7 +131,8 @@ class P2000OnlineProvider:
         capcodes = item.get("capcodes") or []
         if not isinstance(capcodes, list):
             capcodes = []
-        units = sorted(set(_VEHICLE_RE.findall(message)))
+        postcode = str(item.get("postcode") or "").strip() or None
+        units = cls._extract_units(message)
         event_time = cls._event_time(item)
         return P2000Event(
             source=cls.source,
@@ -122,9 +143,9 @@ class P2000OnlineProvider:
             human_message=str(item.get("tekstmelding") or "").strip() or None,
             latitude=cls._as_float(item.get("lat", item.get("latitude"))),
             longitude=cls._as_float(item.get("lon", item.get("longitude"))),
-            city=str(item.get("plaats") or "").strip() or None,
+            city=cls._normalize_city(item.get("plaats"), postcode),
             street=str(item.get("straat") or "").strip() or None,
-            postcode=str(item.get("postcode") or "").strip() or None,
+            postcode=postcode,
             priority=1 if str(item.get("prio1") or "") == "1" else None,
             grip=cls._as_int(item.get("grip")),
             capcodes=[x for x in capcodes if isinstance(x, dict)],
