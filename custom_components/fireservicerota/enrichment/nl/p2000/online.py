@@ -16,6 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _API_URL = "https://beta.alarmeringdroid.nl/api2/find/"
 _VEHICLE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
+_POSTCODE_RE = re.compile(r"^[1-9][0-9]{3}\s?[A-Z]{2}$", re.IGNORECASE)
 
 
 class P2000OnlineProvider:
@@ -121,6 +122,35 @@ class P2000OnlineProvider:
         """Extract six-digit Dutch appliance/unit numbers from P2000 text."""
         return sorted(set(_VEHICLE_RE.findall(message)))
 
+    @staticmethod
+    def _normalize_location_code(value: Any) -> tuple[str | None, str | None]:
+        """Split a real Dutch postcode from provider-specific location references."""
+        raw = str(value or "").strip()
+        if not raw:
+            return None, None
+        if _POSTCODE_RE.fullmatch(raw):
+            return raw.replace(" ", "").upper(), None
+        return None, raw
+
+    @staticmethod
+    def _extract_talkgroups(item: dict[str, Any]) -> list[str]:
+        """Extract provider talkgroup/radio-channel hints when present.
+
+        AlarmeringDroid does not consistently expose this today, so accept a
+        small set of possible keys without making the field mandatory.
+        """
+        values: list[str] = []
+        for key in ("gespreksgroep", "gespreksgroepen", "talkgroup", "talkgroups",
+                    "radio_channel", "radio_channels"):
+            value = item.get(key)
+            if value in (None, ""):
+                continue
+            if isinstance(value, (list, tuple, set)):
+                values.extend(str(entry).strip() for entry in value if str(entry).strip())
+            else:
+                values.append(str(value).strip())
+        return sorted(set(values))
+
     @classmethod
     def _normalize(
         cls, item: dict[str, Any], received_at: str
@@ -131,8 +161,9 @@ class P2000OnlineProvider:
         capcodes = item.get("capcodes") or []
         if not isinstance(capcodes, list):
             capcodes = []
-        postcode = str(item.get("postcode") or "").strip() or None
+        postcode, location_reference = cls._normalize_location_code(item.get("postcode"))
         units = cls._extract_units(message)
+        talkgroups = cls._extract_talkgroups(item)
         event_time = cls._event_time(item)
         return P2000Event(
             source=cls.source,
@@ -146,10 +177,12 @@ class P2000OnlineProvider:
             city=cls._normalize_city(item.get("plaats"), postcode),
             street=str(item.get("straat") or "").strip() or None,
             postcode=postcode,
+            location_reference=location_reference,
             priority=1 if str(item.get("prio1") or "") == "1" else None,
             grip=cls._as_int(item.get("grip")),
             capcodes=[x for x in capcodes if isinstance(x, dict)],
             units=units,
+            talkgroups=talkgroups,
         )
 
     @staticmethod
