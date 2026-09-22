@@ -15,7 +15,7 @@ from .model import P2000Event
 _LOGGER = logging.getLogger(__name__)
 
 _API_URL = "https://beta.alarmeringdroid.nl/api2/find/"
-_VEHICLE_RE = re.compile(r"(?<!\\d)\\d{6}(?!\\d)")
+_VEHICLE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
 
 
 class P2000OnlineProvider:
@@ -109,11 +109,11 @@ class P2000OnlineProvider:
             return None
 
         if postcode:
-            pattern = rf"^{re.escape(postcode)}\\s+"
+            pattern = rf"^{re.escape(postcode)}\s+"
             city = re.sub(pattern, "", city, flags=re.IGNORECASE).strip()
 
         # Defensive fallback for provider values such as "4411BT  Rilland".
-        city = re.sub(r"^[1-9][0-9]{3}\\s?[A-Z]{2}\\s+", "", city, flags=re.IGNORECASE).strip()
+        city = re.sub(r"^[1-9][0-9]{3}\s?[A-Z]{2}\s+", "", city, flags=re.IGNORECASE).strip()
         return city or None
 
     @staticmethod
