@@ -11,6 +11,13 @@ WSS_BWRURL = "wss://{0}/cable?access_token={1}"
 DATA_CLIENT = "client"
 DATA_COORDINATOR = "coordinator"
 DATA_INCIDENT_STORE = "incident_store"
+DATA_P2000_MANAGER = "p2000_manager"
+
+CONF_P2000_ENABLED = "p2000_enabled"
+CONF_P2000_SOURCE = "p2000_source"
+CONF_P2000_SCAN_INTERVAL = "p2000_scan_interval"
+P2000_SOURCE_ONLINE = "online"
+P2000_DEFAULT_SCAN_INTERVAL = 30
 
 SERVICE_SEND_PAGER_MESSAGE = "send_pager_message"
 SERVICE_BACKFILL_HISTORY_STAFFING = "backfill_history_staffing"
