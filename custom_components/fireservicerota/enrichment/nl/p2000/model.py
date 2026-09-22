@@ -20,10 +20,12 @@ class P2000Event:
     city: str | None = None
     street: str | None = None
     postcode: str | None = None
+    location_reference: str | None = None
     priority: int | None = None
     grip: int | None = None
     capcodes: list[dict[str, Any]] = field(default_factory=list)
     units: list[str] = field(default_factory=list)
+    talkgroups: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """Return a JSON/RestoreEntity-friendly representation."""
