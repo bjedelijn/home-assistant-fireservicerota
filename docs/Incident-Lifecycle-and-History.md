@@ -70,7 +70,7 @@ The result is exposed as `duration_seconds`.
 
 ## Restart behavior
 
-Incident state is restored after a Home Assistant restart. Historic restored state should remain useful for dashboards without looking like a new live incident to automations.
+Incident state is restored after a Home Assistant restart. Historic restored state should remain useful for dashboards without looking like a new live incident to automations. In RC4, normalized staffing and own-response fields that were already stored in a compact incident snapshot are preserved during this restore instead of being discarded.
 
 For that reason, incident automations should explicitly check:
 
@@ -80,7 +80,7 @@ For that reason, incident automations should explicitly check:
 
 ## Historical staffing backfill
 
-Older history restored from versions that did not yet store staffing fields is not automatically re-fetched on every Home Assistant restart. This avoids unnecessary API traffic.
+History that already contains normalized staffing data is restored locally and does not need a backfill after restart. Older history from versions that did not yet store staffing fields is not automatically re-fetched on every Home Assistant restart. This avoids unnecessary API traffic.
 
 A retained closed incident can be checked manually:
 

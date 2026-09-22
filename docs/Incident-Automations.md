@@ -118,7 +118,25 @@ Store the ID after the action:
 
 Replace the TTS action with the TTS integration used by your Home Assistant installation.
 
-For multiple incident/reaction speech paths, a queued script is recommended so one message does not interrupt another. The complete package includes this pattern.
+For Google Cast / Nest targets it can be useful to explicitly close the Cast session after speech has finished, otherwise indicator LEDs can remain active even though audio playback has stopped:
+
+```yaml
+- wait_template: "{{ not is_state('media_player.example_speaker', 'playing') }}"
+  timeout: "00:02:00"
+  continue_on_timeout: true
+
+- delay:
+    seconds: 1
+
+- action: media_player.media_stop
+  target:
+    entity_id: media_player.example_speaker
+  continue_on_error: true
+```
+
+Apply this only to targets for which stopping the Cast session is desired; a wall/tablet media player may need different handling.
+
+For multiple incident/reaction speech paths, a queued script is recommended so one message does not interrupt another. A daytime/nighttime split can also use separate volumes and an additional on-duty / Do Not Disturb guard before nighttime speech. The complete package includes these patterns.
 
 ## Pause media without turning devices on
 

@@ -89,6 +89,26 @@ POSITIVE_RESPONSE_VALUES = {
     "at_station",
 }
 
+# Normalized staffing fields are part of the persisted incident snapshot.  They
+# must survive RestoreEntity reconstruction after a Home Assistant restart;
+# otherwise historic turnout/staffing detail disappears until a manual REST
+# backfill is run.
+RESTORED_STAFFING_KEYS = (
+    "crew_assignments",
+    "crew_requirements",
+    "crew_summary",
+    "own_responses",
+    "own_response",
+    "own_responding",
+    "own_assignment",
+    "assignment_revision",
+    "assignment_last_changed_at",
+    "assignment_final",
+    "assignment_finalized_at",
+    "staffing_final_checked_at",
+    "staffing_backfilled_at",
+)
+
 
 def _parse_datetime(value: Any) -> datetime | None:
     """Parse an API timestamp into an aware datetime."""
@@ -660,6 +680,15 @@ class IncidentStore:
                 if isinstance(value, list):
                     value = list(value)
                 snapshot[key] = value
+
+        if source == "restore":
+            # RestoreEntity already persisted the normalized staffing snapshot.
+            # Reuse those fields directly instead of requiring the raw API
+            # structures (incident_responses / incident_skill_assignments /
+            # warning_statuses), which are intentionally not stored in history.
+            for key in RESTORED_STAFFING_KEYS:
+                if key in data:
+                    snapshot[key] = data[key]
 
         self._apply_staffing(snapshot, data, previous)
 
