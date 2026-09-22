@@ -35,6 +35,7 @@ from .const import (
     DATA_CLIENT,
     DATA_COORDINATOR,
     DATA_INCIDENT_STORE,
+    DATA_P2000_MANAGER,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_SEND_PAGER_MESSAGE,
@@ -75,6 +76,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry after Extended options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up FireServiceRota from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -97,6 +103,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await coordinator.async_refresh()
+
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_CLIENT: client,
@@ -121,7 +129,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload FireServiceRota config entry."""
-    client = hass.data[DOMAIN][entry.entry_id][DATA_CLIENT]
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    client = entry_data[DATA_CLIENT]
+    p2000_manager = entry_data.get(DATA_P2000_MANAGER)
+    if p2000_manager is not None:
+        await p2000_manager.async_stop()
     await hass.async_add_executor_job(client.websocket.stop_listener)
 
     unload_ok = await hass.config_entries.async_unload_platforms(
@@ -448,356 +460,3 @@ class FireServiceRotaClient:
                     found.update(
                         FireServiceRotaClient._extract_alerting_debug(
                             value, f"{path}[{index}]"
-                        )
-                    )
-
-        return found
-
-    def _log_discovery_debug(self) -> None:
-        """Log safe API structure needed while validating Extended discovery."""
-        for group in self.groups:
-            safe_group = self._sanitize_debug_value(group)
-            _LOGGER.debug(
-                "Extended group debug id=%s type=%s name=%s structure=%s",
-                group.get("id"),
-                group.get("type"),
-                group.get("name"),
-                safe_group,
-            )
-
-        alerting = self._extract_alerting_debug(self.user_data or {})
-        _LOGGER.debug("Extended alerting preference debug: %s", alerting)
-
-    async def async_discover(self) -> None:
-        """Discover current user, stations, memberships, tasks and pagers."""
-        user_data = await self.update_call(self.fsr.get_user)
-        groups = await self.async_api_get("groups")
-        pagers = await self.update_call(self.fsr.get_pagers)
-
-        if isinstance(user_data, dict):
-            self.user_data = user_data
-            self.do_not_disturb = user_data.get("do_not_disturb")
-
-        if isinstance(groups, list):
-            self.groups = groups
-            self._rebuild_group_indexes()
-
-        if isinstance(pagers, list):
-            self.pagers = pagers
-            self.pagers_by_id = {
-                pager["id"]: pager
-                for pager in pagers
-                if pager.get("id") is not None
-            }
-
-        _LOGGER.debug(
-            "Discovered %s stations, %s memberships, %s tasks and %s pagers",
-            len(self.stations),
-            len(self.membership_index),
-            len(self.task_index),
-            len(self.pagers),
-        )
-        self._log_discovery_debug()
-
-    def _rebuild_group_indexes(self) -> None:
-        """Build dynamic indexes for stations, memberships and alarm tasks."""
-        self.stations = []
-        self.membership_index = {}
-        self.task_index = {}
-
-        if not self.user_data:
-            return
-
-        user_id = self.user_data.get("id")
-        if user_id is None:
-            return
-
-        station_groups = {}
-        for group in self.groups:
-            if group.get("type") != "station":
-                continue
-
-            memberships = [
-                membership
-                for membership in group.get("memberships", [])
-                if membership.get("user_id") == user_id
-                and membership.get("status") == "active"
-            ]
-            if not memberships:
-                continue
-
-            station = {
-                "id": group.get("id"),
-                "name": group.get("name"),
-                "short_code": group.get("short_code"),
-                "crew_type": group.get("crew_type"),
-                "coordinates": group.get("coordinates"),
-                "enabled_features": group.get("enabled_features", []),
-                "memberships": memberships,
-                "tasks": group.get("tasks", []),
-            }
-            self.stations.append(station)
-            station_groups[group.get("id")] = station
-
-            for membership in memberships:
-                membership_id = membership.get("id")
-                if membership_id is not None:
-                    self.membership_index[membership_id] = {
-                        **membership,
-                        "station_id": group.get("id"),
-                        "station_name": group.get("name"),
-                        "station_short_code": group.get("short_code"),
-                    }
-
-        # Tasks can live on station groups as well as child/team groups. The API
-        # exposes station_ids on a task, so index every task dynamically and only
-        # retain mappings to stations to which the authenticated user belongs.
-        seen = set()
-        active_station_ids = set(station_groups)
-        for group in self.groups:
-            for task in group.get("tasks", []) or []:
-                task_id = task.get("id")
-                if task_id is None:
-                    continue
-
-                station_ids = [
-                    station_id
-                    for station_id in (task.get("station_ids") or [])
-                    if station_id in active_station_ids
-                ]
-
-                if not station_ids:
-                    related_ids = set(group.get("ancestor_ids") or [])
-                    related_ids.add(group.get("parent_group_id"))
-                    related_ids.add(group.get("id"))
-                    station_ids = list(active_station_ids.intersection(related_ids))
-
-                for station_id in station_ids:
-                    key = (task_id, station_id)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    station = station_groups[station_id]
-                    task_info = {
-                        "id": task_id,
-                        "name": task.get("name"),
-                        "alertable": task.get("alertable"),
-                        "station_id": station_id,
-                        "station_name": station.get("name"),
-                        "station_short_code": station.get("short_code"),
-                        "group_ids": task.get("group_ids", []),
-                    }
-                    self.task_index.setdefault(task_id, []).append(task_info)
-
-    def _schedule_window_params(self) -> dict:
-        """Return today's local schedule window in API-compatible format."""
-        timezone = ZoneInfo(str(self._hass.config.time_zone))
-        now = datetime.now(timezone)
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1)
-        return {
-            "start_time": start.strftime("%Y-%m-%dT00:00:00%z"),
-            "end_time": end.strftime("%Y-%m-%dT00:00:00%z"),
-        }
-
-    @staticmethod
-    def _current_availability(schedule: dict, now: datetime) -> dict:
-        """Resolve the current interval from a combined_schedule response."""
-        for interval in schedule.get("intervals", []) or []:
-            start_time = interval.get("start_time")
-            end_time = interval.get("end_time")
-            if not start_time or not end_time:
-                continue
-            try:
-                start = datetime.fromisoformat(start_time)
-                end = datetime.fromisoformat(end_time)
-            except (TypeError, ValueError):
-                continue
-            if start <= now < end:
-                current = dict(interval)
-                detailed = current.get("detailed_availability") or {}
-                if "standby_duty" in detailed:
-                    current["type"] = "standby_duty"
-                elif "exception" in detailed:
-                    current["type"] = "exception"
-                elif "recurring" in detailed:
-                    current["type"] = "recurring"
-                else:
-                    current["type"] = "unknown"
-                current["available"] = bool(current.get("available"))
-                return current
-        return {"available": False}
-
-    async def _async_update_membership_duty(self) -> None:
-        """Update duty independently for every active membership."""
-        if not self.membership_index:
-            self.membership_duty = {}
-            return
-
-        params = self._schedule_window_params()
-        timezone = ZoneInfo(str(self._hass.config.time_zone))
-        now = datetime.now(timezone)
-        membership_duty = {}
-
-        for membership_id in self.membership_index:
-            schedule = await self.async_api_get(
-                f"memberships/{membership_id}/combined_schedule", params
-            )
-            if isinstance(schedule, dict):
-                membership_duty[membership_id] = self._current_availability(
-                    schedule, now
-                )
-            else:
-                _LOGGER.warning(
-                    "Could not retrieve duty for membership %s", membership_id
-                )
-
-        self.membership_duty = membership_duty
-
-    async def async_update(self) -> object:
-        """Update user state, per-membership duty and pager data."""
-        user_data = await self.update_call(self.fsr.get_user)
-        if isinstance(user_data, dict):
-            self.user_data = user_data
-            self.do_not_disturb = user_data.get("do_not_disturb")
-
-        # Keep the original first-membership availability call for the legacy
-        # binary_sensor.duty entity and backwards compatibility.
-        data = await self.update_call(
-            self.fsr.get_availability, str(self._hass.config.time_zone)
-        )
-        if isinstance(data, dict):
-            self.legacy_duty_data = data
-            self.on_duty = bool(data.get("available"))
-            _LOGGER.debug("Updated legacy availability data: %s", data)
-
-        await self._async_update_membership_duty()
-        _LOGGER.debug("Updated membership duty data: %s", self.membership_duty)
-
-        pagers = await self.update_call(self.fsr.get_pagers)
-        if isinstance(pagers, list):
-            self.pagers = pagers
-            self.pagers_by_id = {
-                pager["id"]: pager
-                for pager in pagers
-                if pager.get("id") is not None
-            }
-
-        if isinstance(self.last_pager_message, dict):
-            pager_id = self.last_pager_message.get("pager_id")
-            message_id = self.last_pager_message.get("id")
-            if pager_id is not None and message_id is not None:
-                status = await self.update_call(
-                    self.fsr.get_pager_message_status, pager_id, message_id
-                )
-                if isinstance(status, dict):
-                    merged_message = dict(self.last_pager_message)
-                    merged_message.update(status)
-                    self.last_pager_message = merged_message
-
-        return data
-
-    async def async_get_incident(self, incident_id) -> object:
-        """Return full incident data from the REST API."""
-        if not incident_id:
-            return None
-        return await self.async_api_get(f"incidents/{incident_id}")
-
-    def own_incident_responses(self, data: dict) -> list[dict]:
-        """Return all responses belonging to the authenticated user."""
-        user_id = self.user_data.get("id") if self.user_data else None
-        if user_id is None:
-            return []
-
-        own = []
-        for response in data.get("incident_responses", []) or []:
-            if response.get("user_id") != user_id:
-                continue
-
-            membership = self.membership_index.get(response.get("membership_id"), {})
-            own.append(
-                {
-                    "station_id": membership.get(
-                        "station_id", response.get("group_id")
-                    ),
-                    "station_name": membership.get("station_name"),
-                    "station_short_code": membership.get("station_short_code"),
-                    "membership_id": response.get("membership_id"),
-                    "group_id": response.get("group_id"),
-                    "status": response.get("status"),
-                    "responded_at": response.get("responded_at"),
-                    "channel": response.get("channel"),
-                    "reported_status": response.get("reported_status"),
-                    "arrived_at_station": response.get("arrived_at_station"),
-                    "estimated_time_of_arrival": response.get(
-                        "estimated_time_of_arrival"
-                    ),
-                }
-            )
-        return own
-
-    def enrich_incident_data(self, data: dict) -> dict:
-        """Enrich incident with resolved stations, tasks and own responses."""
-        enriched = dict(data)
-        task_ids = data.get("task_ids") or []
-        resolved_tasks = []
-        resolved_stations = {}
-
-        for task_id in task_ids:
-            for task in self.task_index.get(task_id, []):
-                resolved_tasks.append(task)
-                station_id = task.get("station_id")
-                if station_id is not None:
-                    resolved_stations[station_id] = {
-                        "id": station_id,
-                        "name": task.get("station_name"),
-                        "short_code": task.get("station_short_code"),
-                    }
-
-        enriched["resolved_tasks"] = resolved_tasks
-        enriched["resolved_stations"] = list(resolved_stations.values())
-        enriched["responses_by_station"] = self.own_incident_responses(data)
-        return enriched
-
-    async def async_response_update(self) -> object:
-        """Get all current-user response data for the latest incident."""
-        if not self.incident_id:
-            return None
-
-        _LOGGER.debug("Updating response data for incident id %s", self.incident_id)
-        incident = await self.async_get_incident(self.incident_id)
-        if not isinstance(incident, dict):
-            return None
-        return self.own_incident_responses(incident)
-
-    async def async_set_response(self, value) -> None:
-        """Set incident response status using the existing API wrapper method."""
-        if not self.incident_id:
-            return
-
-        _LOGGER.debug(
-            "Setting incident response for incident id '%s' to state '%s'",
-            self.incident_id,
-            value,
-        )
-        await self.update_call(self.fsr.set_incident_response, self.incident_id, value)
-
-    async def async_send_pager_message(
-        self,
-        pager_id: int,
-        message: str,
-        address: str | None = None,
-        addresses: list | None = None,
-        confirmation: bool = True,
-        webhook_url: str | None = None,
-    ) -> object:
-        """Send a pager message using the public pyfireservicerota method."""
-        return await self.update_call(
-            self.fsr.send_pager_message,
-            pager_id,
-            message,
-            address,
-            addresses,
-            confirmation,
-            webhook_url,
-        )
