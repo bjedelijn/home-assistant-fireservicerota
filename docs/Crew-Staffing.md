@@ -1,6 +1,6 @@
 # Crew staffing and assignments
 
-FireServiceRota Extended `1.1.0-rc.3` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
+FireServiceRota Extended `1.1.0-rc.4` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
 
 The integration does not require local vehicle numbers, fixed station IDs or hardcoded function names.
 
@@ -63,7 +63,7 @@ reserve_responding_count
 individual_assignments_available
 ```
 
-In RC3:
+In RC4:
 
 - `required_positions` = `None`
 - `filled_positions` = `None`
@@ -83,7 +83,7 @@ api_assigned_count
 available_count
 ```
 
-RC3 treats skill requirements as **overlapping qualification requirements**, not as separate seats. For example, a requirement can need six members with a general crew skill while one of those six also covers commander and another covers driver. Therefore skill requirements such as 6 + 1 + 1 must not be summed into eight personnel positions.
+RC4 treats skill requirements as **overlapping qualification requirements**, not as separate seats. For example, a requirement can need six members with a general crew skill while one of those six also covers commander and another covers driver. Therefore skill requirements such as 6 + 1 + 1 must not be summed into eight personnel positions.
 
 The API `warning_statuses` coverage is used for sufficient/insufficient status when available. `incident_skill_assignments` remains useful for individual person-to-function details, but some organizations/incidents return no individual assignments.
 
@@ -186,9 +186,31 @@ When a real operational end timestamp closes an incident, Extended performs one 
 
 The final closure read is deliberately separate from the live fast-refresh window and does not fire `fireservicerota_assignment_finalized` again.
 
+## Restart persistence
+
+RC4 preserves the normalized staffing and own-response fields already present in retained active/history snapshots when Home Assistant reconstructs `RestoreEntity` state after a restart. This includes fields such as:
+
+```text
+crew_assignments
+crew_requirements
+crew_summary
+own_responses
+own_response
+own_responding
+own_assignment
+assignment_revision
+assignment_last_changed_at
+assignment_final
+assignment_finalized_at
+staffing_final_checked_at
+staffing_backfilled_at
+```
+
+These fields are restored locally from the saved compact snapshot. A restart therefore does not require refetching every historic incident just to recover staffing that was already known before shutdown.
+
 ## Manual history backfill
 
-Older retained history can predate the staffing fields. Extended does not automatically re-fetch all old history at startup or on a daily schedule. Use the manual service only when needed:
+Older retained history can predate the staffing fields, and imported/legacy snapshots may genuinely lack normalized staffing. Extended does not automatically re-fetch all such history at startup or on a daily schedule. Use the manual service only when needed:
 
 ```yaml
 action: fireservicerota.backfill_history_staffing
