@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current beta: `1.2.0-beta.1`**
+**Current beta: `1.2.0-beta.3`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -68,16 +68,19 @@ No specific station, user, membership, task, vehicle or local priority mapping i
 
 For BrandweerRooster Netherlands, Extended can optionally enrich active incidents with P2000 data. This feature is disabled by default and has no effect on FireServiceRota UK entries.
 
-In `1.2.0-beta.1`:
+In `1.2.0-beta.3`:
 
 - the online P2000 provider talks directly to the AlarmeringDroid feed;
 - no separate HA P2000 integration is required for online mode;
-- only active BrandweerRooster incidents trigger P2000 polling;
+- when P2000 enrichment is enabled, the online provider polls continuously rather than waiting for an active BrandweerRooster incident;
+- recent unique P2000 messages are retained in an in-memory 60-minute rolling buffer;
+- when a BrandweerRooster incident appears, Extended can therefore match P2000 messages that arrived before BrandweerRooster as well as later escalation messages;
 - correlation uses incident time plus coordinates when available, with text/location fallback;
 - matched P2000 messages, units, capcodes and escalation detection are stored in `p2000_enrichment`;
 - P2000 enrichment survives incident closure/history storage;
 - polling is configurable from 30 to 3600 seconds;
-- RTL-SDR is not enabled yet in beta 1 and will be added after hardware validation.
+- a P2000 status sensor exposes polling health, ring-buffer size and the latest buffered message for testing;
+- RTL-SDR is not enabled yet and will be added after hardware validation.
 
 Configure this under **Settings -> Devices & services -> FireServiceRota Extended -> Configure**.
 
