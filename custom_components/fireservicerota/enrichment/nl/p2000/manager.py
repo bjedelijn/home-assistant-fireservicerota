@@ -17,6 +17,8 @@ _LOGGER = logging.getLogger(__name__)
 _MATCH_RADIUS_METERS = 1500
 _MATCH_WINDOW_BEFORE = timedelta(minutes=15)
 _MATCH_WINDOW_AFTER = timedelta(hours=3)
+_GROUP_RADIUS_METERS = 250
+_GROUP_WINDOW = timedelta(minutes=90)
 _BUFFER_RETENTION = timedelta(minutes=60)
 _WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 _STOPWORDS = {
@@ -166,22 +168,54 @@ class P2000EnrichmentManager:
         self._last_poll_result_count = len(events)
 
         # Correlate against the complete recent buffer, not only this poll.
-        # This is what lets a P2000 alert arrive before BrandweerRooster.
+        # BrandweerRooster can expose multiple technical incident ids for one
+        # practical incident. Group those ids first, then attach one shared
+        # P2000 timeline while preserving each original API incident separately.
         buffered = list(self._buffer.values())
-        for incident in self._incident_store.active_incidents:
-            incident_id = incident.get("id")
-            if incident_id is None:
+        active = list(self._incident_store.active_incidents)
+        for group in self._incident_groups(active):
+            incident_ids = [
+                incident.get("id")
+                for incident in group
+                if incident.get("id") is not None
+            ]
+            if not incident_ids:
                 continue
 
-            matched = [event for event in buffered if self._matches(incident, event)]
+            primary = min(
+                group,
+                key=lambda incident: self._incident_timestamp(incident).timestamp(),
+            )
+            primary_id = primary.get("id")
+            group_meta = {
+                "group_id": str(primary_id),
+                "primary_incident_id": primary_id,
+                "incident_ids": incident_ids,
+                "member_count": len(incident_ids),
+                "practical_incident": len(incident_ids) > 1,
+            }
+            for incident_id in incident_ids:
+                self._incident_store.apply_incident_group(incident_id, group_meta)
+
+            matched_by_key: dict[str, P2000Event] = {}
+            for event in buffered:
+                if any(self._matches(incident, event) for incident in group):
+                    matched_by_key[self._event_key(event)] = event
+            matched = list(matched_by_key.values())
             if not matched:
                 continue
 
             enrichment = self._build_enrichment(matched)
-            existing = incident.get("p2000_enrichment")
-            if self._same_enrichment(existing, enrichment):
-                continue
-            self._incident_store.apply_p2000_enrichment(incident_id, enrichment)
+            enrichment["incident_group_id"] = str(primary_id)
+            enrichment["incident_ids"] = incident_ids
+            for incident in group:
+                incident_id = incident.get("id")
+                if incident_id is None:
+                    continue
+                existing = incident.get("p2000_enrichment")
+                if self._same_enrichment(existing, enrichment):
+                    continue
+                self._incident_store.apply_p2000_enrichment(incident_id, enrichment)
 
         self._notify()
 
@@ -222,6 +256,114 @@ class P2000EnrichmentManager:
         old_compare.pop("last_updated", None)
         new_compare.pop("last_updated", None)
         return old_compare == new_compare
+
+    @classmethod
+    def _incident_groups(
+        cls, incidents: list[dict[str, Any]]
+    ) -> list[list[dict[str, Any]]]:
+        """Return connected groups of BWR ids representing one practical incident."""
+        remaining = list(incidents)
+        groups: list[list[dict[str, Any]]] = []
+        while remaining:
+            group = [remaining.pop(0)]
+            changed = True
+            while changed:
+                changed = False
+                for candidate in list(remaining):
+                    if any(cls._same_practical_incident(member, candidate) for member in group):
+                        group.append(candidate)
+                        remaining.remove(candidate)
+                        changed = True
+            groups.append(group)
+        return groups
+
+    @classmethod
+    def _same_practical_incident(
+        cls, left: dict[str, Any], right: dict[str, Any]
+    ) -> bool:
+        """Determine whether two BWR API ids belong to one practical incident."""
+        left_time = cls._incident_timestamp(left)
+        right_time = cls._incident_timestamp(right)
+        if abs(left_time - right_time) > _GROUP_WINDOW:
+            return False
+
+        left_lat = cls._incident_coordinate(left, "latitude")
+        left_lon = cls._incident_coordinate(left, "longitude")
+        right_lat = cls._incident_coordinate(right, "latitude")
+        right_lon = cls._incident_coordinate(right, "longitude")
+
+        coordinate_match = False
+        very_close = False
+        if None not in (left_lat, left_lon, right_lat, right_lon):
+            distance = cls._distance_meters(left_lat, left_lon, right_lat, right_lon)
+            if distance > _GROUP_RADIUS_METERS:
+                return False
+            coordinate_match = True
+            very_close = distance <= 100
+
+        left_address = cls._normalized_address(left)
+        right_address = cls._normalized_address(right)
+        exact_address = bool(left_address and left_address == right_address)
+
+        left_location_tokens = cls._tokens(left_address)
+        right_location_tokens = cls._tokens(right_address)
+        location_overlap = len(left_location_tokens & right_location_tokens) >= 2
+
+        if not (coordinate_match or exact_address or location_overlap):
+            return False
+
+        left_channels = cls._channel_values(left.get("radio_channels"))
+        right_channels = cls._channel_values(right.get("radio_channels"))
+        if left_channels and right_channels and left_channels & right_channels:
+            return True
+
+        left_text = cls._tokens(str(left.get("body") or ""))
+        right_text = cls._tokens(str(right.get("body") or ""))
+        if len(left_text & right_text) >= 2:
+            return True
+
+        # Exact address or a very small coordinate delta is sufficient when
+        # technical BWR calls are close in time but wording changes on escalation.
+        return exact_address or very_close
+
+    @classmethod
+    def _incident_timestamp(cls, incident: dict[str, Any]) -> datetime:
+        """Return the best available start timestamp for grouping."""
+        parsed = cls._parse_datetime(incident.get("start_time") or incident.get("created_at"))
+        return parsed or datetime.now().astimezone()
+
+    @classmethod
+    def _incident_coordinate(cls, incident: dict[str, Any], key: str) -> float | None:
+        value = incident.get(key)
+        if value is None and isinstance(incident.get("address"), dict):
+            value = incident["address"].get(key)
+        return cls._as_float(value)
+
+    @staticmethod
+    def _normalized_address(incident: dict[str, Any]) -> str:
+        value = incident.get("formatted_address")
+        if value is None and isinstance(incident.get("address"), dict):
+            value = incident["address"].get("formatted_address")
+        return " ".join(str(value or "").lower().split())
+
+    @staticmethod
+    def _channel_values(value: Any) -> set[str]:
+        """Normalize BWR radio-channel/talkgroup values without assuming schema."""
+        result: set[str] = set()
+        if value in (None, ""):
+            return result
+        if isinstance(value, dict):
+            for item in value.values():
+                result.update(P2000EnrichmentManager._channel_values(item))
+            return result
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                result.update(P2000EnrichmentManager._channel_values(item))
+            return result
+        text = str(value).strip().lower()
+        if text:
+            result.add(text)
+        return result
 
     @classmethod
     def _matches(cls, incident: dict[str, Any], event: P2000Event) -> bool:
@@ -312,6 +454,7 @@ class P2000EnrichmentManager:
     def _build_enrichment(events: list[P2000Event]) -> dict[str, Any]:
         ordered = sorted(events, key=P2000EnrichmentManager._event_timestamp)
         units = sorted({unit for event in ordered for unit in event.units})
+        talkgroups = sorted({group for event in ordered for group in event.talkgroups})
         capcodes: dict[str, str | None] = {}
         for event in ordered:
             for item in event.capcodes:
@@ -335,6 +478,7 @@ class P2000EnrichmentManager:
             "message_count": len(ordered),
             "messages": messages,
             "units": units,
+            "talkgroups": talkgroups,
             "capcodes": [
                 {"capcode": code, "description": description}
                 for code, description in sorted(capcodes.items())
