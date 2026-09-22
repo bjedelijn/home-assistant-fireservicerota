@@ -26,11 +26,16 @@ class P2000OnlineProvider:
     def __init__(self, hass) -> None:
         self._hass = hass
         self._session = async_get_clientsession(hass)
+        self.last_poll_at: str | None = None
+        self.last_poll_success: bool | None = None
+        self.last_error: str | None = None
+        self.last_result_count = 0
 
     async def async_fetch(self) -> list[P2000Event]:
         """Fetch and normalize the current set of fire-service alerts."""
         payload = json.dumps({"diensten": ["2"]}, separators=(",", ":"))
         url = f"{_API_URL}{payload}"
+        self.last_poll_at = datetime.now().astimezone().isoformat()
         try:
             async with self._session.get(
                 url,
@@ -40,11 +45,17 @@ class P2000OnlineProvider:
                 response.raise_for_status()
                 raw = await response.json(content_type=None)
         except (ClientError, TimeoutError, ValueError) as err:
+            self.last_poll_success = False
+            self.last_error = str(err)
+            self.last_result_count = 0
             _LOGGER.warning("P2000 online feed unavailable: %s", err)
             return []
 
         meldingen = raw.get("meldingen") if isinstance(raw, dict) else None
         if not isinstance(meldingen, list):
+            self.last_poll_success = False
+            self.last_error = "Unexpected response: missing meldingen list"
+            self.last_result_count = 0
             return []
 
         received_at = datetime.now().astimezone().isoformat()
@@ -62,6 +73,9 @@ class P2000OnlineProvider:
                     continue
                 seen.add(key)
                 events.append(event)
+        self.last_poll_success = True
+        self.last_error = None
+        self.last_result_count = len(events)
         return events
 
     @staticmethod
