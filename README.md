@@ -238,10 +238,12 @@ It demonstrates:
 
 - live `new` / `update` protection;
 - deduplication;
-- queued TTS;
-- day/night speaker routing;
+- queued TTS with repeat wording;
+- day/night speaker routing with separate daytime/night volumes;
+- optional nighttime on-duty / Do Not Disturb gating;
+- explicit Cast-session stop for speaker targets while leaving tablet targets untouched;
 - media pause without powering devices on;
-- own acknowledged/rejected response handling;
+- own acknowledged/rejected response handling with daytime-only response speech;
 - `fireservicerota_assignment_finalized`;
 - RC4-safe staffing output and `individual_assignments_available`.
 
