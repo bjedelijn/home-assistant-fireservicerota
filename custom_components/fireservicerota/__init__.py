@@ -76,11 +76,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
-async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry after Extended options change."""
-    await hass.config_entries.async_reload(entry.entry_id)
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up FireServiceRota from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -103,8 +98,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await coordinator.async_refresh()
-
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_CLIENT: client,
