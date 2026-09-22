@@ -11,31 +11,68 @@
       },
       "reauth": {
         "description": "De authenticatietokens zijn ongeldig geworden. Meld opnieuw aan om nieuwe tokens te maken.",
-        "data": {"password": "Wachtwoord"}
+        "data": {
+          "password": "Wachtwoord"
+        }
       }
     },
-    "error": {"invalid_auth": "Ongeldige authenticatie"},
+    "error": {
+      "invalid_auth": "Ongeldige authenticatie"
+    },
     "abort": {
       "already_configured": "Dit account is al geconfigureerd",
       "reauth_successful": "Opnieuw authenticeren is gelukt"
     },
-    "create_entry": {"default": "Succesvol aangemeld"}
+    "create_entry": {
+      "default": "Succesvol aangemeld"
+    }
   },
   "entity": {
     "binary_sensor": {
-      "duty": {"name": "Dienst"},
-      "duty_station": {"name": "Dienst {station}"},
-      "do_not_disturb": {"name": "Niet storen"}
+      "duty": {
+        "name": "Dienst"
+      },
+      "duty_station": {
+        "name": "Dienst {station}"
+      },
+      "do_not_disturb": {
+        "name": "Niet storen"
+      }
     },
     "sensor": {
-      "incidents": {"name": "Incidenten"},
-      "active_incidents": {"name": "Actieve incidenten"},
-      "incident_history": {"name": "Incidenthistorie"},
-      "pager": {"name": "Pager"}
+      "incidents": {
+        "name": "Incidenten"
+      },
+      "active_incidents": {
+        "name": "Actieve incidenten"
+      },
+      "incident_history": {
+        "name": "Incidenthistorie"
+      },
+      "pager": {
+        "name": "Pager"
+      }
     },
     "switch": {
-      "incident_response": {"name": "Incidentreactie"},
-      "incident_response_station": {"name": "Incidentreactie {station}"}
+      "incident_response": {
+        "name": "Incidentreactie"
+      },
+      "incident_response_station": {
+        "name": "Incidentreactie {station}"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Extended opties",
+        "description": "P2000-verrijking is alleen beschikbaar voor BrandweerRooster Nederland. In beta 1 is de online bron beschikbaar; RTL-SDR volgt in een volgende beta.",
+        "data": {
+          "p2000_enabled": "P2000-verrijking inschakelen",
+          "p2000_source": "P2000-bron",
+          "p2000_scan_interval": "Online polling-interval (seconden)"
+        }
+      }
     }
   }
 }
