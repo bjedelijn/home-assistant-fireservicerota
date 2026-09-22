@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current beta: `1.2.0-beta.3`**
+**Current beta: `1.2.0-beta.6`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -68,7 +68,7 @@ No specific station, user, membership, task, vehicle or local priority mapping i
 
 For BrandweerRooster Netherlands, Extended can optionally enrich active incidents with P2000 data. This feature is disabled by default and has no effect on FireServiceRota UK entries.
 
-In `1.2.0-beta.3`:
+In `1.2.0-beta.6`:
 
 - the online P2000 provider talks directly to the AlarmeringDroid feed;
 - no separate HA P2000 integration is required for online mode;
@@ -76,7 +76,11 @@ In `1.2.0-beta.3`:
 - recent unique P2000 messages are retained in an in-memory 60-minute rolling buffer;
 - when a BrandweerRooster incident appears, Extended can therefore match P2000 messages that arrived before BrandweerRooster as well as later escalation messages;
 - correlation uses incident time plus coordinates when available, with text/location fallback;
-- matched P2000 messages, units, capcodes and escalation detection are stored in `p2000_enrichment`;
+- Dutch postcodes are normalized separately from provider-specific location references such as motorway/hectometer references;
+- six-digit appliance/unit numbers are normalized from P2000 text;
+- multiple BrandweerRooster API incident ids can be linked into one logical `incident_group` when time and location strongly indicate one practical incident; original API incident ids and lifecycle remain separate;
+- BrandweerRooster `radio_channels` and provider talkgroup hints, when available, are treated as supporting correlation evidence rather than being confused with BrandweerRooster station/alert groups;
+- matched P2000 messages, units, talkgroup hints, capcodes and escalation detection are stored in `p2000_enrichment`;
 - P2000 enrichment survives incident closure/history storage;
 - polling is configurable from 30 to 3600 seconds;
 - a P2000 status sensor exposes polling health, ring-buffer size and the latest buffered message for testing;
@@ -397,10 +401,3 @@ Please remove private incident, location and household information before postin
 The original FireServiceRota Home Assistant integration and `pyfireservicerota` were created and maintained upstream by Ron Klinkien / Cyberjunky and contributors. All original-project credit remains with them.
 
 This repository is a fork. Bernd Edelijn maintains only the Extended changes in this repository/branch and is **not** presented as maintainer of the original project.
-
-Original repositories:
-
-- https://github.com/cyberjunky/home-assistant-fireservicerota
-- https://github.com/cyberjunky/python-fireservicerota
-
-Extended builds on that foundation with broader BrandweerRooster API support, particularly multi-station memberships, per-station duty state, global Do Not Disturb, task/alert-group resolution, pager integration, richer incident responses, multi-incident lifecycle/history and dynamic crew staffing.
