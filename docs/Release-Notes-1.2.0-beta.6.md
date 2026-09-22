@@ -14,6 +14,7 @@ Beta.6 improves the Netherlands-only optional P2000 enrichment path.
 - Groups are based on time plus strong location evidence, with radio-channel overlap and incident text used as supporting evidence.
 - Original BrandweerRooster incident ids, lifecycle, staffing and history entries remain separate; grouping is metadata only.
 - P2000 enrichment is correlated to the logical group and then attached to every technical BrandweerRooster incident id in that group.
+- Recently closed BrandweerRooster ids remain eligible for grouping while they are still relevant to the P2000 buffer, so a technical call closing slightly earlier does not immediately break the practical incident group.
 - BrandweerRooster station/alert `groups` are not treated as C2000 talkgroups.
 
 ## Notes
