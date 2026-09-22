@@ -44,7 +44,7 @@ class FireServiceRotaFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         """Return the options flow handler."""
-        return FireServiceRotaOptionsFlow(config_entry)
+        return FireServiceRotaOptionsFlow()
 
     async def async_step_user(self, user_input=None):
         """Handle a flow initiated by the user."""
@@ -143,11 +143,8 @@ class FireServiceRotaFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             user_input, config_entries.SOURCE_REAUTH
         )
 
-class FireServiceRotaOptionsFlow(config_entries.OptionsFlow):
+class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
     """Configure optional Extended features."""
-
-    def __init__(self, config_entry):
-        self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Configure Netherlands-only P2000 enrichment."""
