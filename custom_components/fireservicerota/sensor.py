@@ -39,6 +39,13 @@ async def async_setup_entry(
         DATA_INCIDENT_STORE
     ] = incident_store
 
+    entities = [
+        IncidentsSensor(client, incident_store),
+        ActiveIncidentsSensor(client, coordinator, incident_store),
+        IncidentHistorySensor(client, incident_store),
+        PagerSensor(client, coordinator),
+    ]
+
     options = {**entry.data, **entry.options}
     if (
         entry.data.get("url") == "www.brandweerrooster.nl"
@@ -56,16 +63,10 @@ async def async_setup_entry(
         hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
             DATA_P2000_MANAGER
         ] = p2000_manager
+        entities.append(P2000StatusSensor(client, p2000_manager))
         await p2000_manager.async_start()
 
-    async_add_entities(
-        [
-            IncidentsSensor(client, incident_store),
-            ActiveIncidentsSensor(client, coordinator, incident_store),
-            IncidentHistorySensor(client, incident_store),
-            PagerSensor(client, coordinator),
-        ]
-    )
+    async_add_entities(entities)
 
 
 class IncidentsSensor(RestoreEntity, SensorEntity):
@@ -412,6 +413,38 @@ class IncidentHistorySensor(RestoreEntity, SensorEntity):
     def _handle_store_update(self) -> None:
         """Write state when the shared incident store changes."""
         self.async_write_ha_state()
+
+
+class P2000StatusSensor(SensorEntity):
+    """Diagnostic status for the optional Dutch P2000 enrichment module."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "p2000_status"
+    _attr_should_poll = False
+    _attr_icon = "mdi:radio-tower"
+
+    def __init__(self, client, manager: P2000EnrichmentManager):
+        """Initialize."""
+        self._client = client
+        self._manager = manager
+        self._attr_unique_id = f"{self._client.unique_id}_P2000Status"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of unique P2000 events in the rolling buffer."""
+        return self._manager.buffer_size
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return P2000 reception and ring-buffer diagnostics."""
+        return self._manager.status
+
+    async def async_added_to_hass(self) -> None:
+        """Register for P2000 poll/buffer updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._manager.async_add_listener(self.async_write_ha_state)
+        )
 
 
 class PagerSensor(RestoreEntity, SensorEntity):
