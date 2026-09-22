@@ -674,6 +674,7 @@ class IncidentStore:
             "responses_by_station",
             "first_seen_at",
             "last_seen_at",
+            "p2000_enrichment",
         ):
             if key in data and data[key] is not None:
                 value = data[key]
@@ -1081,6 +1082,19 @@ class IncidentStore:
             return None
         snapshot = self._incidents.get(self._key(incident_id))
         return dict(snapshot) if snapshot else None
+
+    def apply_p2000_enrichment(self, incident_id: Any, enrichment: dict) -> None:
+        """Attach normalized P2000 data without altering incident lifecycle."""
+        if incident_id is None or not isinstance(enrichment, dict):
+            return
+        key = self._key(incident_id)
+        snapshot = self._incidents.get(key)
+        if snapshot is None:
+            return
+        if snapshot.get("p2000_enrichment") == enrichment:
+            return
+        snapshot["p2000_enrichment"] = enrichment
+        self._notify()
 
     @staticmethod
     def _public_snapshot(snapshot: dict) -> dict:
