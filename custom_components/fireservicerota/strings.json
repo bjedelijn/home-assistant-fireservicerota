@@ -50,6 +50,9 @@
       },
       "pager": {
         "name": "Pager"
+      },
+      "p2000_status": {
+        "name": "P2000 status"
       }
     },
     "switch": {
@@ -65,7 +68,7 @@
     "step": {
       "init": {
         "title": "Extended options",
-        "description": "P2000 enrichment is only available for BrandweerRooster Netherlands. Beta 1 supports the online source; RTL-SDR will follow in a later beta.",
+        "description": "P2000 enrichment is only available for BrandweerRooster Netherlands. The online source runs continuously with a 60-minute ring buffer; RTL-SDR will follow in a later beta.",
         "data": {
           "p2000_enabled": "Enable P2000 enrichment",
           "p2000_source": "P2000 source",
