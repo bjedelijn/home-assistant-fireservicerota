@@ -4,11 +4,17 @@
       "already_configured": "Account is already configured",
       "reauth_successful": "Re-authentication was successful"
     },
-    "create_entry": {"default": "Successfully authenticated"},
-    "error": {"invalid_auth": "Invalid authentication"},
+    "create_entry": {
+      "default": "Successfully authenticated"
+    },
+    "error": {
+      "invalid_auth": "Invalid authentication"
+    },
     "step": {
       "reauth": {
-        "data": {"password": "Password"},
+        "data": {
+          "password": "Password"
+        },
         "description": "Authentication tokens became invalid. Sign in again to recreate them."
       },
       "user": {
@@ -22,19 +28,50 @@
   },
   "entity": {
     "binary_sensor": {
-      "duty": {"name": "Duty"},
-      "duty_station": {"name": "Duty {station}"},
-      "do_not_disturb": {"name": "Do not disturb"}
+      "duty": {
+        "name": "Duty"
+      },
+      "duty_station": {
+        "name": "Duty {station}"
+      },
+      "do_not_disturb": {
+        "name": "Do not disturb"
+      }
     },
     "sensor": {
-      "incidents": {"name": "Incidents"},
-      "active_incidents": {"name": "Active incidents"},
-      "incident_history": {"name": "Incident history"},
-      "pager": {"name": "Pager"}
+      "incidents": {
+        "name": "Incidents"
+      },
+      "active_incidents": {
+        "name": "Active incidents"
+      },
+      "incident_history": {
+        "name": "Incident history"
+      },
+      "pager": {
+        "name": "Pager"
+      }
     },
     "switch": {
-      "incident_response": {"name": "Incident response"},
-      "incident_response_station": {"name": "Incident response {station}"}
+      "incident_response": {
+        "name": "Incident response"
+      },
+      "incident_response_station": {
+        "name": "Incident response {station}"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Extended options",
+        "description": "P2000 enrichment is only available for BrandweerRooster Netherlands. Beta 1 supports the online source; RTL-SDR will follow in a later beta.",
+        "data": {
+          "p2000_enabled": "Enable P2000 enrichment",
+          "p2000_source": "P2000 source",
+          "p2000_scan_interval": "Online poll interval (seconds)"
+        }
+      }
     }
   }
 }
