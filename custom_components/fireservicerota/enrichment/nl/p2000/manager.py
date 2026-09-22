@@ -172,8 +172,8 @@ class P2000EnrichmentManager:
         # practical incident. Group those ids first, then attach one shared
         # P2000 timeline while preserving each original API incident separately.
         buffered = list(self._buffer.values())
-        active = list(self._incident_store.active_incidents)
-        for group in self._incident_groups(active):
+        incidents = self._correlation_incidents()
+        for group in self._incident_groups(incidents):
             incident_ids = [
                 incident.get("id")
                 for incident in group
@@ -256,6 +256,22 @@ class P2000EnrichmentManager:
         old_compare.pop("last_updated", None)
         new_compare.pop("last_updated", None)
         return old_compare == new_compare
+
+    def _correlation_incidents(self) -> list[dict[str, Any]]:
+        """Return active plus recently closed incidents relevant to the buffer."""
+        combined: dict[str, dict[str, Any]] = {}
+        for incident in self._incident_store.active_incidents:
+            if incident.get("id") is not None:
+                combined[str(incident["id"])] = incident
+
+        cutoff = datetime.now().astimezone() - (_MATCH_WINDOW_AFTER + _BUFFER_RETENTION)
+        for incident in self._incident_store.history:
+            if incident.get("id") is None:
+                continue
+            if self._incident_timestamp(incident) < cutoff:
+                continue
+            combined.setdefault(str(incident["id"]), incident)
+        return list(combined.values())
 
     @classmethod
     def _incident_groups(
