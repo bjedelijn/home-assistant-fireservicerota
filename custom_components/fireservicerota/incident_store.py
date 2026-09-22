@@ -675,6 +675,7 @@ class IncidentStore:
             "first_seen_at",
             "last_seen_at",
             "p2000_enrichment",
+            "incident_group",
         ):
             if key in data and data[key] is not None:
                 value = data[key]
@@ -1094,6 +1095,19 @@ class IncidentStore:
         if snapshot.get("p2000_enrichment") == enrichment:
             return
         snapshot["p2000_enrichment"] = enrichment
+        self._notify()
+
+    def apply_incident_group(self, incident_id: Any, group: dict) -> None:
+        """Attach logical incident-group metadata while keeping API ids separate."""
+        if incident_id is None or not isinstance(group, dict):
+            return
+        key = self._key(incident_id)
+        snapshot = self._incidents.get(key)
+        if snapshot is None:
+            return
+        if snapshot.get("incident_group") == group:
+            return
+        snapshot["incident_group"] = group
         self._notify()
 
     @staticmethod
