@@ -13,10 +13,15 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import (
     DATA_CLIENT,
     DATA_COORDINATOR,
+    CONF_P2000_ENABLED,
+    CONF_P2000_SCAN_INTERVAL,
     DATA_INCIDENT_STORE,
+    DATA_P2000_MANAGER,
     DOMAIN as FIRESERVICEROTA_DOMAIN,
+    P2000_DEFAULT_SCAN_INTERVAL,
 )
 from .incident_store import ACTIVE_INCIDENT_REFRESH_SECONDS, HISTORY_LIMIT, IncidentStore
+from .enrichment.nl.p2000 import P2000EnrichmentManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +36,23 @@ async def async_setup_entry(
     hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
         DATA_INCIDENT_STORE
     ] = incident_store
+
+    options = {**entry.data, **entry.options}
+    if (
+        entry.data.get("url") == "www.brandweerrooster.nl"
+        and options.get(CONF_P2000_ENABLED, False)
+    ):
+        p2000_manager = P2000EnrichmentManager(
+            hass,
+            incident_store,
+            scan_interval=options.get(
+                CONF_P2000_SCAN_INTERVAL, P2000_DEFAULT_SCAN_INTERVAL
+            ),
+        )
+        hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
+            DATA_P2000_MANAGER
+        ] = p2000_manager
+        await p2000_manager.async_start()
 
     async_add_entities(
         [
@@ -123,6 +145,7 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
                 "duration_seconds",
                 "lifecycle_known",
                 "lifecycle_fields",
+                "p2000_enrichment",
             ):
                 if key in overview:
                     attr[key] = overview[key]
