@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current release candidate: `1.1.0-rc.4`**
+**Current beta: `1.2.0-beta.1`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** release candidate. RC4 keeps the RC3 lifecycle/staffing behavior, preserves normalized staffing/response snapshots across Home Assistant restarts, and retains the final staffing capture plus opt-in manual history backfill for genuinely missing/legacy history. Individual crew assignments and historic backfill remain dependent on what the API exposes for a given organization/account.
+> **Status:** beta. `1.2.0-beta.1` is based on `1.1.0-rc.4` and adds the first opt-in Netherlands-only P2000 enrichment path. The online provider is available in beta 1; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
 
 ## Safety notice
 
@@ -63,6 +63,23 @@ Extended adds or expands:
 - Home Assistant translations for fixed UI labels while preserving raw API values.
 
 No specific station, user, membership, task, vehicle or local priority mapping is hardcoded in the integration.
+
+## P2000 enrichment (Netherlands, beta)
+
+For BrandweerRooster Netherlands, Extended can optionally enrich active incidents with P2000 data. This feature is disabled by default and has no effect on FireServiceRota UK entries.
+
+In `1.2.0-beta.1`:
+
+- the online P2000 provider talks directly to the AlarmeringDroid feed;
+- no separate HA P2000 integration is required for online mode;
+- only active BrandweerRooster incidents trigger P2000 polling;
+- correlation uses incident time plus coordinates when available, with text/location fallback;
+- matched P2000 messages, units, capcodes and escalation detection are stored in `p2000_enrichment`;
+- P2000 enrichment survives incident closure/history storage;
+- polling is configurable from 30 to 3600 seconds;
+- RTL-SDR is not enabled yet in beta 1 and will be added after hardware validation.
+
+Configure this under **Settings -> Devices & services -> FireServiceRota Extended -> Configure**.
 
 ## Architecture
 
