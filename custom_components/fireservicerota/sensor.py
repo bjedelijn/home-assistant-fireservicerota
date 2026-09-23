@@ -126,6 +126,9 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
             "resolved_tasks",
             "resolved_stations",
             "responses_by_station",
+            "own_stations",
+            "own_affiliations",
+            "own_incident_affiliations",
             "first_seen_at",
             "last_seen_at",
         ):
@@ -335,6 +338,8 @@ class ActiveIncidentsSensor(RestoreEntity, SensorEntity):
             "latest_incident_id": self._incident_store.latest_incident_id,
             "incidents": self._incident_store.active_incidents,
             "refresh_seconds": ACTIVE_INCIDENT_REFRESH_SECONDS,
+            "own_stations": self._client.own_stations,
+            "own_affiliations": [dict(item) for item in self._client.own_affiliations],
         }
 
     async def async_added_to_hass(self) -> None:
@@ -400,6 +405,8 @@ class IncidentHistorySensor(RestoreEntity, SensorEntity):
         return {
             "incidents": self._incident_store.history,
             "history_limit": HISTORY_LIMIT,
+            "own_stations": self._client.own_stations,
+            "own_affiliations": [dict(item) for item in self._client.own_affiliations],
         }
 
     async def async_added_to_hass(self) -> None:

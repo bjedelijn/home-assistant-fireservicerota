@@ -682,6 +682,9 @@ class IncidentStore:
             "resolved_tasks",
             "resolved_stations",
             "responses_by_station",
+            "own_stations",
+            "own_affiliations",
+            "own_incident_affiliations",
             "first_seen_at",
             "first_seen_source",
             "last_seen_at",
@@ -1276,8 +1279,9 @@ class IncidentStore:
             target["api_closed"] = False
             target["group_close_suppressed"] = True
             target["manual_reopened_at"] = _now_iso()
+            target["manual_closed"] = False
             for key in ("operational_ended_at","operational_ended_at_source","incident_ended_at",
-                        "ended_at_source","group_closed_by_incident_ids"):
+                        "ended_at_source","group_closed_by_incident_ids","manual_closed_at"):
                 target.pop(key, None)
             changed_ids.append(target_id)
         if changed_ids:

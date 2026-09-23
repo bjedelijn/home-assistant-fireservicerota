@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current beta: `1.2.0-beta.8`**
+**Current beta: `1.2.0-beta.10`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** beta. `1.2.0-beta.8` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
+> **Status:** beta. `1.2.0-beta.10` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
 
 ## Safety notice
 
@@ -47,6 +47,8 @@ Extended adds or expands:
 - Live duration and closed-incident duration.
 - Operational end-time handling based on actual API end timestamps.
 - Automatic authenticated-user, station/group and membership discovery.
+- Generic `own_stations` and `own_affiliations` discovery from active memberships, including multi-station users and non-station/regional specialist groups.
+- Incident-level `own_incident_affiliations` derived from task and response context without hard-coded station or group IDs.
 - Multi-station duty / availability support.
 - Global user-level Do Not Disturb state.
 - Dynamic task / alert-group resolution.

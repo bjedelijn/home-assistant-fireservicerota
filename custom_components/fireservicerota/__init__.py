@@ -392,6 +392,10 @@ class FireServiceRotaClient:
         self.stations = []
         self.membership_index = {}
         self.task_index = {}
+        self.own_affiliations = []
+        self.own_affiliation_index = {}
+        self.own_membership_index = {}
+        self.own_task_affiliation_index = {}
         self.pagers = []
         self.pagers_by_id = {}
         self.last_pager_message = None
@@ -538,19 +542,24 @@ class FireServiceRotaClient:
             }
 
         _LOGGER.debug(
-            "Discovered %s stations, %s memberships, %s tasks and %s pagers",
+            "Discovered %s stations, %s station memberships, %s active affiliations, %s tasks and %s pagers",
             len(self.stations),
             len(self.membership_index),
+            len(self.own_affiliations),
             len(self.task_index),
             len(self.pagers),
         )
         self._log_discovery_debug()
 
     def _rebuild_group_indexes(self) -> None:
-        """Build dynamic indexes for stations, memberships and alarm tasks."""
+        """Build dynamic indexes for stations, memberships, affiliations and tasks."""
         self.stations = []
         self.membership_index = {}
         self.task_index = {}
+        self.own_affiliations = []
+        self.own_affiliation_index = {}
+        self.own_membership_index = {}
+        self.own_task_affiliation_index = {}
 
         if not self.user_data:
             return
@@ -559,17 +568,83 @@ class FireServiceRotaClient:
         if user_id is None:
             return
 
-        station_groups = {}
+        all_station_groups = {
+            group.get("id"): group
+            for group in self.groups
+            if group.get("type") == "station" and group.get("id") is not None
+        }
+        own_group_memberships = {}
         for group in self.groups:
-            if group.get("type") != "station":
+            group_id = group.get("id")
+            if group_id is None:
                 continue
-
             memberships = [
                 membership
                 for membership in group.get("memberships", [])
                 if membership.get("user_id") == user_id
                 and membership.get("status") == "active"
             ]
+            if memberships:
+                own_group_memberships[group_id] = memberships
+
+        # Keep all active memberships, not only station memberships. This covers
+        # users who belong to multiple stations and/or regional specialist teams.
+        for group in self.groups:
+            group_id = group.get("id")
+            memberships = own_group_memberships.get(group_id)
+            if not memberships:
+                continue
+
+            related_ids = set(group.get("ancestor_ids") or [])
+            if group.get("parent_group_id") is not None:
+                related_ids.add(group.get("parent_group_id"))
+            related_ids.add(group_id)
+
+            station_ids = sorted(
+                station_id
+                for station_id in related_ids
+                if station_id in all_station_groups
+            )
+            station_names = [
+                all_station_groups[station_id].get("name")
+                for station_id in station_ids
+                if all_station_groups[station_id].get("name")
+            ]
+            affiliation = {
+                "group_id": group_id,
+                "name": group.get("name"),
+                "short_code": group.get("short_code"),
+                "type": group.get("type"),
+                "membership_ids": sorted(
+                    membership.get("id")
+                    for membership in memberships
+                    if membership.get("id") is not None
+                ),
+                "station_ids": station_ids,
+                "station_names": station_names,
+                "is_station": group.get("type") == "station",
+            }
+            self.own_affiliations.append(affiliation)
+            self.own_affiliation_index[group_id] = affiliation
+            for membership in memberships:
+                membership_id = membership.get("id")
+                if membership_id is not None:
+                    self.own_membership_index[membership_id] = affiliation
+
+        self.own_affiliations.sort(
+            key=lambda item: (
+                0 if item.get("is_station") else 1,
+                str(item.get("name") or "").casefold(),
+                str(item.get("group_id")),
+            )
+        )
+
+        station_groups = {}
+        for group in self.groups:
+            if group.get("type") != "station":
+                continue
+
+            memberships = own_group_memberships.get(group.get("id")) or []
             if not memberships:
                 continue
 
@@ -635,6 +710,77 @@ class FireServiceRotaClient:
                         "group_ids": task.get("group_ids", []),
                     }
                     self.task_index.setdefault(task_id, []).append(task_info)
+
+        # In parallel, index tasks against every active user affiliation. A task
+        # on a child/team group can therefore resolve to a station membership or
+        # a regional specialist membership through its parent/ancestor links.
+        own_group_ids = set(self.own_affiliation_index)
+        for group in self.groups:
+            base_related_ids = set(group.get("ancestor_ids") or [])
+            if group.get("parent_group_id") is not None:
+                base_related_ids.add(group.get("parent_group_id"))
+            if group.get("id") is not None:
+                base_related_ids.add(group.get("id"))
+
+            for task in group.get("tasks", []) or []:
+                task_id = task.get("id")
+                if task_id is None:
+                    continue
+                related_ids = set(base_related_ids)
+                related_ids.update(task.get("station_ids") or [])
+                related_ids.update(task.get("group_ids") or [])
+                for group_id in sorted(own_group_ids.intersection(related_ids)):
+                    affiliation = self.own_affiliation_index[group_id]
+                    entries = self.own_task_affiliation_index.setdefault(task_id, [])
+                    if any(item.get("group_id") == group_id for item in entries):
+                        continue
+                    entries.append(dict(affiliation))
+
+    @property
+    def own_stations(self) -> list[dict]:
+        """Return compact current stations with an active user membership."""
+        return [
+            {
+                "id": station.get("id"),
+                "name": station.get("name"),
+                "short_code": station.get("short_code"),
+            }
+            for station in self.stations
+        ]
+
+    def own_incident_affiliations(self, data: dict) -> list[dict]:
+        """Return active user affiliations involved in this incident."""
+        found = {}
+
+        for task_id in data.get("task_ids") or []:
+            for affiliation in self.own_task_affiliation_index.get(task_id, []) or []:
+                group_id = affiliation.get("group_id")
+                if group_id is not None:
+                    found[group_id] = dict(affiliation)
+
+        user_id = self.user_data.get("id") if self.user_data else None
+        if user_id is not None:
+            for response in data.get("incident_responses", []) or []:
+                if response.get("user_id") != user_id:
+                    continue
+                affiliation = self.own_membership_index.get(
+                    response.get("membership_id")
+                )
+                if affiliation is None:
+                    affiliation = self.own_affiliation_index.get(
+                        response.get("group_id")
+                    )
+                if affiliation is not None:
+                    found[affiliation["group_id"]] = dict(affiliation)
+
+        return sorted(
+            found.values(),
+            key=lambda item: (
+                0 if item.get("is_station") else 1,
+                str(item.get("name") or "").casefold(),
+                str(item.get("group_id")),
+            ),
+        )
 
     def _schedule_window_params(self) -> dict:
         """Return today's local schedule window in API-compatible format."""
@@ -804,6 +950,9 @@ class FireServiceRotaClient:
         enriched["resolved_tasks"] = resolved_tasks
         enriched["resolved_stations"] = list(resolved_stations.values())
         enriched["responses_by_station"] = self.own_incident_responses(data)
+        enriched["own_stations"] = self.own_stations
+        enriched["own_affiliations"] = [dict(item) for item in self.own_affiliations]
+        enriched["own_incident_affiliations"] = self.own_incident_affiliations(data)
         return enriched
 
     async def async_response_update(self) -> object:
