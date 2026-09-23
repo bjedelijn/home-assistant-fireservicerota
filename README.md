@@ -68,7 +68,7 @@ No specific station, user, membership, task, vehicle or local priority mapping i
 
 For BrandweerRooster Netherlands, Extended can optionally enrich active incidents with P2000 data. This feature is disabled by default and has no effect on FireServiceRota UK entries.
 
-In `1.2.0-beta.8`:
+In `1.2.0-beta.9`:
 
 - the online P2000 provider talks directly to the AlarmeringDroid feed;
 - no separate HA P2000 integration is required for online mode;
@@ -83,6 +83,7 @@ In `1.2.0-beta.8`:
 - BrandweerRooster `radio_channels` and provider talkgroup hints, when available, are treated as supporting correlation evidence rather than being confused with BrandweerRooster station/alert groups;
 - matched P2000 messages, units, talkgroup hints and capcodes are stored in `p2000_enrichment`;
 - explicit P2000 escalation milestones are normalized into `escalation_timeline`, `highest_fire_scale` and `highest_grip`, without inventing missing lower stages or duplicate same-level events;
+- `source_timing` compares the local Home Assistant first-observed time for BrandweerRooster and each matched P2000 provider; provider/source timestamps are retained separately so polling delay is not confused with original message time;
 - conservative Netherlands-only `station_hints` and `unit_details` can use capcode descriptions as a fallback for otherwise unknown stations/units; BrandweerRooster-resolved station data remains leading and ambiguous P2000 evidence is never guessed;
 - P2000 enrichment survives incident closure/history storage and can be reused when practical groups are rebuilt after restart;
 - stale technical BrandweerRooster ids can become `group_closed_pending_api` from conservative group-level closure evidence while raw BWR lifecycle fields stay unchanged;

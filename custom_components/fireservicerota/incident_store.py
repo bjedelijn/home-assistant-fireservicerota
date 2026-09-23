@@ -683,6 +683,7 @@ class IncidentStore:
             "resolved_stations",
             "responses_by_station",
             "first_seen_at",
+            "first_seen_source",
             "last_seen_at",
             "p2000_enrichment",
             "incident_group",
@@ -919,6 +920,7 @@ class IncidentStore:
 
         snapshot.setdefault("first_seen_at", _now_iso())
         if source != "restore":
+            snapshot.setdefault("first_seen_source", source)
             snapshot["last_seen_at"] = _now_iso()
         else:
             snapshot.setdefault("last_seen_at", snapshot.get("first_seen_at"))

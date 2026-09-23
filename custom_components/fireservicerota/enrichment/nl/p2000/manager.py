@@ -12,6 +12,7 @@ from typing import Any
 from .model import P2000Event
 from .escalation import build_escalation_summary
 from .online import P2000OnlineProvider
+from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
 
 _LOGGER = logging.getLogger(__name__)
@@ -239,7 +240,7 @@ class P2000EnrichmentManager:
             if not matched:
                 continue
 
-            enrichment = self._build_enrichment(matched)
+            enrichment = self._build_enrichment(matched, incidents=group)
             enrichment["incident_group_id"] = str(primary_id)
             enrichment["incident_ids"] = incident_ids
             for incident in group:
@@ -251,7 +252,7 @@ class P2000EnrichmentManager:
                     continue
                 self._incident_store.apply_p2000_enrichment(incident_id, enrichment)
 
-            self._remember_persistent_match(group_meta, enrichment)
+            self._remember_persistent_match(group_meta, enrichment, incidents=group)
 
         self._notify()
 
@@ -322,7 +323,13 @@ class P2000EnrichmentManager:
             if event is not None
         ]
 
-    def _remember_persistent_match(self, group_meta: dict[str, Any], enrichment: dict[str, Any]) -> None:
+    def _remember_persistent_match(
+        self,
+        group_meta: dict[str, Any],
+        enrichment: dict[str, Any],
+        *,
+        incidents: list[dict[str, Any]] | None = None,
+    ) -> None:
         group_id = str(group_meta.get("group_id") or "").strip()
         if not group_id:
             return
@@ -339,7 +346,9 @@ class P2000EnrichmentManager:
                 events[self._event_key(event)] = event
         for event in self._events_from_enrichment(enrichment):
             events[self._event_key(event)] = event
-        rebuilt = self._build_enrichment(list(events.values()))
+        rebuilt = self._build_enrichment(
+            list(events.values()), incidents=incidents or []
+        )
         rebuilt["incident_group_id"] = group_id
         rebuilt["incident_ids"] = sorted(ids)
         for key in overlap:
@@ -595,8 +604,12 @@ class P2000EnrichmentManager:
         a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
         return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-    @staticmethod
-    def _build_enrichment(events: list[P2000Event]) -> dict[str, Any]:
+    def _build_enrichment(
+        self,
+        events: list[P2000Event],
+        *,
+        incidents: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         ordered = sorted(events, key=P2000EnrichmentManager._event_timestamp)
         units = sorted({unit for event in ordered for unit in event.units})
         talkgroups = sorted({group for event in ordered for group in event.talkgroups})
@@ -611,6 +624,11 @@ class P2000EnrichmentManager:
 
         station_hints, unit_details = build_station_and_unit_hints(ordered)
         escalation = build_escalation_summary(ordered)
+        source_timing = build_source_timing(
+            ordered,
+            incidents or [],
+            online_poll_interval_seconds=self._scan_interval,
+        )
         messages = [event.as_dict() for event in ordered[:20]]
         return {
             "enabled": True,
@@ -627,6 +645,7 @@ class P2000EnrichmentManager:
             ][:100],
             "station_hints": station_hints,
             "unit_details": unit_details,
+            "source_timing": source_timing,
             **escalation,
             "last_updated": datetime.now().astimezone().isoformat(),
         }
