@@ -45,6 +45,7 @@ class ResponseSwitch(SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "incident_response"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator, client, entry):
         """Initialize."""
@@ -181,6 +182,7 @@ class MembershipResponseSwitch(SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "incident_response_station"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,

@@ -57,6 +57,9 @@
       },
       "p2000_matches": {
         "name": "P2000-koppelingen"
+      },
+      "mobile_devices": {
+        "name": "Mobiele apparaten"
       }
     },
     "switch": {

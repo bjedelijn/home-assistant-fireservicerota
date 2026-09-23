@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current beta: `1.2.0-beta.10`**
+**Current beta: `1.2.0-beta.11`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** beta. `1.2.0-beta.10` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
+> **Status:** beta. `1.2.0-beta.11` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
 
 ## Safety notice
 
@@ -50,7 +50,7 @@ Extended adds or expands:
 - Generic `own_stations` and `own_affiliations` discovery from active memberships, including multi-station users and non-station/regional specialist groups.
 - Incident-level `own_incident_affiliations` derived from task and response context without hard-coded station or group IDs.
 - Multi-station duty / availability support.
-- Global user-level Do Not Disturb state.
+- Legacy user-level `do_not_disturb` state when that optional API field is supplied; mobile alert settings are modeled separately.
 - Dynamic task / alert-group resolution.
 - Per-membership incident response data and response switches.
 - Dynamic incident crew assignments where the API exposes them.
@@ -61,6 +61,7 @@ Extended adds or expands:
 - Normalized staffing/response history survives Home Assistant restart/RestoreEntity reconstruction.
 - Manual, opt-in staffing backfill for retained closed history that genuinely lacks staffing data.
 - Pager discovery, pager status and pager-message support.
+- Read-only, privacy-filtered BrandweerRooster mobile-device diagnostics including model/app version, network, last heartbeat and `alert_notifications_enabled`; device tokens, UUIDs, IMEI and serial identifiers are not exposed.
 - Task-change tracking through `previous_task_ids` and `new_task_ids`.
 - Home Assistant translations for fixed UI labels while preserving raw API values.
 
@@ -115,8 +116,13 @@ Authenticated user
     |     +-- per-membership combined schedules
     |     +-- tasks / alert groups / teams
     |
-    +-- global user preferences
-    |     +-- do_not_disturb
+    +-- optional legacy user preferences
+    |     +-- do_not_disturb (only when supplied by the API)
+    |
+    +-- mobile devices (BrandweerRooster NL, privacy-filtered)
+    |     +-- enabled / alert_notifications_enabled
+    |     +-- platform / model / app version / network
+    |     +-- last_heartbeat_at
     |
     +-- pagers
     |

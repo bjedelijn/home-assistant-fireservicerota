@@ -45,6 +45,8 @@ async def async_setup_entry(
         IncidentHistorySensor(client, incident_store),
         PagerSensor(client, coordinator),
     ]
+    if client.mobile_devices_supported:
+        entities.append(MobileDevicesSensor(client, coordinator))
 
     options = {**entry.data, **entry.options}
     if (
@@ -493,6 +495,69 @@ class P2000MatchesSensor(RestoreEntity, SensorEntity):
             if isinstance(matches, list):
                 self._manager.restore_matches(matches)
         self.async_on_remove(self._manager.async_add_listener(self.async_write_ha_state))
+
+
+class MobileDevicesSensor(SensorEntity):
+    """Privacy-filtered mobile app/device diagnostics for BrandweerRooster."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "mobile_devices"
+    _attr_should_poll = False
+
+    def __init__(self, client, coordinator):
+        """Initialize."""
+        self._client = client
+        self._coordinator = coordinator
+        self._attr_unique_id = f"{self._client.unique_id}_MobileDevices"
+
+    @property
+    def icon(self) -> str:
+        """Return mobile communication icon."""
+        return "mdi:cellphone-wireless"
+
+    @property
+    def available(self) -> bool:
+        """Return whether the mobile-device endpoint has been read successfully."""
+        return bool(
+            self._client.mobile_devices_supported
+            and self._client.mobile_devices_available
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the number of registered mobile devices."""
+        if not self.available:
+            return None
+        return len(self._client.mobile_devices)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return privacy-filtered mobile device fields only."""
+        if not self.available:
+            return {}
+
+        devices = [dict(device) for device in self._client.mobile_devices]
+        attr = {
+            "device_count": len(devices),
+            "enabled_device_count": sum(
+                1 for device in devices if device.get("enabled") is True
+            ),
+            "alert_notifications_enabled_count": sum(
+                1
+                for device in devices
+                if device.get("alert_notifications_enabled") is True
+            ),
+            "mobile_devices": devices,
+        }
+        if len(devices) == 1:
+            attr.update(devices[0])
+        return attr
+
+    async def async_added_to_hass(self) -> None:
+        """Register coordinator updates."""
+        self.async_on_remove(
+            self._coordinator.async_add_listener(self.async_write_ha_state)
+        )
 
 
 class PagerSensor(RestoreEntity, SensorEntity):

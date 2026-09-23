@@ -5,6 +5,7 @@ import importlib
 import logging
 from zoneinfo import ZoneInfo
 
+from aiohttp import ClientError
 from pyfireservicerota import (
     ExpiredTokenError,
     FireServiceRota,
@@ -19,6 +20,7 @@ from homeassistant.const import CONF_TOKEN, CONF_URL, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -399,6 +401,10 @@ class FireServiceRotaClient:
         self.pagers = []
         self.pagers_by_id = {}
         self.last_pager_message = None
+        self.mobile_devices_supported = "brandweerrooster.nl" in str(self._url).lower()
+        self.mobile_devices_available = False
+        self.mobile_devices = []
+        self.mobile_devices_by_id = {}
 
         self.fsr = FireServiceRota(base_url=self._url, token_info=self._tokens)
         self.oauth = FireServiceRotaOauth(self._hass, self._entry, self.fsr)
@@ -438,6 +444,112 @@ class FireServiceRotaClient:
             None,
             False,
         )
+
+    @staticmethod
+    def _sanitize_mobile_device(device: dict) -> dict:
+        """Return only dashboard-safe fields from a BrandweerRooster mobile device."""
+        allowed_keys = (
+            "id",
+            "platform",
+            "version",
+            "os_version",
+            "app_version",
+            "enabled",
+            "brand",
+            "model_info",
+            "alert_notifications_enabled",
+            "network_type",
+            "last_heartbeat_at",
+            "battery_level",
+        )
+        return {
+            key: device.get(key)
+            for key in allowed_keys
+            if device.get(key) is not None
+        }
+
+    async def _async_update_mobile_devices(self) -> None:
+        """Update privacy-filtered BrandweerRooster mobile device diagnostics."""
+        if not self.mobile_devices_supported:
+            return
+
+        user_id = self.user_data.get("id") if isinstance(self.user_data, dict) else None
+        if user_id is None:
+            return
+
+        base_url = str(self._url).rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            base_url = f"https://{base_url}"
+        url = f"{base_url}/api/v2/mobile_devices"
+        session = async_get_clientsession(self._hass)
+
+        for attempt in range(2):
+            token_info = getattr(self.fsr, "_token_info", {}) or {}
+            access_token = token_info.get("access_token")
+            if not access_token:
+                _LOGGER.warning(
+                    "Cannot retrieve BrandweerRooster mobile devices without an access token"
+                )
+                return
+
+            try:
+                async with asyncio.timeout(10):
+                    async with session.get(
+                        url,
+                        params={"user_ids": user_id},
+                        headers={
+                            "Accept": "application/json",
+                            "Authorization": f"Bearer {access_token}",
+                        },
+                    ) as response:
+                        if response.status == 401 and attempt == 0:
+                            await self._hass.async_add_executor_job(
+                                self.websocket.stop_listener
+                            )
+                            self.token_refresh_failure = True
+                            if await self.oauth.async_refresh_tokens():
+                                self.token_refresh_failure = False
+                                await self._hass.async_add_executor_job(
+                                    self.websocket.start_listener
+                                )
+                                continue
+                            return
+
+                        if response.status >= 400:
+                            _LOGGER.warning(
+                                "Could not retrieve BrandweerRooster mobile devices: HTTP %s",
+                                response.status,
+                            )
+                            return
+
+                        payload = await response.json()
+            except (ClientError, asyncio.TimeoutError, ValueError) as err:
+                _LOGGER.warning(
+                    "Could not retrieve BrandweerRooster mobile devices: %s",
+                    type(err).__name__,
+                )
+                return
+
+            if not isinstance(payload, list):
+                _LOGGER.warning(
+                    "Unexpected BrandweerRooster mobile devices response type: %s",
+                    type(payload).__name__,
+                )
+                return
+
+            devices = [
+                self._sanitize_mobile_device(device)
+                for device in payload
+                if isinstance(device, dict)
+            ]
+            self.mobile_devices = devices
+            self.mobile_devices_by_id = {
+                device["id"]: device
+                for device in devices
+                if device.get("id") is not None
+            }
+            self.mobile_devices_available = True
+            return
 
     @staticmethod
     def _sanitize_debug_value(value):
@@ -529,6 +641,8 @@ class FireServiceRotaClient:
             self.user_data = user_data
             self.do_not_disturb = user_data.get("do_not_disturb")
 
+        await self._async_update_mobile_devices()
+
         if isinstance(groups, list):
             self.groups = groups
             self._rebuild_group_indexes()
@@ -542,12 +656,13 @@ class FireServiceRotaClient:
             }
 
         _LOGGER.debug(
-            "Discovered %s stations, %s station memberships, %s active affiliations, %s tasks and %s pagers",
+            "Discovered %s stations, %s station memberships, %s active affiliations, %s tasks, %s pagers and %s mobile devices",
             len(self.stations),
             len(self.membership_index),
             len(self.own_affiliations),
             len(self.task_index),
             len(self.pagers),
+            len(self.mobile_devices),
         )
         self._log_discovery_debug()
 
@@ -853,6 +968,8 @@ class FireServiceRotaClient:
         if isinstance(user_data, dict):
             self.user_data = user_data
             self.do_not_disturb = user_data.get("do_not_disturb")
+
+        await self._async_update_mobile_devices()
 
         # Keep the original first-membership availability call for the legacy
         # binary_sensor.duty entity and backwards compatibility.
