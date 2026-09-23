@@ -4,23 +4,140 @@ from __future__ import annotations
 import re
 from typing import Any
 
-_FIRE_PATTERNS = (
-    ("very_large_fire", 4, re.compile(r"\b(?:zeer\s+grote\s+br|zeer\s+grote\s+brand)\b", re.IGNORECASE)),
-    ("large_fire", 3, re.compile(r"\b(?:grote\s+br|grote\s+brand)\b", re.IGNORECASE)),
-    ("medium_fire", 2, re.compile(r"\b(?:middel\s+br|middelbrand|middel\s+brand)\b", re.IGNORECASE)),
-)
+# Keep incident disciplines independent. A "Middel HV" is not a medium fire,
+# and IBGS/OGS/IGS scaling is likewise separate from fire and rescue scaling.
+# Patterns are deliberately explicit: generic capcode descriptions such as
+# "Infocode Middel incident" must never imply a specific incident discipline.
+_SCALE_PATTERNS = {
+    "fire_scale": (
+        (
+            "very_large_fire",
+            4,
+            re.compile(
+                r"\bzeer\s+(?:groot|grote)\s+(?:br|brand)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "large_fire",
+            3,
+            re.compile(r"\b(?:groot|grote)\s+(?:br|brand)\b", re.IGNORECASE),
+        ),
+        (
+            "medium_fire",
+            2,
+            re.compile(
+                r"\b(?:middel\s+(?:br|brand)|middelbrand)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "small_fire",
+            1,
+            re.compile(r"\b(?:klein|kleine)\s+(?:br|brand)\b", re.IGNORECASE),
+        ),
+    ),
+    "hv_scale": (
+        (
+            "very_large_hv",
+            4,
+            re.compile(
+                r"\bzeer\s+(?:groot|grote)\s+(?:hv|hulpverlening)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "large_hv",
+            3,
+            re.compile(
+                r"\b(?:groot|grote)\s+(?:hv|hulpverlening)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "medium_hv",
+            2,
+            re.compile(
+                r"\bmiddel\s+(?:hv|hulpverlening)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "small_hv",
+            1,
+            re.compile(
+                r"\b(?:klein|kleine)\s+(?:hv|hulpverlening)\b",
+                re.IGNORECASE,
+            ),
+        ),
+    ),
+    "ibgs_scale": (
+        (
+            "very_large_ibgs",
+            4,
+            re.compile(
+                r"\bzeer\s+(?:groot|grote)\s+(?:ibgs|ogs|igs)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "large_ibgs",
+            3,
+            re.compile(
+                r"\b(?:groot|grote)\s+(?:ibgs|ogs|igs)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "medium_ibgs",
+            2,
+            re.compile(
+                r"\bmiddel\s+(?:ibgs|ogs|igs)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "small_ibgs",
+            1,
+            re.compile(
+                r"\b(?:klein|kleine)\s+(?:ibgs|ogs|igs)\b",
+                re.IGNORECASE,
+            ),
+        ),
+    ),
+}
+
+_HIGHEST_KEYS = {
+    "fire_scale": "highest_fire_scale",
+    "hv_scale": "highest_hv_scale",
+    "ibgs_scale": "highest_ibgs_scale",
+}
+
 _GRIP_RE = re.compile(r"\bgrip\s*[-:]?\s*([1-4])\b", re.IGNORECASE)
+
+
+def _match_scale(
+    text: str, patterns: tuple[tuple[str, int, re.Pattern[str]], ...]
+) -> tuple[str | None, int]:
+    """Return the highest explicit scale found for one incident discipline."""
+    for level, rank, pattern in patterns:
+        if pattern.search(text):
+            return level, rank
+    return None, 0
 
 
 def build_escalation_summary(
     events: list[Any],
 ) -> dict[str, Any]:
-    """Return explicit upward fire-scale and GRIP milestones in event order."""
+    """Return explicit BR, HV, IBGS and GRIP milestones in event order."""
     timeline: list[dict[str, Any]] = []
-    highest_fire_rank = 0
-    highest_fire_scale: str | None = None
+    highest_ranks = {scale_type: 0 for scale_type in _SCALE_PATTERNS}
+    highest_levels: dict[str, str | None] = {
+        scale_type: None for scale_type in _SCALE_PATTERNS
+    }
     highest_grip_rank = 0
     highest_grip: str | None = None
+    escalation_detected = False
 
     for event in events:
         message = str(getattr(event, "message", "") or "")
@@ -33,26 +150,25 @@ def build_escalation_summary(
         external_id = getattr(event, "external_id", None)
         source = getattr(event, "source", None) or "p2000"
 
-        fire_level = None
-        fire_rank = 0
-        for level, rank, pattern in _FIRE_PATTERNS:
-            if pattern.search(text):
-                fire_level = level
-                fire_rank = rank
-                break
+        for scale_type, patterns in _SCALE_PATTERNS.items():
+            level, rank = _match_scale(text, patterns)
+            if level is None or rank <= highest_ranks[scale_type]:
+                continue
 
-        if fire_level is not None and fire_rank > highest_fire_rank:
-            highest_fire_rank = fire_rank
-            highest_fire_scale = fire_level
+            highest_ranks[scale_type] = rank
+            highest_levels[scale_type] = level
             timeline.append(
                 {
                     "event_time": event_time,
-                    "type": "fire_scale",
-                    "level": fire_level,
+                    "type": scale_type,
+                    "level": level,
                     "source": source,
                     "external_id": external_id,
                 }
             )
+            # "Small" is an explicit classification but not an escalation.
+            if rank >= 2:
+                escalation_detected = True
 
         grip_match = _GRIP_RE.search(text)
         if grip_match:
@@ -60,6 +176,7 @@ def build_escalation_summary(
             if grip_rank > highest_grip_rank:
                 highest_grip_rank = grip_rank
                 highest_grip = f"grip_{grip_rank}"
+                escalation_detected = True
                 timeline.append(
                     {
                         "event_time": event_time,
@@ -70,16 +187,24 @@ def build_escalation_summary(
                     }
                 )
 
-    type_order = {"fire_scale": 0, "grip": 1}
+    type_order = {
+        "fire_scale": 0,
+        "hv_scale": 1,
+        "ibgs_scale": 2,
+        "grip": 3,
+    }
     timeline.sort(
         key=lambda item: (
             str(item.get("event_time") or ""),
             type_order.get(str(item.get("type") or ""), 99),
         )
     )
-    return {
-        "escalation_detected": bool(timeline),
+
+    result = {
+        "escalation_detected": escalation_detected,
         "escalation_timeline": timeline,
-        "highest_fire_scale": highest_fire_scale,
         "highest_grip": highest_grip,
     }
+    for scale_type, highest_key in _HIGHEST_KEYS.items():
+        result[highest_key] = highest_levels[scale_type]
+    return result

@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current beta: `1.2.0-beta.11`**
+**Current beta: `1.2.0-beta.12`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** beta. `1.2.0-beta.11` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
+> **Status:** beta. `1.2.0-beta.12` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
 
 ## Safety notice
 
@@ -85,7 +85,7 @@ In `1.2.0-beta.9`:
 - multiple BrandweerRooster API incident ids can be linked into one logical `incident_group` when time and location strongly indicate one practical incident; original API incident ids and lifecycle remain separate;
 - BrandweerRooster `radio_channels` and provider talkgroup hints, when available, are treated as supporting correlation evidence rather than being confused with BrandweerRooster station/alert groups;
 - matched P2000 messages, units, talkgroup hints and capcodes are stored in `p2000_enrichment`;
-- explicit P2000 escalation milestones are normalized into `escalation_timeline`, `highest_fire_scale` and `highest_grip`, without inventing missing lower stages or duplicate same-level events;
+- explicit Dutch P2000 incident scales are kept separate for fire (`highest_fire_scale`), rescue/hulpverlening (`highest_hv_scale`) and hazardous-material incidents (`highest_ibgs_scale`), while GRIP remains independent in `highest_grip`; `escalation_timeline` records only explicitly observed upward milestones per discipline and never derives a discipline from generic labels such as `Middel incident`;
 - `source_timing` compares the local Home Assistant first-observed time for BrandweerRooster and each matched P2000 provider; provider/source timestamps are retained separately so polling delay is not confused with original message time;
 - conservative Netherlands-only `station_hints` and `unit_details` can use capcode descriptions as a fallback for otherwise unknown stations/units; BrandweerRooster-resolved station data remains leading and ambiguous P2000 evidence is never guessed;
 - P2000 enrichment survives incident closure/history storage and can be reused when practical groups are rebuilt after restart;
