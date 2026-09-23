@@ -5,32 +5,32 @@ import re
 from typing import Any
 
 _CONFIDENCE_SCORE = {"medium": 2, "high": 3}
-_UNIT_TOKEN_RE = re.compile(r"(?<!\\d)(\\d{3,6})(?!\\d)")
+_UNIT_TOKEN_RE = re.compile(r"(?<!\d)(\d{3,6})(?!\d)")
 _NON_FIRE_RE = re.compile(
-    r"\\b(?:ambulance|ambu|traumaheli|lifeliner|mmt|politie|knrm)\\b",
+    r"\b(?:ambulance|ambu|traumaheli|lifeliner|mmt|politie|knrm)\b",
     re.IGNORECASE,
 )
 _NON_STATION_RE = re.compile(
-    r"\\b(?:monitor(?:code)?|h?ovd|rovd\\w*|woordvoerder|persinformatie|"
-    r"infocode|calamiteiten\\s*co[oö]rdinator|meldkamer|regionaal|regio|"
-    r"veiligheidsregio)\\b",
+    r"\b(?:monitor(?:code)?|h?ovd|rovd\w*|woordvoerder|persinformatie|"
+    r"infocode|calamiteiten\s*co[oö]rdinator|meldkamer|regionaal|regio|"
+    r"veiligheidsregio)\b",
     re.IGNORECASE,
 )
 _EXPLICIT_STATION_ROLE_RE = re.compile(
-    r"\\b(?:kazerne(?:alarm|commandant|techniek)?|brandweerpost|blusploeg|"
-    r"bezetting|springbemanning|lichtkrant|postcommandant|ploeg)\\b",
+    r"\b(?:kazerne(?:alarm|commandant|techniek)?|brandweerpost|blusploeg|"
+    r"bezetting|springbemanning|lichtkrant|postcommandant|ploeg)\b",
     re.IGNORECASE,
 )
 _APPLIANCE_ROLE_RE = re.compile(
-    r"\\b(?:ts|tst|tw|wt|wts|rv|hw|al|hv|wo|da|db|pm|ha|sb|ab|sl)\\b",
+    r"\b(?:ts|tst|tw|wt|wts|rv|hw|al|hv|wo|da|db|pm|ha|sb|ab|sl)\b",
     re.IGNORECASE,
 )
 _PREFIX_STATION_RE = re.compile(
-    r"^(?:brandweerpost|kazerne(?:alarm)?)\\s*[:\\-]?\\s*(?P<station>.+)$",
+    r"^(?:brandweerpost|kazerne(?:alarm)?)\s*[:\-]?\s*(?P<station>.+)$",
     re.IGNORECASE,
 )
 _SUFFIX_STATION_RE = re.compile(
-    r"^(?P<station>.+?)\\s+(?:kazernealarm|blusploeg|springbemanning|"
+    r"^(?P<station>.+?)\s+(?:kazernealarm|blusploeg|springbemanning|"
     r"postcommandant|lichtkrant)$",
     re.IGNORECASE,
 )
@@ -48,7 +48,7 @@ def _description(item: dict[str, Any]) -> str:
 def _clean_station(value: str) -> str | None:
     """Normalize a possible station name and reject obvious region/function labels."""
     cleaned = " ".join(str(value or "").strip(" -/").split())
-    cleaned = re.sub(r"^brandweer\\s+", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"^brandweer\s+", "", cleaned, flags=re.IGNORECASE).strip()
     if not cleaned or cleaned.casefold() in {"onbekend", "unknown", "nvt", "n/a"}:
         return None
     if _NON_STATION_RE.search(cleaned) or _NON_FIRE_RE.search(cleaned):
@@ -94,7 +94,7 @@ def station_hint_from_capcode(item: dict[str, Any]) -> dict[str, Any] | None:
                 "unit_tokens": _UNIT_TOKEN_RE.findall(description),
             }
 
-    parts = re.split(r"\\s+/\\s+", description, maxsplit=1)
+    parts = re.split(r"\s+/\s+", description, maxsplit=1)
     if len(parts) != 2:
         return None
 
