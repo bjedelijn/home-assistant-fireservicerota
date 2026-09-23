@@ -461,7 +461,7 @@ class P2000MatchesSensor(RestoreEntity, SensorEntity):
     """Persistent confirmed P2000 matches beyond the rolling ring buffer."""
 
     _attr_has_entity_name = True
-    _attr_name = "P2000 matches"
+    _attr_translation_key = "p2000_matches"
     _attr_should_poll = False
     _attr_icon = "mdi:link-variant"
 
