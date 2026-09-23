@@ -11,6 +11,7 @@ from typing import Any
 
 from .model import P2000Event
 from .online import P2000OnlineProvider
+from .station_hints import build_station_and_unit_hints
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -607,6 +608,7 @@ class P2000EnrichmentManager:
                 description = str(item.get("omschrijving") or "").strip() or None
                 capcodes.setdefault(code, description)
 
+        station_hints, unit_details = build_station_and_unit_hints(ordered)
         messages = [event.as_dict() for event in ordered[:20]]
         escalation_words = ("middel br", "grote br", "zeer grote br", "grip")
         escalation_detected = len(ordered) > 1 or any(
@@ -626,6 +628,8 @@ class P2000EnrichmentManager:
                 {"capcode": code, "description": description}
                 for code, description in sorted(capcodes.items())
             ][:100],
+            "station_hints": station_hints,
+            "unit_details": unit_details,
             "escalation_detected": escalation_detected,
             "last_updated": datetime.now().astimezone().isoformat(),
         }

@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current beta: `1.2.0-beta.7`**
+**Current beta: `1.2.0-beta.8`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** beta. `1.2.0-beta.7` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
+> **Status:** beta. `1.2.0-beta.8` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
 
 ## Safety notice
 
@@ -68,7 +68,7 @@ No specific station, user, membership, task, vehicle or local priority mapping i
 
 For BrandweerRooster Netherlands, Extended can optionally enrich active incidents with P2000 data. This feature is disabled by default and has no effect on FireServiceRota UK entries.
 
-In `1.2.0-beta.7`:
+In `1.2.0-beta.8`:
 
 - the online P2000 provider talks directly to the AlarmeringDroid feed;
 - no separate HA P2000 integration is required for online mode;
@@ -82,6 +82,7 @@ In `1.2.0-beta.7`:
 - multiple BrandweerRooster API incident ids can be linked into one logical `incident_group` when time and location strongly indicate one practical incident; original API incident ids and lifecycle remain separate;
 - BrandweerRooster `radio_channels` and provider talkgroup hints, when available, are treated as supporting correlation evidence rather than being confused with BrandweerRooster station/alert groups;
 - matched P2000 messages, units, talkgroup hints, capcodes and escalation detection are stored in `p2000_enrichment`;
+- conservative Netherlands-only `station_hints` and `unit_details` can use capcode descriptions as a fallback for otherwise unknown stations/units; BrandweerRooster-resolved station data remains leading and ambiguous P2000 evidence is never guessed;
 - P2000 enrichment survives incident closure/history storage and can be reused when practical groups are rebuilt after restart;
 - stale technical BrandweerRooster ids can become `group_closed_pending_api` from conservative group-level closure evidence while raw BWR lifecycle fields stay unchanged;
 - pending API closures are rechecked every 30 minutes and automatically become normal API closures when BWR later supplies `end_time`;
