@@ -53,6 +53,9 @@
       },
       "p2000_status": {
         "name": "P2000 status"
+      },
+      "p2000_matches": {
+        "name": "P2000 matches"
       }
     },
     "switch": {

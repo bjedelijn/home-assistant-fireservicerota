@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current beta: `1.2.0-beta.6`**
+**Current beta: `1.2.0-beta.7`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** beta. `1.2.0-beta.6` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
+> **Status:** beta. `1.2.0-beta.7` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
 
 ## Safety notice
 
@@ -68,12 +68,13 @@ No specific station, user, membership, task, vehicle or local priority mapping i
 
 For BrandweerRooster Netherlands, Extended can optionally enrich active incidents with P2000 data. This feature is disabled by default and has no effect on FireServiceRota UK entries.
 
-In `1.2.0-beta.6`:
+In `1.2.0-beta.7`:
 
 - the online P2000 provider talks directly to the AlarmeringDroid feed;
 - no separate HA P2000 integration is required for online mode;
 - when P2000 enrichment is enabled, the online provider polls continuously rather than waiting for an active BrandweerRooster incident;
 - recent unique P2000 messages are retained in an in-memory 60-minute rolling buffer;
+- confirmed matches are also retained in RestoreEntity-backed `sensor.p2000_matches`, so the ring buffer is the discovery window rather than the lifetime of a match;
 - when a BrandweerRooster incident appears, Extended can therefore match P2000 messages that arrived before BrandweerRooster as well as later escalation messages;
 - correlation uses incident time plus coordinates when available, with text/location fallback;
 - Dutch postcodes are normalized separately from provider-specific location references such as motorway/hectometer references;
@@ -81,7 +82,10 @@ In `1.2.0-beta.6`:
 - multiple BrandweerRooster API incident ids can be linked into one logical `incident_group` when time and location strongly indicate one practical incident; original API incident ids and lifecycle remain separate;
 - BrandweerRooster `radio_channels` and provider talkgroup hints, when available, are treated as supporting correlation evidence rather than being confused with BrandweerRooster station/alert groups;
 - matched P2000 messages, units, talkgroup hints, capcodes and escalation detection are stored in `p2000_enrichment`;
-- P2000 enrichment survives incident closure/history storage;
+- P2000 enrichment survives incident closure/history storage and can be reused when practical groups are rebuilt after restart;
+- stale technical BrandweerRooster ids can become `group_closed_pending_api` from conservative group-level closure evidence while raw BWR lifecycle fields stay unchanged;
+- pending API closures are rechecked every 30 minutes and automatically become normal API closures when BWR later supplies `end_time`;
+- `fireservicerota.mark_incident_closed` and `fireservicerota.reopen_incident` provide explicit local-only operational overrides without writing to BrandweerRooster;
 - polling is configurable from 30 to 3600 seconds;
 - a P2000 status sensor exposes polling health, ring-buffer size and the latest buffered message for testing;
 - RTL-SDR is not enabled yet and will be added after hardware validation.
