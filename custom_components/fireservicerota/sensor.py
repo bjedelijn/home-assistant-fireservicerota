@@ -67,6 +67,7 @@ async def async_setup_entry(
             P2000StatusSensor(client, p2000_manager),
             P2000MatchesSensor(client, p2000_manager),
         ])
+        await p2000_manager.async_start()
 
     async_add_entities(entities)
 
@@ -152,6 +153,13 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
                 "duration_seconds",
                 "lifecycle_known",
                 "lifecycle_fields",
+                "operational_status",
+                "operational_ended_at",
+                "operational_ended_at_source",
+                "api_closed",
+                "manual_closed",
+                "manual_closed_at",
+                "incident_group",
                 "p2000_enrichment",
             ):
                 if key in overview:
@@ -478,7 +486,6 @@ class P2000MatchesSensor(RestoreEntity, SensorEntity):
             if isinstance(matches, list):
                 self._manager.restore_matches(matches)
         self.async_on_remove(self._manager.async_add_listener(self.async_write_ha_state))
-        await self._manager.async_start()
 
 
 class PagerSensor(RestoreEntity, SensorEntity):
