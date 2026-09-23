@@ -31,8 +31,8 @@ unit_details:
 Confidence rules are deliberately conservative:
 
 - `high`: the capcode description contains a vehicle/unit suffix that matches the six-digit P2000 unit;
-- `medium`: the P2000 event contains exactly one credible station hint;
-- ambiguous multiple-station evidence is retained in `station_candidates` but no `station_name` is selected.
+- `medium`: the P2000 event contains exactly one six-digit unit and exactly one credible station hint;
+- multi-unit or ambiguous station evidence is retained in `station_candidates` but no `station_name` is selected.
 
 BrandweerRooster / FireServiceRota resolved station data is not overwritten. These fields are enrichment/fallback metadata only. Multiple P2000 station hints can coexist for one practical incident; beta.8 does not select one incident-wide main station.
 

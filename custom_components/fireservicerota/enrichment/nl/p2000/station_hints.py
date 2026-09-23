@@ -190,7 +190,11 @@ def build_station_and_unit_hints(
                 chosen = explicit
                 inferred_confidence = "high"
                 inferred_reason = "unit_suffix_match"
-            elif len(distinct_event_stations) == 1 and event_hints:
+            elif (
+                len(getattr(event, "units", None) or []) == 1
+                and len(distinct_event_stations) == 1
+                and event_hints
+            ):
                 only_key = next(iter(distinct_event_stations))
                 chosen = [
                     next(
@@ -200,11 +204,11 @@ def build_station_and_unit_hints(
                     )
                 ]
                 inferred_confidence = "medium"
-                inferred_reason = "unique_event_station_hint"
+                inferred_reason = "unique_unit_and_station_hint"
             else:
                 chosen = event_hints
                 inferred_confidence = None
-                inferred_reason = "ambiguous_event_station_hints"
+                inferred_reason = "unlinked_event_station_hints"
 
             for hint in chosen:
                 key = hint["name"].casefold()
