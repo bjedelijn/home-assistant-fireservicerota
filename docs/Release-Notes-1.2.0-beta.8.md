@@ -34,7 +34,29 @@ Confidence rules are deliberately conservative:
 - `medium`: the P2000 event contains exactly one credible station hint;
 - ambiguous multiple-station evidence is retained in `station_candidates` but no `station_name` is selected.
 
-BrandweerRooster / FireServiceRota resolved station data is not overwritten. These fields are enrichment/fallback metadata only.
+BrandweerRooster / FireServiceRota resolved station data is not overwritten. These fields are enrichment/fallback metadata only. Multiple P2000 station hints can coexist for one practical incident; beta.8 does not select one incident-wide main station.
+
+## Escalation timeline
+
+Explicit P2000 scale changes are normalized into a group-level timeline. Repeated messages at the same level are deduplicated and a later lower level never creates a downgrade event.
+
+```yaml
+escalation_timeline:
+  - event_time: "2026-09-22T22:36:00+02:00"
+    type: fire_scale
+    level: medium_fire
+  - event_time: "2026-09-22T22:45:00+02:00"
+    type: fire_scale
+    level: large_fire
+  - event_time: "2026-09-22T22:52:00+02:00"
+    type: grip
+    level: grip_1
+
+highest_fire_scale: large_fire
+highest_grip: grip_1
+```
+
+Only explicit P2000 wording is used. Beta.8 does not invent an earlier lower fire scale when the first matched message already says `Middel BR`, nor does it infer arrival order or incident command from this timeline.
 
 ## Scope
 

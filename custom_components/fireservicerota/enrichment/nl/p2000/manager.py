@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from .model import P2000Event
+from .escalation import build_escalation_summary
 from .online import P2000OnlineProvider
 from .station_hints import build_station_and_unit_hints
 
@@ -609,12 +610,8 @@ class P2000EnrichmentManager:
                 capcodes.setdefault(code, description)
 
         station_hints, unit_details = build_station_and_unit_hints(ordered)
+        escalation = build_escalation_summary(ordered)
         messages = [event.as_dict() for event in ordered[:20]]
-        escalation_words = ("middel br", "grote br", "zeer grote br", "grip")
-        escalation_detected = len(ordered) > 1 or any(
-            any(word in event.message.lower() for word in escalation_words)
-            for event in ordered
-        )
         return {
             "enabled": True,
             "country": "NL",
@@ -630,6 +627,6 @@ class P2000EnrichmentManager:
             ][:100],
             "station_hints": station_hints,
             "unit_details": unit_details,
-            "escalation_detected": escalation_detected,
+            **escalation,
             "last_updated": datetime.now().astimezone().isoformat(),
         }

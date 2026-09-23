@@ -81,7 +81,8 @@ In `1.2.0-beta.8`:
 - six-digit appliance/unit numbers are normalized from P2000 text;
 - multiple BrandweerRooster API incident ids can be linked into one logical `incident_group` when time and location strongly indicate one practical incident; original API incident ids and lifecycle remain separate;
 - BrandweerRooster `radio_channels` and provider talkgroup hints, when available, are treated as supporting correlation evidence rather than being confused with BrandweerRooster station/alert groups;
-- matched P2000 messages, units, talkgroup hints, capcodes and escalation detection are stored in `p2000_enrichment`;
+- matched P2000 messages, units, talkgroup hints and capcodes are stored in `p2000_enrichment`;
+- explicit P2000 escalation milestones are normalized into `escalation_timeline`, `highest_fire_scale` and `highest_grip`, without inventing missing lower stages or duplicate same-level events;
 - conservative Netherlands-only `station_hints` and `unit_details` can use capcode descriptions as a fallback for otherwise unknown stations/units; BrandweerRooster-resolved station data remains leading and ambiguous P2000 evidence is never guessed;
 - P2000 enrichment survives incident closure/history storage and can be reused when practical groups are rebuilt after restart;
 - stale technical BrandweerRooster ids can become `group_closed_pending_api` from conservative group-level closure evidence while raw BWR lifecycle fields stay unchanged;

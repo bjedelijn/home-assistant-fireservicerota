@@ -18,7 +18,8 @@ _NON_STATION_RE = re.compile(
 )
 _EXPLICIT_STATION_ROLE_RE = re.compile(
     r"\b(?:kazerne(?:alarm|commandant|techniek)?|brandweerpost|blusploeg|"
-    r"bezetting|springbemanning|lichtkrant|postcommandant|ploeg)\b",
+    r"blusgroep|bevelvoerders?|hoogwerkergroep|bezetting|springbemanning|"
+    r"lichtkrant|postcommandant|ploeg)\b",
     re.IGNORECASE,
 )
 _APPLIANCE_ROLE_RE = re.compile(
