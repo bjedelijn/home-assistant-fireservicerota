@@ -72,3 +72,36 @@ backfill_history_staffing:
           min: 1
           max: 25
           mode: box
+
+
+mark_incident_closed:
+  name: Mark incident closed locally
+  description: Locally close one retained incident or its practical group. BrandweerRooster is not modified.
+  fields:
+    incident_id:
+      name: Incident ID
+      required: true
+      selector:
+        text:
+    scope:
+      name: Scope
+      default: group
+      selector:
+        select:
+          options: [incident, group]
+
+reopen_incident:
+  name: Reopen locally closed incident
+  description: Undo a local pending close. Genuine API closures are never reopened.
+  fields:
+    incident_id:
+      name: Incident ID
+      required: true
+      selector:
+        text:
+    scope:
+      name: Scope
+      default: group
+      selector:
+        select:
+          options: [incident, group]

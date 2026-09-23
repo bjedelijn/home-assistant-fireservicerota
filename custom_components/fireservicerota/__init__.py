@@ -30,6 +30,7 @@ from .const import (
     ATTR_INCIDENT_ID,
     ATTR_LIMIT,
     ATTR_MESSAGE,
+    ATTR_SCOPE,
     ATTR_PAGER_ID,
     ATTR_WEBHOOK_URL,
     DATA_CLIENT,
@@ -38,6 +39,8 @@ from .const import (
     DATA_P2000_MANAGER,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
+    SERVICE_MARK_INCIDENT_CLOSED,
+    SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
     WSS_BWRURL,
 )
@@ -59,6 +62,12 @@ SEND_PAGER_MESSAGE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_WEBHOOK_URL): cv.url,
     }
 )
+
+LOCAL_INCIDENT_CLOSE_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_INCIDENT_ID): vol.Coerce(str),
+    vol.Optional(ATTR_SCOPE, default="group"): vol.In({"incident", "group"}),
+})
 
 BACKFILL_HISTORY_STAFFING_SCHEMA = vol.Schema(
     {
@@ -140,6 +149,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for service in (
             SERVICE_SEND_PAGER_MESSAGE,
             SERVICE_BACKFILL_HISTORY_STAFFING,
+            SERVICE_MARK_INCIDENT_CLOSED,
+            SERVICE_REOPEN_INCIDENT,
         ):
             if hass.services.has_service(DOMAIN, service):
                 hass.services.async_remove(DOMAIN, service)
@@ -231,6 +242,30 @@ def _async_register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("History staffing backfill result: %s", result)
         return result
 
+    async def async_mark_incident_closed(call: ServiceCall) -> dict:
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        if incident_store is None:
+            raise HomeAssistantError("FireServiceRota incident store is not ready yet")
+        result = incident_store.mark_manual_closed(
+            call.data[ATTR_INCIDENT_ID], scope=call.data.get(ATTR_SCOPE, "group")
+        )
+        if not result.get("found"):
+            raise HomeAssistantError(f"Incident {call.data[ATTR_INCIDENT_ID]} is not retained locally")
+        return result
+
+    async def async_reopen_incident(call: ServiceCall) -> dict:
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        if incident_store is None:
+            raise HomeAssistantError("FireServiceRota incident store is not ready yet")
+        result = incident_store.reopen_local_close(
+            call.data[ATTR_INCIDENT_ID], scope=call.data.get(ATTR_SCOPE, "group")
+        )
+        if not result.get("found"):
+            raise HomeAssistantError(f"Incident {call.data[ATTR_INCIDENT_ID]} is not retained locally")
+        return result
+
     if not hass.services.has_service(DOMAIN, SERVICE_SEND_PAGER_MESSAGE):
         hass.services.async_register(
             DOMAIN,
@@ -241,11 +276,18 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_HISTORY_STAFFING):
         hass.services.async_register(
-            DOMAIN,
-            SERVICE_BACKFILL_HISTORY_STAFFING,
-            async_backfill_history_staffing,
-            schema=BACKFILL_HISTORY_STAFFING_SCHEMA,
-            supports_response=SupportsResponse.OPTIONAL,
+            DOMAIN, SERVICE_BACKFILL_HISTORY_STAFFING, async_backfill_history_staffing,
+            schema=BACKFILL_HISTORY_STAFFING_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_MARK_INCIDENT_CLOSED):
+        hass.services.async_register(
+            DOMAIN, SERVICE_MARK_INCIDENT_CLOSED, async_mark_incident_closed,
+            schema=LOCAL_INCIDENT_CLOSE_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_REOPEN_INCIDENT):
+        hass.services.async_register(
+            DOMAIN, SERVICE_REOPEN_INCIDENT, async_reopen_incident,
+            schema=LOCAL_INCIDENT_CLOSE_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
         )
 
 

@@ -63,8 +63,10 @@ async def async_setup_entry(
         hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
             DATA_P2000_MANAGER
         ] = p2000_manager
-        entities.append(P2000StatusSensor(client, p2000_manager))
-        await p2000_manager.async_start()
+        entities.extend([
+            P2000StatusSensor(client, p2000_manager),
+            P2000MatchesSensor(client, p2000_manager),
+        ])
 
     async_add_entities(entities)
 
@@ -445,6 +447,38 @@ class P2000StatusSensor(SensorEntity):
         self.async_on_remove(
             self._manager.async_add_listener(self.async_write_ha_state)
         )
+
+
+class P2000MatchesSensor(RestoreEntity, SensorEntity):
+    """Persistent confirmed P2000 matches beyond the rolling ring buffer."""
+
+    _attr_has_entity_name = True
+    _attr_name = "P2000 matches"
+    _attr_should_poll = False
+    _attr_icon = "mdi:link-variant"
+
+    def __init__(self, client, manager: P2000EnrichmentManager):
+        self._client = client
+        self._manager = manager
+        self._attr_unique_id = f"{self._client.unique_id}_P2000Matches"
+
+    @property
+    def native_value(self) -> int:
+        return len(self._manager.persistent_matches)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"matches": self._manager.persistent_matches, "match_limit": 25}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        state = await self.async_get_last_state()
+        if state:
+            matches = state.attributes.get("matches")
+            if isinstance(matches, list):
+                self._manager.restore_matches(matches)
+        self.async_on_remove(self._manager.async_add_listener(self.async_write_ha_state))
+        await self._manager.async_start()
 
 
 class PagerSensor(RestoreEntity, SensorEntity):

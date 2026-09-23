@@ -20,6 +20,9 @@ _MATCH_WINDOW_AFTER = timedelta(hours=3)
 _GROUP_RADIUS_METERS = 250
 _GROUP_WINDOW = timedelta(minutes=90)
 _BUFFER_RETENTION = timedelta(minutes=60)
+_GROUP_CLOSE_GRACE = timedelta(minutes=10)
+_GROUP_END_CLUSTER = timedelta(minutes=15)
+_PERSISTENT_MATCH_LIMIT = 25
 _WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 _STOPWORDS = {
     "brandweer", "melding", "prio", "p", "br", "bon", "naar", "voor", "met",
@@ -38,6 +41,7 @@ class P2000EnrichmentManager:
         self._task: asyncio.Task | None = None
         self._first_received: dict[str, str] = {}
         self._buffer: dict[str, P2000Event] = {}
+        self._persistent_matches: dict[str, dict[str, Any]] = {}
         self._listeners: list[Callable[[], None]] = []
         self._stopping = False
         self._last_poll_at: str | None = None
@@ -58,6 +62,23 @@ class P2000EnrichmentManager:
     def buffer_size(self) -> int:
         """Return the number of unique recent P2000 messages in memory."""
         return len(self._buffer)
+
+    @property
+    def persistent_matches(self) -> list[dict[str, Any]]:
+        """Return bounded persistent practical-incident P2000 matches."""
+        return sorted(
+            [dict(item) for item in self._persistent_matches.values()],
+            key=lambda item: str(item.get("last_updated") or ""), reverse=True
+        )[:_PERSISTENT_MATCH_LIMIT]
+
+    def restore_matches(self, matches: list[dict[str, Any]]) -> None:
+        """Restore persistent P2000 matches from Home Assistant state."""
+        self._persistent_matches = {
+            str(item["group_id"]): dict(item)
+            for item in matches
+            if isinstance(item, dict) and item.get("group_id") not in (None, "")
+        }
+        self._notify()
 
     @property
     def last_event(self) -> dict[str, Any] | None:
@@ -87,6 +108,7 @@ class P2000EnrichmentManager:
             "scan_interval_seconds": self._scan_interval,
             "buffer_retention_minutes": self.buffer_retention_minutes,
             "buffered_events": self.buffer_size,
+            "persistent_match_groups": len(self._persistent_matches),
             "last_poll_at": self._last_poll_at,
             "last_poll_success": self._last_poll_success,
             "last_poll_result_count": self._last_poll_result_count,
@@ -197,7 +219,17 @@ class P2000EnrichmentManager:
             for incident_id in incident_ids:
                 self._incident_store.apply_incident_group(incident_id, group_meta)
 
+            group_end = self._group_operational_end(group)
+            if group_end is not None:
+                ended_at, source_ids = group_end
+                self._incident_store.apply_group_operational_end(
+                    incident_ids, ended_at=ended_at, source_incident_ids=source_ids
+                )
+
             matched_by_key: dict[str, P2000Event] = {}
+            for incident in group:
+                for event in self._events_from_enrichment(incident.get("p2000_enrichment")):
+                    matched_by_key[self._event_key(event)] = event
             for event in buffered:
                 if any(self._matches(incident, event) for incident in group):
                     matched_by_key[self._event_key(event)] = event
@@ -216,6 +248,8 @@ class P2000EnrichmentManager:
                 if self._same_enrichment(existing, enrichment):
                     continue
                 self._incident_store.apply_p2000_enrichment(incident_id, enrichment)
+
+            self._remember_persistent_match(group_meta, enrichment)
 
         self._notify()
 
@@ -257,6 +291,95 @@ class P2000EnrichmentManager:
         new_compare.pop("last_updated", None)
         return old_compare == new_compare
 
+    @staticmethod
+    def _event_from_dict(data: Any) -> P2000Event | None:
+        if not isinstance(data, dict) or not data.get("message"):
+            return None
+        return P2000Event(
+            source=str(data.get("source") or "persisted"),
+            external_id=str(data["external_id"]) if data.get("external_id") not in (None, "") else None,
+            event_time=data.get("event_time"),
+            received_at=str(data.get("received_at") or data.get("event_time") or datetime.now().astimezone().isoformat()),
+            message=str(data.get("message")),
+            human_message=data.get("human_message"),
+            latitude=P2000EnrichmentManager._as_float(data.get("latitude")),
+            longitude=P2000EnrichmentManager._as_float(data.get("longitude")),
+            city=data.get("city"), street=data.get("street"), postcode=data.get("postcode"),
+            location_reference=data.get("location_reference"), priority=data.get("priority"),
+            grip=data.get("grip"), capcodes=list(data.get("capcodes") or []),
+            units=[str(x) for x in (data.get("units") or [])],
+            talkgroups=[str(x) for x in (data.get("talkgroups") or [])],
+        )
+
+    @classmethod
+    def _events_from_enrichment(cls, enrichment: Any) -> list[P2000Event]:
+        if not isinstance(enrichment, dict):
+            return []
+        return [
+            event for event in (cls._event_from_dict(item) for item in enrichment.get("messages") or [])
+            if event is not None
+        ]
+
+    def _remember_persistent_match(self, group_meta: dict[str, Any], enrichment: dict[str, Any]) -> None:
+        group_id = str(group_meta.get("group_id") or "").strip()
+        if not group_id:
+            return
+        ids = {str(x) for x in (group_meta.get("incident_ids") or [])}
+        overlap = [
+            key for key,item in self._persistent_matches.items()
+            if key == group_id or ids.intersection(str(x) for x in (item.get("incident_ids") or []))
+        ]
+        events = {}
+        for key in overlap:
+            old = self._persistent_matches.get(key) or {}
+            ids.update(str(x) for x in (old.get("incident_ids") or []))
+            for event in self._events_from_enrichment(old.get("p2000_enrichment")):
+                events[self._event_key(event)] = event
+        for event in self._events_from_enrichment(enrichment):
+            events[self._event_key(event)] = event
+        rebuilt = self._build_enrichment(list(events.values()))
+        rebuilt["incident_group_id"] = group_id
+        rebuilt["incident_ids"] = sorted(ids)
+        for key in overlap:
+            self._persistent_matches.pop(key, None)
+        self._persistent_matches[group_id] = {
+            "group_id": group_id,
+            "primary_incident_id": group_meta.get("primary_incident_id"),
+            "incident_ids": sorted(ids),
+            "member_count": len(ids),
+            "practical_incident": len(ids) > 1,
+            "p2000_enrichment": rebuilt,
+            "last_updated": datetime.now().astimezone().isoformat(),
+        }
+        keep = self.persistent_matches
+        self._persistent_matches = {str(x["group_id"]): x for x in keep}
+
+    @classmethod
+    def _group_operational_end(cls, group: list[dict[str, Any]]) -> tuple[str, list[Any]] | None:
+        """Infer a practical end only from authoritative BWR end times."""
+        if len(group) < 2:
+            return None
+        closed = []
+        for incident in group:
+            raw = incident.get("end_time")
+            if raw in (None, "") and incident.get("ended_at_source") == "api":
+                raw = incident.get("incident_ended_at")
+            ended = cls._parse_datetime(raw)
+            if ended is not None:
+                closed.append((incident, ended))
+        if not closed:
+            return None
+        primary = min(group, key=lambda x: cls._incident_timestamp(x).timestamp())
+        primary_closed = next(((i,e) for i,e in closed if str(i.get("id")) == str(primary.get("id"))), None)
+        times = [e for _,e in closed]
+        clustered = len(times) >= 2 and max(times) - min(times) <= _GROUP_END_CLUSTER
+        if primary_closed is None and not clustered:
+            return None
+        ended = max(times) if clustered else primary_closed[1]
+        if datetime.now().astimezone() < ended + _GROUP_CLOSE_GRACE:
+            return None
+        return ended.isoformat(), [i.get("id") for i,_ in closed if i.get("id") is not None]
+
     def _correlation_incidents(self) -> list[dict[str, Any]]:
         """Return active plus recently closed incidents relevant to the buffer."""
         combined: dict[str, dict[str, Any]] = {}
@@ -268,7 +391,11 @@ class P2000EnrichmentManager:
         for incident in self._incident_store.history:
             if incident.get("id") is None:
                 continue
-            if self._incident_timestamp(incident) < cutoff:
+            if (
+                self._incident_timestamp(incident) < cutoff
+                and not incident.get("p2000_enrichment")
+                and not incident.get("incident_group")
+            ):
                 continue
             combined.setdefault(str(incident["id"]), incident)
         return list(combined.values())

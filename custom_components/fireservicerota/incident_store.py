@@ -17,6 +17,16 @@ FAST_INCIDENT_REFRESH_SECONDS = 10
 FINAL_CLOSED_REFRESH_DELAY_SECONDS = 2
 FAST_INCIDENT_REFRESH_WINDOW_SECONDS = 100
 FAST_INCIDENT_REFRESH_GRACE_SECONDS = 20
+PENDING_API_REFRESH_SECONDS = 1800
+
+OPERATIONAL_STATUS_ACTIVE = "active"
+OPERATIONAL_STATUS_GROUP_PENDING = "group_closed_pending_api"
+OPERATIONAL_STATUS_MANUAL_PENDING = "manual_closed_pending_api"
+OPERATIONAL_STATUS_CLOSED = "closed"
+PENDING_OPERATIONAL_STATUSES = {
+    OPERATIONAL_STATUS_GROUP_PENDING,
+    OPERATIONAL_STATUS_MANUAL_PENDING,
+}
 
 END_TIME_KEYS = (
     "end_time",
@@ -676,6 +686,15 @@ class IncidentStore:
             "last_seen_at",
             "p2000_enrichment",
             "incident_group",
+            "operational_status",
+            "operational_ended_at",
+            "operational_ended_at_source",
+            "api_closed",
+            "manual_closed",
+            "manual_closed_at",
+            "manual_reopened_at",
+            "group_closed_by_incident_ids",
+            "group_close_suppressed",
         ):
             if key in data and data[key] is not None:
                 value = data[key]
@@ -779,6 +798,18 @@ class IncidentStore:
         if raw_status is None:
             raw_status = self._first_value(lifecycle, STATUS_KEYS)
 
+        pending_operational_status = data.get("operational_status") or previous.get("operational_status")
+        pending_operational_end = (
+            data.get("operational_ended_at")
+            or previous.get("operational_ended_at")
+            or data.get("incident_ended_at")
+            or previous.get("incident_ended_at")
+        )
+        pending_operational_source = (
+            data.get("operational_ended_at_source")
+            or previous.get("operational_ended_at_source")
+        )
+
         active = previous.get("incident_active")
         lifecycle_known = bool(previous.get("lifecycle_known", False))
         explicit_lifecycle = False
@@ -847,6 +878,30 @@ class IncidentStore:
             active = True
         if active is None:
             active = True
+
+        if api_ended_at is not None:
+            snapshot["operational_status"] = OPERATIONAL_STATUS_CLOSED
+            snapshot["operational_ended_at"] = api_ended_at
+            snapshot["operational_ended_at_source"] = "api"
+            snapshot["api_closed"] = True
+            snapshot["group_close_suppressed"] = False
+        elif pending_operational_status in PENDING_OPERATIONAL_STATUSES:
+            active = False
+            lifecycle_known = False
+            ended_at = pending_operational_end or ended_at
+            snapshot["operational_status"] = pending_operational_status
+            if ended_at is not None:
+                snapshot["operational_ended_at"] = ended_at
+            if pending_operational_source:
+                snapshot["operational_ended_at_source"] = pending_operational_source
+                snapshot["ended_at_source"] = pending_operational_source
+            snapshot["api_closed"] = False
+        elif active is False and lifecycle_known:
+            snapshot["operational_status"] = OPERATIONAL_STATUS_CLOSED
+            snapshot["api_closed"] = True
+        else:
+            snapshot["operational_status"] = OPERATIONAL_STATUS_ACTIVE
+            snapshot["api_closed"] = False
 
         snapshot["incident_active"] = bool(active)
         snapshot["lifecycle_known"] = lifecycle_known
@@ -1110,6 +1165,135 @@ class IncidentStore:
         snapshot["incident_group"] = group
         self._notify()
 
+    def _set_pending_operational_close(
+        self, snapshot: dict, *, status: str, ended_at: str, source: str,
+        group_source_ids: list[Any] | None = None, manual: bool = False,
+    ) -> bool:
+        """Operationally close a stale technical id without faking API closure."""
+        if snapshot.get("ended_at_source") == "api" or self._first_value(snapshot, END_TIME_KEYS) is not None:
+            return False
+        if status == OPERATIONAL_STATUS_GROUP_PENDING and snapshot.get("group_close_suppressed") is True:
+            return False
+        if snapshot.get("operational_status") == OPERATIONAL_STATUS_MANUAL_PENDING:
+            return False
+        changed = (
+            snapshot.get("incident_active") is not False
+            or snapshot.get("operational_status") != status
+            or snapshot.get("operational_ended_at") != ended_at
+            or snapshot.get("operational_ended_at_source") != source
+        )
+        if not changed:
+            return False
+        snapshot["incident_active"] = False
+        snapshot["lifecycle_known"] = False
+        snapshot["operational_status"] = status
+        snapshot["operational_ended_at"] = ended_at
+        snapshot["operational_ended_at_source"] = source
+        snapshot["incident_ended_at"] = ended_at
+        snapshot["ended_at_source"] = source
+        snapshot["api_closed"] = False
+        if group_source_ids:
+            snapshot["group_closed_by_incident_ids"] = list(group_source_ids)
+        if manual:
+            snapshot["manual_closed"] = True
+            snapshot["manual_closed_at"] = ended_at
+            snapshot["group_close_suppressed"] = False
+        return True
+
+    def apply_group_operational_end(
+        self, incident_ids: list[Any], *, ended_at: str, source_incident_ids: list[Any]
+    ) -> list[Any]:
+        """Close stale group members operationally while awaiting BWR end_time."""
+        changed_ids = []
+        parsed_end = _parse_datetime(ended_at)
+        for incident_id in incident_ids:
+            snapshot = self._incidents.get(self._key(incident_id))
+            if snapshot is None or snapshot.get("operational_status") == OPERATIONAL_STATUS_CLOSED:
+                continue
+            start = _parse_datetime(snapshot.get("start_time") or snapshot.get("created_at"))
+            if parsed_end is not None and start is not None and start > parsed_end:
+                continue
+            if self._set_pending_operational_close(
+                snapshot, status=OPERATIONAL_STATUS_GROUP_PENDING,
+                ended_at=ended_at, source="incident_group",
+                group_source_ids=source_incident_ids,
+            ):
+                changed_ids.append(incident_id)
+                self._ensure_final_closed_refresh(incident_id)
+        if changed_ids:
+            self._prune()
+            self._notify()
+        return changed_ids
+
+    def mark_manual_closed(self, incident_id: Any, *, scope: str = "group") -> dict[str, Any]:
+        """Locally close one technical id or all unresolved ids in its group."""
+        snapshot = self._incidents.get(self._key(incident_id))
+        if snapshot is None:
+            return {"found": False, "changed_incident_ids": []}
+        targets = [incident_id]
+        group = snapshot.get("incident_group")
+        if scope == "group" and isinstance(group, dict) and isinstance(group.get("incident_ids"), list):
+            targets = list(group["incident_ids"])
+        ended_at = _now_iso()
+        changed_ids = []
+        for target_id in targets:
+            target = self._incidents.get(self._key(target_id))
+            if target is None:
+                continue
+            if self._set_pending_operational_close(
+                target, status=OPERATIONAL_STATUS_MANUAL_PENDING,
+                ended_at=ended_at, source="manual", manual=True,
+            ):
+                changed_ids.append(target_id)
+                self._ensure_final_closed_refresh(target_id)
+        if changed_ids:
+            self._prune()
+            self._notify()
+        return {"found": True, "scope": scope, "requested_incident_id": incident_id,
+                "changed_incident_ids": changed_ids, "operational_ended_at": ended_at}
+
+    def reopen_local_close(self, incident_id: Any, *, scope: str = "group") -> dict[str, Any]:
+        """Undo a local pending close; genuine API closures stay closed."""
+        snapshot = self._incidents.get(self._key(incident_id))
+        if snapshot is None:
+            return {"found": False, "changed_incident_ids": []}
+        targets = [incident_id]
+        group = snapshot.get("incident_group")
+        if scope == "group" and isinstance(group, dict) and isinstance(group.get("incident_ids"), list):
+            targets = list(group["incident_ids"])
+        changed_ids = []
+        for target_id in targets:
+            target = self._incidents.get(self._key(target_id))
+            if target is None or target.get("operational_status") not in PENDING_OPERATIONAL_STATUSES:
+                continue
+            if target.get("ended_at_source") == "api" or self._first_value(target, END_TIME_KEYS) is not None:
+                continue
+            target["incident_active"] = True
+            target["lifecycle_known"] = False
+            target["operational_status"] = OPERATIONAL_STATUS_ACTIVE
+            target["api_closed"] = False
+            target["group_close_suppressed"] = True
+            target["manual_reopened_at"] = _now_iso()
+            for key in ("operational_ended_at","operational_ended_at_source","incident_ended_at",
+                        "ended_at_source","group_closed_by_incident_ids"):
+                target.pop(key, None)
+            changed_ids.append(target_id)
+        if changed_ids:
+            self._prune()
+            self._notify()
+        return {"found": True, "scope": scope, "requested_incident_id": incident_id,
+                "changed_incident_ids": changed_ids}
+
+    @property
+    def pending_api_incidents(self) -> list[dict]:
+        """Return operationally closed incidents still awaiting BWR end_time."""
+        return [
+            self._public_snapshot(snapshot)
+            for snapshot in self._incidents.values()
+            if snapshot.get("operational_status") in PENDING_OPERATIONAL_STATUSES
+            and snapshot.get("api_closed") is not True
+        ]
+
     @staticmethod
     def _public_snapshot(snapshot: dict) -> dict:
         """Return a copy with live duration and convenient address fields."""
@@ -1273,36 +1457,40 @@ class IncidentStore:
         return result
 
     async def async_refresh_active(self) -> None:
-        """Periodically refresh active incidents so API closure is detected."""
-        if not self.active_incidents:
+        """Refresh active incidents and slower pending API closures."""
+        active = list(self.active_incidents)
+        pending = list(self.pending_api_incidents)
+        if not active and not pending:
             return
-
+        candidates = {}
+        for public in active + pending:
+            incident_id = public.get("id")
+            if incident_id is not None:
+                candidates[self._key(incident_id)] = public
         async with self._refresh_lock:
             now = time.monotonic()
             changed = False
-            for public in list(self.active_incidents):
+            for key, public in candidates.items():
                 incident_id = public.get("id")
-                if incident_id is None:
+                is_pending = (
+                    public.get("operational_status") in PENDING_OPERATIONAL_STATUSES
+                    and public.get("api_closed") is not True
+                )
+                refresh_seconds = PENDING_API_REFRESH_SECONDS if is_pending else ACTIVE_INCIDENT_REFRESH_SECONDS
+                if now - self._last_rest_refresh.get(key, 0) < refresh_seconds:
                     continue
-                key = self._key(incident_id)
-                if now - self._last_rest_refresh.get(key, 0) < ACTIVE_INCIDENT_REFRESH_SECONDS:
-                    continue
-
                 incident = await self._client.async_get_incident(incident_id)
                 self._last_rest_refresh[key] = time.monotonic()
                 if not isinstance(incident, dict):
                     continue
-
                 existing = self.get_raw(incident_id) or {"id": incident_id}
                 merged = dict(existing)
                 merged.update(incident)
                 for preserve in ("trigger", "previous_task_ids", "new_task_ids"):
                     if preserve not in incident and preserve in existing:
                         merged[preserve] = existing[preserve]
-
                 enriched = self._client.enrich_incident_data(merged)
                 self.upsert(enriched, source="rest", notify=False)
                 changed = True
-
             if changed:
                 self._notify()
