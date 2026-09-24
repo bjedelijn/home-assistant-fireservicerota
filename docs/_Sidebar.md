@@ -8,3 +8,4 @@
 - [Dashboard examples](Dashboard-Examples.md)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
+- [1.2.0-rc.1 release notes](Release-Notes-1.2.0-rc.1.md)

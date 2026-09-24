@@ -48,7 +48,7 @@ Extended prefers the operational timestamps from the BrandweerRooster incident p
 
 1. An explicit API `end_time` (or another explicit end timestamp) closes the operational incident.
 2. BrandweerRooster can expose `state: finished` while the incident is still operationally active. Extended therefore does **not** use `finished` by itself as an incident end.
-3. RC2 no longer invents an estimated end time when `state` changes to `finished`.
+3. Extended does not invent an estimated end time when `state` changes to `finished`.
 4. When `end_time` becomes available, it is stored as the incident end time and the duration is calculated from `start_time` (falling back to `created_at`).
 5. On the active -> closed transition, Extended performs one final REST read to capture the latest available staffing/response data into history. This is a single closure check, not a continuing history refresh.
 
@@ -70,7 +70,7 @@ The result is exposed as `duration_seconds`.
 
 ## Restart behavior
 
-Incident state is restored after a Home Assistant restart. Historic restored state should remain useful for dashboards without looking like a new live incident to automations. In RC4, normalized staffing and own-response fields that were already stored in a compact incident snapshot are preserved during this restore instead of being discarded.
+Incident state is restored after a Home Assistant restart. Historic restored state should remain useful for dashboards without looking like a new live incident to automations. Normalized staffing and own-response fields that were already stored in a compact incident snapshot are preserved during this restore instead of being discarded.
 
 For that reason, incident automations should explicitly check:
 

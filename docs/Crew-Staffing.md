@@ -1,6 +1,6 @@
 # Crew staffing and assignments
 
-FireServiceRota Extended `1.1.0-rc.4` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
+FireServiceRota Extended `1.2.0-rc.1` includes dynamic staffing data derived from API incident structures such as `incident_responses`, `incident_skill_assignments` and `warning_statuses`.
 
 The integration does not require local vehicle numbers, fixed station IDs or hardcoded function names.
 
@@ -63,7 +63,7 @@ reserve_responding_count
 individual_assignments_available
 ```
 
-In RC4:
+In 1.2.0-rc.1:
 
 - `required_positions` = `None`
 - `filled_positions` = `None`
@@ -83,7 +83,7 @@ api_assigned_count
 available_count
 ```
 
-RC4 treats skill requirements as **overlapping qualification requirements**, not as separate seats. For example, a requirement can need six members with a general crew skill while one of those six also covers commander and another covers driver. Therefore skill requirements such as 6 + 1 + 1 must not be summed into eight personnel positions.
+1.2.0-rc.1 treats skill requirements as **overlapping qualification requirements**, not as separate seats. For example, a requirement can need six members with a general crew skill while one of those six also covers commander and another covers driver. Therefore skill requirements such as 6 + 1 + 1 must not be summed into eight personnel positions.
 
 The API `warning_statuses` coverage is used for sufficient/insufficient status when available. `incident_skill_assignments` remains useful for individual person-to-function details, but some organizations/incidents return no individual assignments.
 
@@ -188,7 +188,7 @@ The final closure read is deliberately separate from the live fast-refresh windo
 
 ## Restart persistence
 
-RC4 preserves the normalized staffing and own-response fields already present in retained active/history snapshots when Home Assistant reconstructs `RestoreEntity` state after a restart. This includes fields such as:
+1.2.0-rc.1 preserves the normalized staffing and own-response fields already present in retained active/history snapshots when Home Assistant reconstructs `RestoreEntity` state after a restart. This includes fields such as:
 
 ```text
 crew_assignments

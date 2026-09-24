@@ -136,6 +136,71 @@ This example distinguishes "no individual assignment data" from "not assigned":
     {% endif %}
 ```
 
+
+## Communication status
+
+For BrandweerRooster Netherlands, `sensor.mobiele_apparaten` contains privacy-filtered mobile-device diagnostics. `sensor.pager` contains selected pager status.
+
+This read-only example keeps the compact dashboard useful without exposing device credentials:
+
+```yaml
+- type: markdown
+  title: Communication
+  content: |-
+    {% set pager_battery = state_attr('sensor.pager', 'battery_level') %}
+    {% set pager_seen = state_attr('sensor.pager', 'last_seen_at') %}
+    {% set devices = state_attr('sensor.mobiele_apparaten', 'mobile_devices') or [] %}
+
+    **Pager**
+    {% if pager_battery is not none %}Battery: {{ pager_battery }}%{% endif %}
+    {% if pager_seen %} · Last seen: {{ as_datetime(pager_seen).strftime('%H:%M') }}{% endif %}
+
+    {% for d in devices %}
+    **{{ d.brand | default(d.platform | default('Mobile device')) }}**
+    Alerts: {{ 'on' if d.alert_notifications_enabled == true else 'off' }}
+    {% if d.last_heartbeat_at %} · Last seen: {{ as_datetime(d.last_heartbeat_at).strftime('%H:%M') }}{% endif %}
+    {% endfor %}
+```
+
+The integration deliberately does not expose mobile push tokens, UUIDs, IMEI, serial identifiers or live-update tokens.
+
+## P2000 incident scale
+
+When optional Netherlands P2000 enrichment is enabled, incident snapshots can contain independent scale axes:
+
+```text
+highest_fire_scale
+highest_hv_scale
+highest_ibgs_scale
+highest_grip
+escalation_timeline
+```
+
+Do not merge these into one generic scale. For example, `medium_hv` is a hulpverlening scale and must not be shown as `medium_fire`. GRIP is independent and can coexist with any incident discipline.
+
+Example:
+
+```yaml
+- type: markdown
+  title: P2000 scale
+  content: |-
+    {% set incidents = state_attr('sensor.actieve_incidenten', 'incidents') or [] %}
+    {% for i in incidents %}
+      {% set p = i.p2000_enrichment or {} %}
+      **Incident {{ i.id }}**
+      Fire: {{ p.highest_fire_scale | default('none') }}
+      · HV: {{ p.highest_hv_scale | default('none') }}
+      · IBGS: {{ p.highest_ibgs_scale | default('none') }}
+      · GRIP: {{ p.highest_grip | default('none') }}
+    {% endfor %}
+```
+
+## Response-control safety
+
+Incident snapshots can show the authenticated user's response status. The standard dashboard examples intentionally do **not** include buttons that call incident-response switches.
+
+Those switches perform real acknowledged/rejected writes and are disabled by default for newly created entity-registry entries. If an installation intentionally enables them, add explicit confirmation and access controls appropriate for that dashboard.
+
 ## Concurrent incidents
 
 For dashboards, do not assume the latest incident is the only active incident. Use the list from:
