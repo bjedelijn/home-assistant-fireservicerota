@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Extended opties",
-        "description": "P2000-verrijking is alleen beschikbaar voor BrandweerRooster Nederland. De online bron draait continu met een ringbuffer van 60 minuten; RTL-SDR volgt in een volgende beta.",
+        "description": "P2000-verrijking is alleen beschikbaar voor BrandweerRooster Nederland. De online bron draait continu met een ringbuffer van 60 minuten; RTL-SDR is gereserveerd voor een toekomstige release na hardwarevalidatie.",
         "data": {
           "p2000_enabled": "P2000-verrijking inschakelen",
           "p2000_source": "P2000-bron",

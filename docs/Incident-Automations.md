@@ -136,7 +136,7 @@ For Google Cast / Nest targets it can be useful to explicitly close the Cast ses
 
 Apply this only to targets for which stopping the Cast session is desired; a wall/tablet media player may need different handling.
 
-For multiple incident/reaction speech paths, a queued script is recommended so one message does not interrupt another. A daytime/nighttime split can also use separate volumes and an additional on-duty / Do Not Disturb guard before nighttime speech. The complete package includes these patterns.
+For multiple incident/reaction speech paths, a queued script is recommended so one message does not interrupt another. A daytime/nighttime split can also use separate volumes and an optional on-duty guard before nighttime speech. The complete package includes these patterns. BrandweerRooster mobile alert-notification settings are intentionally not used as a Home Assistant TTS guard.
 
 ## Pause media without turning devices on
 

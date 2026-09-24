@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current beta: `1.2.0-beta.12`**
+**Current release candidate: `1.2.0-rc.1`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** beta. `1.2.0-beta.12` is based on `1.1.0-rc.4` and develops the opt-in Netherlands-only P2000 enrichment path. Online buffering, location normalization and logical grouping of related BrandweerRooster incident ids are available; RTL-SDR support is intentionally reserved for a later beta so it can be validated against real hardware.
+> **Status:** release candidate. `1.2.0-rc.1` consolidates the field-tested 1.2.0 beta line on top of `1.1.0-rc.4`. Optional Netherlands-only P2000 enrichment, dynamic multi-station/affiliation discovery, communication diagnostics and lifecycle improvements are included. RTL-SDR remains outside 1.2.0 until it has been validated against real hardware.
 
 ## Safety notice
 
@@ -31,8 +31,11 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Dashboard examples](docs/Dashboard-Examples.md)
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
+- [1.2.0-rc.1 release notes](docs/Release-Notes-1.2.0-rc.1.md)
 
 The public examples intentionally avoid private addresses, personal device names, local vehicle mappings, station IDs and other installation-specific data.
+
+Questions, bug reports and contributions can be handled through the GitHub repository and issue tracker; no personal contact details are published in this documentation.
 
 ## Extended functionality
 
@@ -49,10 +52,10 @@ Extended adds or expands:
 - Automatic authenticated-user, station/group and membership discovery.
 - Generic `own_stations` and `own_affiliations` discovery from active memberships, including multi-station users and non-station/regional specialist groups.
 - Incident-level `own_incident_affiliations` derived from task and response context without hard-coded station or group IDs.
-- Multi-station duty / availability support.
+- Multi-station duty / availability support. Duty/availability is read-only in 1.2.0-rc.1; no paraat/niet-paraat planning write is implemented.
 - Legacy user-level `do_not_disturb` state when that optional API field is supplied; mobile alert settings are modeled separately.
 - Dynamic task / alert-group resolution.
-- Per-membership incident response data and response switches.
+- Per-membership incident response data and response switches. These controls can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries.
 - Dynamic incident crew assignments where the API exposes them.
 - Dynamic crew requirements and skill coverage.
 - Own response / own assignment information where available.
@@ -67,11 +70,11 @@ Extended adds or expands:
 
 No specific station, user, membership, task, vehicle or local priority mapping is hardcoded in the integration.
 
-## P2000 enrichment (Netherlands, beta)
+## P2000 enrichment (Netherlands)
 
 For BrandweerRooster Netherlands, Extended can optionally enrich active incidents with P2000 data. This feature is disabled by default and has no effect on FireServiceRota UK entries.
 
-In `1.2.0-beta.9`:
+The 1.2.0 release candidate includes:
 
 - the online P2000 provider talks directly to the AlarmeringDroid feed;
 - no separate HA P2000 integration is required for online mode;
@@ -94,7 +97,7 @@ In `1.2.0-beta.9`:
 - `fireservicerota.mark_incident_closed` and `fireservicerota.reopen_incident` provide explicit local-only operational overrides without writing to BrandweerRooster;
 - polling is configurable from 30 to 3600 seconds;
 - a P2000 status sensor exposes polling health, ring-buffer size and the latest buffered message for testing;
-- RTL-SDR is not enabled yet and will be added after hardware validation.
+- RTL-SDR is not enabled in 1.2.0 and remains reserved for a future release after hardware validation.
 
 Configure this under **Settings -> Devices & services -> FireServiceRota Extended -> Configure**.
 

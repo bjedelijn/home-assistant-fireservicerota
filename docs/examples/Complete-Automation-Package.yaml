@@ -1,6 +1,6 @@
 ###############################################################################
 # FireServiceRota Extended - Complete Automation Package
-# Target: 1.1.0-rc.4
+# Target: 1.2.0-rc.1
 #
 # Privacy-safe example package. It intentionally contains no station IDs,
 # vehicle numbers, addresses, coordinates, personal names, Telegram settings,
@@ -14,7 +14,6 @@
 # - media_player.example_tablet
 # - media_player.example_tv
 # - binary_sensor.example_on_duty
-# - binary_sensor.example_do_not_disturb
 #
 # Put the edited file in a Home Assistant package directory, for example:
 # /config/packages/fireservicerota_extended.yaml
@@ -233,8 +232,7 @@ automation:
           repeated_tts_text: >-
             {{ tts_text }}. Attention, repeat. {{ tts_text }}
           night_tts_allowed: >-
-            {{ is_state('binary_sensor.example_on_duty', 'on')
-               and is_state('binary_sensor.example_do_not_disturb', 'off') }}
+            {{ is_state('binary_sensor.example_on_duty', 'on') }}
 
       - action: notify.mobile_app_your_phone
         data:
@@ -273,7 +271,7 @@ automation:
         default:
           - if:
               - condition: template
-                alias: Night speech only while on duty and Do Not Disturb is off
+                alias: Night speech only while on duty
                 value_template: "{{ night_tts_allowed }}"
             then:
               - action: script.fireservicerota_tts_queue
@@ -290,9 +288,9 @@ automation:
   - id: fireservicerota_extended_response_example
     alias: FireServiceRota - own response example
     description: >-
-      Detects a recent acknowledged/rejected response from the authenticated user,
+      Observes a recent acknowledged/rejected response already present on the incident,
       sends a normal household notification and optionally speaks acknowledged
-      responses during daytime.
+      responses during daytime. This automation does not send a response to BrandweerRooster.
     mode: queued
     max: 10
 

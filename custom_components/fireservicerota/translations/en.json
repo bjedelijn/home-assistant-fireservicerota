@@ -74,7 +74,7 @@
     "step": {
       "init": {
         "title": "Extended options",
-        "description": "P2000 enrichment is only available for BrandweerRooster Netherlands. The online source runs continuously with a 60-minute ring buffer; RTL-SDR will follow in a later beta.",
+        "description": "P2000 enrichment is only available for BrandweerRooster Netherlands. The online source runs continuously with a 60-minute ring buffer; RTL-SDR is reserved for a future release after hardware validation.",
         "data": {
           "p2000_enabled": "Enable P2000 enrichment",
           "p2000_source": "P2000 source",
