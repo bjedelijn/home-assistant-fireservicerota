@@ -4,7 +4,7 @@
 
 These pages contain practical examples for **FireServiceRota Extended**. They are written to be reusable for different users and organizations and intentionally avoid local station IDs, vehicle numbers, private addresses, personal device names and other installation-specific data.
 
-Current examples target **`1.2.0-rc.1`**.
+Current examples target **`1.2.0`**.
 
 > Home Assistant is an additional information and automation layer. Do not use it as the only emergency alerting method. Official pager, app, P2000 and/or other approved alerting channels remain leading.
 
@@ -21,7 +21,8 @@ Questions, bug reports and contributions can be handled through the GitHub repos
 - [Dashboard examples](Dashboard-Examples.md)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
-- [1.2.0-rc.1 release notes](Release-Notes-1.2.0-rc.1.md)
+- [1.2.0 release notes](Release-Notes-1.2.0.md)
+- [1.2.0-rc.8 release notes](Release-Notes-1.2.0-rc.8.md)
 
 ## Main entities
 
@@ -37,7 +38,7 @@ sensor.mobiele_apparaten
 
 Multi-station installations can also expose station-specific duty entities and incident-response switches. Exact entity IDs depend on Home Assistant naming, language and the station names returned by the API.
 
-Duty/availability is read-only in 1.2.0-rc.1. Incident-response switches can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries. Public dashboard examples intentionally do not provide response buttons.
+Duty/availability is read-only in 1.2.0. Incident-response switches can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries. Public dashboard examples intentionally do not provide response buttons.
 
 The legacy user-level `do_not_disturb` binary sensor remains for compatibility only when the API supplies that field. It is not the same as the per-device `alert_notifications_enabled` field on `sensor.mobiele_apparaten`.
 
