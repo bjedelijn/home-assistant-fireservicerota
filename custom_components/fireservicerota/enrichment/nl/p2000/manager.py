@@ -14,6 +14,7 @@ from .escalation import build_escalation_summary
 from .online import P2000OnlineProvider
 from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
+from ..vehicle_registry import BrandbaseVehicleRegistry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class P2000EnrichmentManager:
         self._incident_store = incident_store
         self._scan_interval = max(30, int(scan_interval))
         self._providers = [P2000OnlineProvider(hass)]
+        self._vehicle_registry = BrandbaseVehicleRegistry(hass)
         self._task: asyncio.Task | None = None
         self._first_received: dict[str, str] = {}
         self._buffer: dict[str, P2000Event] = {}
@@ -117,6 +119,7 @@ class P2000EnrichmentManager:
             "last_poll_result_count": self._last_poll_result_count,
             "last_event": self.last_event,
             "providers": providers,
+            "vehicle_registry": self._vehicle_registry.status,
         }
 
     def async_add_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
@@ -140,6 +143,8 @@ class P2000EnrichmentManager:
     async def async_start(self) -> None:
         """Start continuous P2000 reception while enrichment is enabled."""
         if self._task is None or self._task.done():
+            await self._vehicle_registry.async_load()
+            self._vehicle_registry.schedule_refresh_if_due()
             self._stopping = False
             self._task = self._hass.async_create_task(self._run())
 
@@ -168,6 +173,7 @@ class P2000EnrichmentManager:
 
     async def _async_poll_once(self) -> None:
         """Fetch providers, update the ring buffer, then correlate active incidents."""
+        self._vehicle_registry.schedule_refresh_if_due()
         events: list[P2000Event] = []
         provider_results: list[bool] = []
 
@@ -623,6 +629,40 @@ class P2000EnrichmentManager:
                 capcodes.setdefault(code, description)
 
         station_hints, unit_details = build_station_and_unit_hints(ordered)
+        vehicle_details = self._vehicle_registry.resolve_units(units)
+        vehicle_by_unit = {
+            str(item.get("unit")): item
+            for item in vehicle_details
+            if isinstance(item, dict)
+        }
+        for detail in unit_details:
+            registry = vehicle_by_unit.get(str(detail.get("unit")))
+            if not registry:
+                continue
+            detail["vehicle_registry"] = registry
+            if not registry.get("resolved"):
+                continue
+
+            # Preserve any P2000/capcode-derived station evidence for diagnostics,
+            # while an exact callsign match in the locally cached registry becomes
+            # the canonical vehicle -> station identity.
+            if detail.get("station_name") is not None:
+                detail["p2000_station_name"] = detail.get("station_name")
+                detail["p2000_station_source"] = detail.get("station_source")
+                detail["p2000_station_confidence"] = detail.get("station_confidence")
+                detail["p2000_station_reason"] = detail.get("station_reason")
+
+            detail["station_name"] = registry.get("station")
+            detail["station_source"] = "brandbase_cache"
+            detail["station_confidence"] = "high"
+            detail["station_reason"] = "vehicle_registry_exact"
+            detail["callsign"] = registry.get("callsign")
+            detail["region_code"] = registry.get("region_code")
+            detail["region"] = registry.get("region")
+            detail["station_code"] = registry.get("station_code")
+            detail["vehicle_type"] = registry.get("vehicle_type")
+            detail["vehicle_type_code"] = registry.get("vehicle_type_code")
+
         escalation = build_escalation_summary(ordered)
         source_timing = build_source_timing(
             ordered,
@@ -638,6 +678,7 @@ class P2000EnrichmentManager:
             "message_count": len(ordered),
             "messages": messages,
             "units": units,
+            "vehicles": vehicle_details,
             "talkgroups": talkgroups,
             "capcodes": [
                 {"capcode": code, "description": description}
