@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current release candidate: `1.2.0-rc.7`**
+**Current release candidate: `1.2.0-rc.8`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** release candidate. `1.2.0-rc.7` keeps the rc.6 background-task startup fix, stops the P2000 loop on Home Assistant's stop event before final-writes shutdown, and moves full persistent P2000 matches out of entity attributes into Home Assistant storage. The P2000 match sensor now exposes only recorder-safe summaries. Provider-schema diagnostics from rc.5 remain available. RTL-SDR remains outside 1.2.0.
+> **Status:** release candidate. `1.2.0-rc.8` keeps the rc.7 lifecycle/storage fixes and re-enables strict Brandweer-only filtering using the live-verified AlarmeringDroid schema: `dienstid == "2"`, with `dienst == "Brandweer"` only as a fallback when the numeric id is absent. Provider-schema diagnostics remain available for validation. RTL-SDR remains outside 1.2.0.
 
 ## Safety notice
 
@@ -31,6 +31,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Dashboard examples](docs/Dashboard-Examples.md)
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
+- [1.2.0-rc.8 release notes](docs/Release-Notes-1.2.0-rc.8.md)
 - [1.2.0-rc.7 release notes](docs/Release-Notes-1.2.0-rc.7.md)
 - [1.2.0-rc.6 release notes](docs/Release-Notes-1.2.0-rc.6.md)
 - [1.2.0-rc.5 release notes](docs/Release-Notes-1.2.0-rc.5.md)
@@ -83,7 +84,7 @@ For BrandweerRooster Netherlands, Extended can optionally enrich active incident
 The 1.2.0 release candidate includes:
 
 - the online P2000 provider talks directly to the AlarmeringDroid feed;
-- the provider request selects service `2` (Brandweer); rc.5 temporarily keeps grouped subitems available while exposing a compact raw provider schema under `sensor.p2000_status` so the exact discipline field can be verified from live AlarmeringDroid data before re-enabling a strict per-subitem filter;
+- the provider request selects service `2` (Brandweer); live provider diagnostics confirmed both main items and grouped subitems expose `dienstid="2"` and `dienst="Brandweer"`, so rc.8 applies strict per-item Brandweer filtering on `dienstid` with a name fallback only when the numeric id is absent;
 - no separate HA P2000 integration is required for online mode;
 - when P2000 enrichment is enabled, the online provider polls continuously rather than waiting for an active BrandweerRooster incident;
 - recent unique P2000 messages are retained in an in-memory 60-minute rolling buffer;

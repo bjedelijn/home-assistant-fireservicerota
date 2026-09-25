@@ -142,15 +142,52 @@ class P2000OnlineProvider:
             "subitem_count": subitem_count,
             "main_item_schema": schema(main),
             "subitem_schema": schema(subitem),
+            "discipline_filter": {
+                "primary_field": "dienstid",
+                "primary_value": "2",
+                "fallback_field": "dienst",
+                "fallback_value": "Brandweer",
+            },
         }
 
     @staticmethod
-    def _expand(item: dict[str, Any]) -> list[dict[str, Any]]:
-        """Return main alert plus grouped subitems while provider schema is diagnosed."""
-        out = [{k: v for k, v in item.items() if k != "subitems"}]
+    def _is_fire_service_item(item: dict[str, Any]) -> bool:
+        """Return whether a provider item is explicitly a Brandweer alert.
+
+        Live AlarmeringDroid payloads expose the numeric discipline in
+        dienstid and the readable name in dienst. Prefer the stable numeric
+        field and only fall back to the name when the id is absent.
+        """
+        service_id = item.get("dienstid")
+        if isinstance(service_id, dict):
+            service_id = service_id.get("id")
+        if service_id not in (None, ""):
+            return str(service_id).strip() == "2"
+
+        service = item.get("dienst")
+        if isinstance(service, dict):
+            service = (
+                service.get("name")
+                or service.get("naam")
+                or service.get("description")
+            )
+        return str(service or "").strip().casefold() == "brandweer"
+
+    @classmethod
+    def _expand(cls, item: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return only confirmed Brandweer main alerts and grouped subitems."""
+        out: list[dict[str, Any]] = []
+        main = {k: v for k, v in item.items() if k != "subitems"}
+        if cls._is_fire_service_item(main):
+            out.append(main)
+
         subitems = item.get("subitems") or []
         if isinstance(subitems, list):
-            out.extend(x for x in subitems if isinstance(x, dict))
+            out.extend(
+                child
+                for child in subitems
+                if isinstance(child, dict) and cls._is_fire_service_item(child)
+            )
         return out
 
     @staticmethod
