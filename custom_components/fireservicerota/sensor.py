@@ -466,8 +466,8 @@ class P2000StatusSensor(SensorEntity):
         )
 
 
-class P2000MatchesSensor(RestoreEntity, SensorEntity):
-    """Persistent confirmed P2000 matches beyond the rolling ring buffer."""
+class P2000MatchesSensor(SensorEntity):
+    """Compact diagnostics for persistent confirmed P2000 matches."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "p2000_matches"
@@ -485,15 +485,33 @@ class P2000MatchesSensor(RestoreEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"matches": self._manager.persistent_matches, "match_limit": 25}
+        """Expose only a recorder-safe summary; full matches live in HA storage."""
+        summaries = []
+        for item in self._manager.persistent_matches[:10]:
+            enrichment = item.get("p2000_enrichment")
+            if not isinstance(enrichment, dict):
+                enrichment = {}
+            summaries.append(
+                {
+                    "group_id": item.get("group_id"),
+                    "primary_incident_id": item.get("primary_incident_id"),
+                    "incident_ids": item.get("incident_ids") or [],
+                    "member_count": item.get("member_count"),
+                    "practical_incident": item.get("practical_incident"),
+                    "message_count": enrichment.get("message_count", 0),
+                    "units": (enrichment.get("units") or [])[:10],
+                    "last_updated": item.get("last_updated"),
+                }
+            )
+        return {
+            "match_limit": 25,
+            "stored_match_count": len(self._manager.persistent_matches),
+            "latest_groups": summaries,
+            "storage_backend": "home_assistant_storage",
+        }
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        state = await self.async_get_last_state()
-        if state:
-            matches = state.attributes.get("matches")
-            if isinstance(matches, list):
-                self._manager.restore_matches(matches)
         self.async_on_remove(self._manager.async_add_listener(self.async_write_ha_state))
 
 

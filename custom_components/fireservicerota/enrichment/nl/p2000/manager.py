@@ -9,6 +9,9 @@ import math
 import re
 from typing import Any
 
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.helpers.storage import Store
+
 from .model import P2000Event
 from .escalation import build_escalation_summary
 from .online import P2000OnlineProvider
@@ -27,6 +30,7 @@ _BUFFER_RETENTION = timedelta(minutes=60)
 _GROUP_CLOSE_GRACE = timedelta(minutes=10)
 _GROUP_END_CLUSTER = timedelta(minutes=15)
 _PERSISTENT_MATCH_LIMIT = 25
+_PERSISTENT_STORAGE_VERSION = 1
 _WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 _STOPWORDS = {
     "brandweer", "melding", "prio", "p", "br", "bon", "naar", "voor", "met",
@@ -47,6 +51,7 @@ class P2000EnrichmentManager:
         self._first_received: dict[str, str] = {}
         self._buffer: dict[str, P2000Event] = {}
         self._persistent_matches: dict[str, dict[str, Any]] = {}
+        self._persistent_store: Store | None = None
         self._listeners: list[Callable[[], None]] = []
         self._stopping = False
         self._last_poll_at: str | None = None
@@ -76,14 +81,30 @@ class P2000EnrichmentManager:
             key=lambda item: str(item.get("last_updated") or ""), reverse=True
         )[:_PERSISTENT_MATCH_LIMIT]
 
-    def restore_matches(self, matches: list[dict[str, Any]]) -> None:
-        """Restore persistent P2000 matches from Home Assistant state."""
+    def restore_matches(
+        self, matches: list[dict[str, Any]], *, notify: bool = True
+    ) -> None:
+        """Restore persistent P2000 matches from integration storage."""
         self._persistent_matches = {
             str(item["group_id"]): dict(item)
             for item in matches
             if isinstance(item, dict) and item.get("group_id") not in (None, "")
         }
-        self._notify()
+        keep = self.persistent_matches
+        self._persistent_matches = {str(item["group_id"]): item for item in keep}
+        if notify:
+            self._notify()
+
+    def _persistent_storage_data(self) -> dict[str, Any]:
+        """Return the full bounded persistent match payload for HA storage."""
+        return {"matches": self.persistent_matches}
+
+    def _schedule_persistent_save(self) -> None:
+        """Coalesce persistent match writes outside the state machine/recorder."""
+        if self._persistent_store is not None:
+            self._persistent_store.async_delay_save(
+                self._persistent_storage_data, 5
+            )
 
     @property
     def last_event(self) -> dict[str, Any] | None:
@@ -146,6 +167,26 @@ class P2000EnrichmentManager:
         if self._task is None or self._task.done():
             await self._vehicle_registry.async_load()
             self._vehicle_registry.schedule_refresh_if_due()
+
+            if self._persistent_store is None:
+                self._persistent_store = Store(
+                    self._hass,
+                    _PERSISTENT_STORAGE_VERSION,
+                    f"fireservicerota.p2000_matches.{config_entry.entry_id}",
+                )
+                stored = await self._persistent_store.async_load()
+                if isinstance(stored, dict):
+                    matches = stored.get("matches")
+                    if isinstance(matches, list):
+                        self.restore_matches(matches, notify=False)
+
+            config_entry.async_on_unload(
+                self._hass.bus.async_listen_once(
+                    EVENT_HOMEASSISTANT_STOP,
+                    self._async_handle_homeassistant_stop,
+                )
+            )
+
             self._stopping = False
             self._task = config_entry.async_create_background_task(
                 self._hass,
@@ -153,17 +194,24 @@ class P2000EnrichmentManager:
                 name="fireservicerota_p2000_enrichment",
             )
 
+    async def _async_handle_homeassistant_stop(self, _event) -> None:
+        """Stop polling before Home Assistant reaches final-writes shutdown."""
+        await self.async_stop()
+
     async def async_stop(self) -> None:
-        """Stop the enrichment loop."""
+        """Stop the enrichment loop and persist the latest bounded matches."""
         self._stopping = True
-        if self._task is None:
-            return
-        self._task.cancel()
-        try:
-            await self._task
-        except asyncio.CancelledError:
-            pass
+        task = self._task
         self._task = None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        if self._persistent_store is not None:
+            await self._persistent_store.async_save(self._persistent_storage_data())
 
     async def _run(self) -> None:
         """Continuously poll P2000 so alerts preceding BWR are retained."""
@@ -375,6 +423,7 @@ class P2000EnrichmentManager:
         }
         keep = self.persistent_matches
         self._persistent_matches = {str(x["group_id"]): x for x in keep}
+        self._schedule_persistent_save()
 
     @classmethod
     def _group_operational_end(cls, group: list[dict[str, Any]]) -> tuple[str, list[Any]] | None:
