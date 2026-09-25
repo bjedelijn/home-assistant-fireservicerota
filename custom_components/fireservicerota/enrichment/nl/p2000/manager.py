@@ -89,6 +89,16 @@ class P2000EnrichmentManager:
         return len(self._buffer)
 
     @property
+    def recent_events(self) -> list[dict[str, Any]]:
+        """Return the newest shared-buffer events for source diagnostics."""
+        ordered = sorted(
+            self._buffer.values(),
+            key=lambda item: self._event_timestamp(item).timestamp(),
+            reverse=True,
+        )
+        return [event.as_dict() for event in ordered[:20]]
+
+    @property
     def persistent_matches(self) -> list[dict[str, Any]]:
         """Return bounded persistent practical-incident P2000 matches."""
         return sorted(
@@ -155,6 +165,7 @@ class P2000EnrichmentManager:
             "last_poll_success": self._last_poll_success,
             "last_poll_result_count": self._last_poll_result_count,
             "last_event": self.last_event,
+            "recent_events": self.recent_events,
             "providers": providers,
             "vehicle_registry": self._vehicle_registry.status,
         }
