@@ -32,6 +32,7 @@ class P2000RtlMqttProvider:
         self._unsubscribe = None
         self._messages_received = 0
         self._last_message_at: str | None = None
+        self._last_event: P2000Event | None = None
 
         # Keep the same diagnostics surface as polling providers so the
         # manager can expose both sources uniformly.
@@ -46,6 +47,7 @@ class P2000RtlMqttProvider:
             "pending_events": 0,
             "messages_received": 0,
             "last_message_at": None,
+            "last_event": None,
         }
 
     async def async_start(self) -> None:
@@ -99,6 +101,7 @@ class P2000RtlMqttProvider:
             return
 
         self._pending.append(event)
+        self._last_event = event
         self._messages_received += 1
         self._last_message_at = received_at
         self.last_poll_success = True
@@ -125,6 +128,7 @@ class P2000RtlMqttProvider:
             "pending_events": len(self._pending),
             "messages_received": self._messages_received,
             "last_message_at": self._last_message_at,
+            "last_event": self._last_event.as_dict() if self._last_event else None,
         }
 
     @classmethod
