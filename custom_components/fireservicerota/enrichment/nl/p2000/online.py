@@ -17,6 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 _API_URL = "https://beta.alarmeringdroid.nl/api2/find/"
 _VEHICLE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
 _POSTCODE_RE = re.compile(r"^[1-9][0-9]{3}\s?[A-Z]{2}$", re.IGNORECASE)
+_FIRE_SERVICE_ID = "2"
 
 
 class P2000OnlineProvider:
@@ -80,13 +81,32 @@ class P2000OnlineProvider:
         return events
 
     @staticmethod
-    def _expand(item: dict[str, Any]) -> list[dict[str, Any]]:
-        """Return the main alert plus provider-grouped related subitems."""
-        out = [{k: v for k, v in item.items() if k != "subitems"}]
+    def _is_fire_service_item(item: dict[str, Any]) -> bool:
+        """Return True only for records explicitly marked as fire service.
+
+        AlarmeringDroid exposes the service discipline as the per-record
+        "dienst" value. The search itself is already restricted with
+        diensten=["2"], but grouped incidents can still contain related
+        subitems from another service. Re-check every expanded record before
+        normalization so only fire-service records enter the P2000 buffer.
+        """
+        service = item.get("dienst")
+        if isinstance(service, dict):
+            service = service.get("id")
+        return str(service or "").strip() == _FIRE_SERVICE_ID
+
+    @classmethod
+    def _expand(cls, item: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return only fire-service records from a provider-grouped incident."""
+        candidates = [{k: v for k, v in item.items() if k != "subitems"}]
         subitems = item.get("subitems") or []
         if isinstance(subitems, list):
-            out.extend(x for x in subitems if isinstance(x, dict))
-        return out
+            candidates.extend(x for x in subitems if isinstance(x, dict))
+        return [
+            candidate
+            for candidate in candidates
+            if cls._is_fire_service_item(candidate)
+        ]
 
     @staticmethod
     def _as_float(value: Any) -> float | None:
