@@ -32,6 +32,10 @@ _GROUP_CLOSE_GRACE = timedelta(minutes=10)
 _GROUP_END_CLUSTER = timedelta(minutes=15)
 _PERSISTENT_MATCH_LIMIT = 25
 _PERSISTENT_STORAGE_VERSION = 1
+_SOURCE_LABELS = {
+    "online": "P2000 online",
+    "rtl": "P2000 via ether",
+}
 _WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 _STOPWORDS = {
     "brandweer", "melding", "prio", "p", "br", "bon", "naar", "voor", "met",
@@ -96,7 +100,12 @@ class P2000EnrichmentManager:
             key=lambda item: self._event_timestamp(item).timestamp(),
             reverse=True,
         )
-        return [event.as_dict() for event in ordered[:20]]
+        recent = []
+        for event in ordered[:20]:
+            item = event.as_dict()
+            item["source_label"] = _SOURCE_LABELS.get(event.source, event.source)
+            recent.append(item)
+        return recent
 
     @property
     def persistent_matches(self) -> list[dict[str, Any]]:
@@ -157,6 +166,10 @@ class P2000EnrichmentManager:
         return {
             "enabled": True,
             "sources": [provider.source for provider in self._providers],
+            "source_labels": {
+                provider.source: _SOURCE_LABELS.get(provider.source, provider.source)
+                for provider in self._providers
+            },
             "scan_interval_seconds": self._scan_interval,
             "buffer_retention_minutes": self.buffer_retention_minutes,
             "buffered_events": self.buffer_size,
