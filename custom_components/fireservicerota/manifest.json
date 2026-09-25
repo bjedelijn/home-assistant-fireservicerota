@@ -2,8 +2,8 @@
   "domain": "fireservicerota",
   "name": "FireServiceRota Extended",
   "config_flow": true,
-  "version": "1.2.0-rc.8",
-  "documentation": "https://github.com/bjedelijn/home-assistant-fireservicerota/tree/1.2.0-rc",
+  "version": "1.2.0",
+  "documentation": "https://github.com/bjedelijn/home-assistant-fireservicerota/tree/extended",
   "issue_tracker": "https://github.com/bjedelijn/home-assistant-fireservicerota/issues",
   "requirements": [
     "pyfireservicerota==0.0.49"
