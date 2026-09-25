@@ -15,6 +15,7 @@ from homeassistant.helpers.storage import Store
 from .model import P2000Event
 from .escalation import build_escalation_summary
 from .online import P2000OnlineProvider
+from .rtl import P2000RtlMqttProvider
 from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
 from ..vehicle_registry import BrandbaseVehicleRegistry
@@ -41,11 +42,25 @@ _STOPWORDS = {
 class P2000EnrichmentManager:
     """Continuously buffer P2000 alerts and enrich BrandweerRooster incidents."""
 
-    def __init__(self, hass, incident_store, *, scan_interval: int = 30) -> None:
+    def __init__(
+        self,
+        hass,
+        incident_store,
+        *,
+        scan_interval: int = 30,
+        source: str = "online",
+        rtl_topic: str | None = None,
+    ) -> None:
         self._hass = hass
         self._incident_store = incident_store
         self._scan_interval = max(30, int(scan_interval))
-        self._providers = [P2000OnlineProvider(hass)]
+        selected = str(source or "online").strip().lower()
+        self._providers = []
+        if selected in {"online", "both"}:
+            self._providers.append(P2000OnlineProvider(hass))
+        if selected in {"rtl", "both"}:
+            kwargs = {"topic": rtl_topic} if rtl_topic else {}
+            self._providers.append(P2000RtlMqttProvider(hass, **kwargs))
         self._vehicle_registry = BrandbaseVehicleRegistry(hass)
         self._task: asyncio.Task | None = None
         self._first_received: dict[str, str] = {}
@@ -187,6 +202,11 @@ class P2000EnrichmentManager:
                 )
             )
 
+            for provider in self._providers:
+                starter = getattr(provider, "async_start", None)
+                if starter is not None:
+                    await starter()
+
             self._stopping = False
             self._task = config_entry.async_create_background_task(
                 self._hass,
@@ -209,6 +229,14 @@ class P2000EnrichmentManager:
                 await task
             except asyncio.CancelledError:
                 pass
+
+        for provider in self._providers:
+            stopper = getattr(provider, "async_stop", None)
+            if stopper is not None:
+                try:
+                    await stopper()
+                except Exception:
+                    _LOGGER.exception("Could not stop P2000 provider %s", provider.source)
 
         if self._persistent_store is not None:
             await self._persistent_store.async_save(self._persistent_storage_data())
