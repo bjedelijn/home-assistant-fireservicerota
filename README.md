@@ -2,7 +2,7 @@
 
 **Current stable release: `1.2.0`**
 
-**Current development release on `1.3.0-beta`: `1.3.0-beta.2`**
+**Current development release on `1.3.0-beta`: `1.3.0-beta.3`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -126,6 +126,13 @@ vehicle identifiers. `unit_candidates_raw` and `unresolved_unit_candidates`
 exist for diagnostics; `units` is the consumer-facing confirmed list. Local
 specialist mappings or presentation overrides can still be layered on top in
 Home Assistant without hard-coding them into the integration.
+
+### 1.3.0-beta.3
+
+- dashboard/UI terminology now uses **P2000 via ether** for the local RTL-SDR source;
+- source options are shown as **P2000 online**, **P2000 via ether (RTL-SDR, beta)** and **P2000 online + ether (beta)**;
+- `sensor.p2000_status` exposes `source_labels` while retaining stable internal source ids `online` and `rtl`;
+- every item in `recent_events` includes `source_label`, for example `P2000 via ether`.
 
 ### 1.3.0-beta.2
 
