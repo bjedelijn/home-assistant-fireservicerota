@@ -69,7 +69,7 @@ async def async_setup_entry(
             P2000StatusSensor(client, p2000_manager),
             P2000MatchesSensor(client, p2000_manager),
         ])
-        await p2000_manager.async_start()
+        await p2000_manager.async_start(entry)
 
     async_add_entities(entities)
 

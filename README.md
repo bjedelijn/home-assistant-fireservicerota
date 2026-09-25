@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current release candidate: `1.2.0-rc.5`**
+**Current release candidate: `1.2.0-rc.6`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** release candidate. `1.2.0-rc.5` restores the nationwide Brandweer feed after rc.4 proved too strict and adds compact provider-schema diagnostics to `sensor.p2000_status`. The rc.3 confirmed/unresolved vehicle filtering remains active while the exact AlarmeringDroid grouped-subitem discipline fields are verified from live data. RTL-SDR remains outside 1.2.0.
+> **Status:** release candidate. `1.2.0-rc.6` keeps the rc.5 nationwide Brandweer feed and provider-schema diagnostics, and fixes Home Assistant startup/shutdown lifecycle handling by running the continuous P2000 poll loop as a config-entry background task. The rc.3 confirmed/unresolved vehicle filtering remains active while the exact AlarmeringDroid grouped-subitem discipline fields are verified from live data. RTL-SDR remains outside 1.2.0.
 
 ## Safety notice
 
@@ -31,6 +31,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Dashboard examples](docs/Dashboard-Examples.md)
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
+- [1.2.0-rc.6 release notes](docs/Release-Notes-1.2.0-rc.6.md)
 - [1.2.0-rc.5 release notes](docs/Release-Notes-1.2.0-rc.5.md)
 - [1.2.0-rc.4 release notes](docs/Release-Notes-1.2.0-rc.4.md)
 - [1.2.0-rc.3 release notes](docs/Release-Notes-1.2.0-rc.3.md)

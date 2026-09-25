@@ -141,13 +141,17 @@ class P2000EnrichmentManager:
             except Exception:
                 _LOGGER.exception("P2000 status listener failed")
 
-    async def async_start(self) -> None:
-        """Start continuous P2000 reception while enrichment is enabled."""
+    async def async_start(self, config_entry) -> None:
+        """Start continuous P2000 reception as a config-entry background task."""
         if self._task is None or self._task.done():
             await self._vehicle_registry.async_load()
             self._vehicle_registry.schedule_refresh_if_due()
             self._stopping = False
-            self._task = self._hass.async_create_task(self._run())
+            self._task = config_entry.async_create_background_task(
+                self._hass,
+                self._run(),
+                name="fireservicerota_p2000_enrichment",
+            )
 
     async def async_stop(self) -> None:
         """Stop the enrichment loop."""
