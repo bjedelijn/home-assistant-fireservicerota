@@ -111,6 +111,20 @@ The 1.2.0 release includes:
 - a P2000 status sensor exposes polling health, ring-buffer size and the latest buffered message for testing;
 - RTL-SDR is not enabled in 1.2.0 and remains reserved for a future release after hardware validation.
 
+### Recommended use in dashboards and automations
+
+For vehicle-aware dashboards and automations, prefer `p2000_enrichment.units`
+as the confirmed unit list and `p2000_enrichment.unit_details` for per-unit
+metadata. Use `unit_details[].vehicle_type_code` for generic logic such as
+TS/HV/AL/HW/WT/HA/PM/DB/BRV/NBT classification, and use the more descriptive
+`vehicle_type` when presenting the registry description to a user.
+
+Do not use arbitrary six-digit tokens from the raw incident text as authoritative
+vehicle identifiers. `unit_candidates_raw` and `unresolved_unit_candidates`
+exist for diagnostics; `units` is the consumer-facing confirmed list. Local
+specialist mappings or presentation overrides can still be layered on top in
+Home Assistant without hard-coding them into the integration.
+
 Configure this under **Settings -> Devices & services -> FireServiceRota Extended -> Configure**.
 
 ## Architecture
