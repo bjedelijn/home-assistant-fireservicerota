@@ -61,6 +61,51 @@ condition:
 
 Readable task information is available in `resolved_tasks`.
 
+## Use confirmed P2000 units and normalized vehicle types
+
+When Netherlands P2000 enrichment is enabled, automation logic should prefer the
+confirmed enrichment fields instead of treating every six-digit token in the
+incident text as a vehicle number.
+
+- `p2000_enrichment.units` contains confirmed units only.
+- `p2000_enrichment.unit_details` contains per-unit details such as callsign,
+  station, `vehicle_type` and normalized `vehicle_type_code`.
+- `p2000_enrichment.unit_candidates_raw` and
+  `p2000_enrichment.unresolved_unit_candidates` are diagnostic fields and
+  should not normally drive actions.
+
+Example:
+
+```yaml
+- variables:
+    p2000: >-
+      {{ trigger.to_state.attributes.get('p2000_enrichment', {}) or {} }}
+    confirmed_units: >-
+      {{ p2000.get('units', []) or [] }}
+    unit_details: >-
+      {{ p2000.get('unit_details', []) or [] }}
+    vehicle_type_codes: >-
+      {% set ns = namespace(types=[]) %}
+      {% for d in unit_details %}
+        {% set code = d.get('vehicle_type_code') %}
+        {% if code and code not in ns.types %}
+          {% set ns.types = ns.types + [code] %}
+        {% endif %}
+      {% endfor %}
+      {{ ns.types }}
+
+- condition: template
+  value_template: >-
+    {{ 'TS' in vehicle_type_codes }}
+```
+
+Use `vehicle_type_code` for generic automation logic. Use the more descriptive
+`vehicle_type` when you want to show the Brandbase description to a user. A
+specific vehicle description can therefore be more detailed than its normalized
+automation category. Installations may still keep explicit local overrides for
+known specialist appliances, but those overrides belong in the local Home
+Assistant configuration rather than in the integration.
+
 ## Prevent duplicate custom actions
 
 If your own automation must perform an action only once per incident or update, keep a small list of processed keys in an `input_text` helper.
