@@ -2,6 +2,8 @@
 
 **Current stable release: `1.2.0`**
 
+**Current development release on `1.3.0-beta`: `1.3.0-beta.1`**
+
 **Extended maintainer:** Bernd Edelijn
 
 This repository is a fork of the original [`cyberjunky/home-assistant-fireservicerota`](https://github.com/cyberjunky/home-assistant-fireservicerota) integration by Ron Klinkien / Cyberjunky and contributors.
@@ -124,6 +126,25 @@ vehicle identifiers. `unit_candidates_raw` and `unresolved_unit_candidates`
 exist for diagnostics; `units` is the consumer-facing confirmed list. Local
 specialist mappings or presentation overrides can still be layered on top in
 Home Assistant without hard-coding them into the integration.
+
+### 1.3.0 beta: local RTL-SDR source
+
+The `1.3.0-beta` branch adds an optional local `rtl` P2000 provider. It subscribes
+directly to the MQTT attributes publication produced by the Cyberjunky P2000
+RTL-SDR add-on and normalizes those messages into the same `P2000Event` model
+used by the online provider. The source can be configured as `online`, `rtl`,
+or `both`.
+
+The default MQTT attributes topic is:
+
+```text
+homeassistant/sensor/p2000_rtlsdr/2005/attributes
+```
+
+This matches the add-on's default "P2000 Brandweer" sensor (`id: 2005`). If a
+different sensor id or MQTT base topic is used, configure the matching attributes
+topic in the Extended options. RTL-SDR reception remains supplementary and does
+not replace official alerting.
 
 Configure this under **Settings -> Devices & services -> FireServiceRota Extended -> Configure**.
 
