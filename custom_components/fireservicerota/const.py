@@ -16,8 +16,12 @@ DATA_P2000_MANAGER = "p2000_manager"
 CONF_P2000_ENABLED = "p2000_enabled"
 CONF_P2000_SOURCE = "p2000_source"
 CONF_P2000_SCAN_INTERVAL = "p2000_scan_interval"
+CONF_P2000_RTL_TOPIC = "p2000_rtl_topic"
 P2000_SOURCE_ONLINE = "online"
+P2000_SOURCE_RTL = "rtl"
+P2000_SOURCE_BOTH = "both"
 P2000_DEFAULT_SCAN_INTERVAL = 30
+P2000_DEFAULT_RTL_TOPIC = "homeassistant/sensor/p2000_rtlsdr/2005/attributes"
 
 SERVICE_SEND_PAGER_MESSAGE = "send_pager_message"
 SERVICE_BACKFILL_HISTORY_STAFFING = "backfill_history_staffing"
