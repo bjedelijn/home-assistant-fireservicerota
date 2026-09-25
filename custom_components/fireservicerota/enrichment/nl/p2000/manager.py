@@ -617,7 +617,9 @@ class P2000EnrichmentManager:
         incidents: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         ordered = sorted(events, key=P2000EnrichmentManager._event_timestamp)
-        units = sorted({unit for event in ordered for unit in event.units})
+        unit_candidates_raw = sorted(
+            {unit for event in ordered for unit in event.units}
+        )
         talkgroups = sorted({group for event in ordered for group in event.talkgroups})
         capcodes: dict[str, str | None] = {}
         for event in ordered:
@@ -629,39 +631,89 @@ class P2000EnrichmentManager:
                 capcodes.setdefault(code, description)
 
         station_hints, unit_details = build_station_and_unit_hints(ordered)
-        vehicle_details = self._vehicle_registry.resolve_units(units)
+        registry_details = self._vehicle_registry.resolve_units(unit_candidates_raw)
         vehicle_by_unit = {
             str(item.get("unit")): item
-            for item in vehicle_details
+            for item in registry_details
             if isinstance(item, dict)
         }
+
+        confirmed_units: list[str] = []
+        unresolved_unit_candidates: list[str] = []
+        vehicle_details: list[dict[str, Any]] = []
+
         for detail in unit_details:
-            registry = vehicle_by_unit.get(str(detail.get("unit")))
-            if not registry:
-                continue
-            detail["vehicle_registry"] = registry
-            if not registry.get("resolved"):
-                continue
+            unit = str(detail.get("unit") or "")
+            registry = vehicle_by_unit.get(unit)
+            if registry:
+                detail["vehicle_registry"] = registry
 
-            # Preserve any P2000/capcode-derived station evidence for diagnostics,
-            # while an exact callsign match in the locally cached registry becomes
-            # the canonical vehicle -> station identity.
-            if detail.get("station_name") is not None:
-                detail["p2000_station_name"] = detail.get("station_name")
-                detail["p2000_station_source"] = detail.get("station_source")
-                detail["p2000_station_confidence"] = detail.get("station_confidence")
-                detail["p2000_station_reason"] = detail.get("station_reason")
+            registry_confirmed = bool(registry and registry.get("resolved"))
+            capcode_confirmed = bool(
+                detail.get("station_confidence") == "high"
+                and detail.get("station_reason") == "unit_suffix_match"
+            )
 
-            detail["station_name"] = registry.get("station")
-            detail["station_source"] = "brandbase_cache"
-            detail["station_confidence"] = "high"
-            detail["station_reason"] = "vehicle_registry_exact"
-            detail["callsign"] = registry.get("callsign")
-            detail["region_code"] = registry.get("region_code")
-            detail["region"] = registry.get("region")
-            detail["station_code"] = registry.get("station_code")
-            detail["vehicle_type"] = registry.get("vehicle_type")
-            detail["vehicle_type_code"] = registry.get("vehicle_type_code")
+            confirmed = registry_confirmed or capcode_confirmed
+            detail["vehicle_confirmed"] = confirmed
+
+            if registry_confirmed:
+                detail["vehicle_confirmation_source"] = "brandbase_cache"
+                detail["vehicle_confirmation_reason"] = "vehicle_registry_exact"
+
+                # Preserve any P2000/capcode-derived station evidence for
+                # diagnostics, while the exact callsign lookup becomes the
+                # canonical vehicle -> station identity.
+                if detail.get("station_name") is not None:
+                    detail["p2000_station_name"] = detail.get("station_name")
+                    detail["p2000_station_source"] = detail.get("station_source")
+                    detail["p2000_station_confidence"] = detail.get(
+                        "station_confidence"
+                    )
+                    detail["p2000_station_reason"] = detail.get("station_reason")
+
+                detail["station_name"] = registry.get("station")
+                detail["station_source"] = "brandbase_cache"
+                detail["station_confidence"] = "high"
+                detail["station_reason"] = "vehicle_registry_exact"
+                detail["callsign"] = registry.get("callsign")
+                detail["region_code"] = registry.get("region_code")
+                detail["region"] = registry.get("region")
+                detail["station_code"] = registry.get("station_code")
+                detail["vehicle_type"] = registry.get("vehicle_type")
+                detail["vehicle_type_code"] = registry.get("vehicle_type_code")
+
+                vehicle_record = dict(registry)
+                vehicle_record["confirmed"] = True
+                vehicle_details.append(vehicle_record)
+            elif capcode_confirmed:
+                detail["vehicle_confirmation_source"] = "p2000_capcode"
+                detail["vehicle_confirmation_reason"] = "unit_suffix_match"
+                vehicle_details.append(
+                    {
+                        "unit": unit,
+                        "confirmed": True,
+                        "resolved": False,
+                        "source": "p2000_capcode",
+                        "confidence": "high",
+                        "station": detail.get("station_name"),
+                        "vehicle_type": None,
+                        "vehicle_type_code": None,
+                        "candidates": [],
+                    }
+                )
+            else:
+                detail["vehicle_confirmation_source"] = None
+                detail["vehicle_confirmation_reason"] = None
+
+            if confirmed:
+                confirmed_units.append(unit)
+            else:
+                unresolved_unit_candidates.append(unit)
+
+        units = sorted(set(confirmed_units))
+        unresolved_unit_candidates = sorted(set(unresolved_unit_candidates))
+        vehicle_details.sort(key=lambda item: str(item.get("unit") or ""))
 
         escalation = build_escalation_summary(ordered)
         source_timing = build_source_timing(
@@ -677,7 +729,9 @@ class P2000EnrichmentManager:
             "matched": True,
             "message_count": len(ordered),
             "messages": messages,
+            "unit_candidates_raw": unit_candidates_raw,
             "units": units,
+            "unresolved_unit_candidates": unresolved_unit_candidates,
             "vehicles": vehicle_details,
             "talkgroups": talkgroups,
             "capcodes": [

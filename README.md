@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** release candidate. `1.2.0-rc.2` adds an optional locally cached Netherlands-wide vehicle registry to the field-tested 1.2.0 release-candidate line. Optional P2000 enrichment, dynamic multi-station/affiliation discovery, communication diagnostics and lifecycle improvements remain included. RTL-SDR remains outside 1.2.0 until it has been validated against real hardware.
+> **Status:** release candidate. `1.2.0-rc.3` refines the Netherlands-wide vehicle registry by separating raw six-digit P2000 candidates from confirmed fire-service vehicles. Optional P2000 enrichment, dynamic multi-station/affiliation discovery, communication diagnostics and lifecycle improvements remain included. RTL-SDR remains outside 1.2.0 until it has been validated against real hardware.
 
 ## Safety notice
 
@@ -31,6 +31,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Dashboard examples](docs/Dashboard-Examples.md)
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
+- [1.2.0-rc.3 release notes](docs/Release-Notes-1.2.0-rc.3.md)
 - [1.2.0-rc.2 release notes](docs/Release-Notes-1.2.0-rc.2.md)
 - [1.2.0-rc.1 release notes](docs/Release-Notes-1.2.0-rc.1.md)
 
@@ -93,6 +94,7 @@ The 1.2.0 release candidate includes:
 - `source_timing` compares the local Home Assistant first-observed time for BrandweerRooster and each matched P2000 provider; provider/source timestamps are retained separately so polling delay is not confused with original message time;
 - conservative Netherlands-only `station_hints` and `unit_details` can use capcode descriptions as a fallback for otherwise unknown stations/units; BrandweerRooster-resolved station data remains leading and ambiguous P2000 evidence is never guessed;
 - exact six-digit appliance numbers can additionally be resolved against a locally cached Brandbase current-vehicle registry; the cache is built dynamically from the public Brandbase region index, stored only in Home Assistant storage, refreshed at most weekly, and never bundled as a Brandbase dataset in this repository;
+- raw six-digit tokens are retained separately as `unit_candidates_raw`; only exact vehicle-registry matches or strong capcode/unit-suffix evidence are exposed as confirmed `units`, while rejected candidates remain visible under `unresolved_unit_candidates` for diagnostics;
 - a unique registry match adds canonical callsign, region, station and vehicle type information to `vehicles` and `unit_details`; ambiguous or missing registry entries remain unresolved rather than being guessed;
 - P2000 enrichment survives incident closure/history storage and can be reused when practical groups are rebuilt after restart;
 - stale technical BrandweerRooster ids can become `group_closed_pending_api` from conservative group-level closure evidence while raw BWR lifecycle fields stay unchanged;
