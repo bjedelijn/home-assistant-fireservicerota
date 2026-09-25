@@ -149,7 +149,9 @@ class P2000EnrichmentManager:
             self._buffer.values(),
             key=lambda item: self._event_timestamp(item).timestamp(),
         )
-        return event.as_dict()
+        item = event.as_dict()
+        item["source_label"] = _SOURCE_LABELS.get(event.source, event.source)
+        return item
 
     @property
     def status(self) -> dict[str, Any]:
@@ -157,6 +159,7 @@ class P2000EnrichmentManager:
         providers = {}
         for provider in self._providers:
             providers[provider.source] = {
+                "source_label": _SOURCE_LABELS.get(provider.source, provider.source),
                 "last_poll_at": provider.last_poll_at,
                 "last_poll_success": provider.last_poll_success,
                 "last_error": provider.last_error,
