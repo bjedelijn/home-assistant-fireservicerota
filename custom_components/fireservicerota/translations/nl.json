@@ -75,12 +75,12 @@
     "step": {
       "init": {
         "title": "Extended opties",
-        "description": "P2000-verrijking is alleen beschikbaar voor BrandweerRooster Nederland. Kies online, lokale RTL-SDR via MQTT, of beide bronnen. Alle bronnen delen dezelfde ringbuffer van 60 minuten.",
+        "description": "P2000-verrijking is alleen beschikbaar voor BrandweerRooster Nederland. Kies P2000 online, P2000 via ether (RTL-SDR), of beide bronnen. Alle bronnen delen dezelfde ringbuffer van 60 minuten.",
         "data": {
           "p2000_enabled": "P2000-verrijking inschakelen",
           "p2000_source": "P2000-bron",
           "p2000_scan_interval": "Online polling-interval (seconden)",
-          "p2000_rtl_topic": "RTL-SDR MQTT attributentopic"
+          "p2000_rtl_topic": "MQTT-attributentopic voor P2000 via ether"
         }
       }
     }
