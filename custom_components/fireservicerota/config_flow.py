@@ -174,9 +174,9 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     default=current.get(CONF_P2000_SOURCE, P2000_SOURCE_ONLINE),
                 ): vol.In(
                     {
-                        P2000_SOURCE_ONLINE: "Online feed",
-                        P2000_SOURCE_RTL: "RTL-SDR via MQTT (beta)",
-                        P2000_SOURCE_BOTH: "Online + RTL-SDR (beta)",
+                        P2000_SOURCE_ONLINE: "P2000 online",
+                        P2000_SOURCE_RTL: "P2000 via ether (RTL-SDR, beta)",
+                        P2000_SOURCE_BOTH: "P2000 online + ether (beta)",
                     }
                 ),
                 vol.Optional(
