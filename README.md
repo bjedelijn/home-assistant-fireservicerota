@@ -2,7 +2,7 @@
 
 **Current stable release: `1.2.0`**
 
-**Current development release on `1.3.0-beta`: `1.3.0-beta.3`**
+**Current development release on `1.3.0-beta`: `1.3.0-beta.4`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -126,6 +126,15 @@ vehicle identifiers. `unit_candidates_raw` and `unresolved_unit_candidates`
 exist for diagnostics; `units` is the consumer-facing confirmed list. Local
 specialist mappings or presentation overrides can still be layered on top in
 Home Assistant without hard-coding them into the integration.
+
+### 1.3.0-beta.4
+
+- groups identical online and ether observations into one dashboard-friendly practical P2000 alert;
+- exposes `last_practical_event` and `recent_practical_events` on `sensor.p2000_status`;
+- preserves per-source evidence under `source_events`;
+- compares local arrival times for **P2000 via ether**, **P2000 online**, and matched **BrandweerRooster** incidents;
+- exposes `arrival_deltas_seconds.ether_to_online`, `ether_to_bwr`, and `online_to_bwr`;
+- retains the raw `recent_events` list unchanged for diagnostics.
 
 ### 1.3.0-beta.3
 
