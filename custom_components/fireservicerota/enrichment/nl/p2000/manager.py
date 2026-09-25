@@ -106,6 +106,7 @@ class P2000EnrichmentManager:
                 "last_poll_success": provider.last_poll_success,
                 "last_error": provider.last_error,
                 "last_result_count": provider.last_result_count,
+                "provider_debug": getattr(provider, "provider_debug", {}),
             }
         return {
             "enabled": True,

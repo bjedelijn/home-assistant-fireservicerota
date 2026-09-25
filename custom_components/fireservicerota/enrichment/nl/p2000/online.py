@@ -17,7 +17,6 @@ _LOGGER = logging.getLogger(__name__)
 _API_URL = "https://beta.alarmeringdroid.nl/api2/find/"
 _VEHICLE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
 _POSTCODE_RE = re.compile(r"^[1-9][0-9]{3}\s?[A-Z]{2}$", re.IGNORECASE)
-_FIRE_SERVICE_ID = "2"
 
 
 class P2000OnlineProvider:
@@ -32,6 +31,7 @@ class P2000OnlineProvider:
         self.last_poll_success: bool | None = None
         self.last_error: str | None = None
         self.last_result_count = 0
+        self.provider_debug: dict[str, Any] = {}
 
     async def async_fetch(self) -> list[P2000Event]:
         """Fetch and normalize the current set of fire-service alerts."""
@@ -60,6 +60,8 @@ class P2000OnlineProvider:
             self.last_result_count = 0
             return []
 
+        self._capture_provider_debug(meldingen)
+
         received_at = datetime.now().astimezone().isoformat()
         events: list[P2000Event] = []
         seen: set[str] = set()
@@ -81,32 +83,75 @@ class P2000OnlineProvider:
         return events
 
     @staticmethod
-    def _is_fire_service_item(item: dict[str, Any]) -> bool:
-        """Return True only for records explicitly marked as fire service.
+    def _debug_service_fields(item: dict[str, Any]) -> dict[str, Any]:
+        """Return only small service/discipline-related scalar fields."""
+        out: dict[str, Any] = {}
+        for key, value in item.items():
+            lowered = str(key).casefold()
+            if not any(token in lowered for token in ("dienst", "service", "discipline")):
+                continue
+            if value is None or isinstance(value, (str, int, float, bool)):
+                out[str(key)] = value
+            elif isinstance(value, dict):
+                out[str(key)] = {
+                    str(k): v
+                    for k, v in value.items()
+                    if v is None or isinstance(v, (str, int, float, bool))
+                }
+        return out
 
-        AlarmeringDroid exposes the service discipline as the per-record
-        "dienst" value. The search itself is already restricted with
-        diensten=["2"], but grouped incidents can still contain related
-        subitems from another service. Re-check every expanded record before
-        normalization so only fire-service records enter the P2000 buffer.
-        """
-        service = item.get("dienst")
-        if isinstance(service, dict):
-            service = service.get("id")
-        return str(service or "").strip() == _FIRE_SERVICE_ID
+    def _capture_provider_debug(self, meldingen: list[Any]) -> None:
+        """Capture a compact raw provider schema without message contents."""
+        main: dict[str, Any] | None = None
+        subitem: dict[str, Any] | None = None
+        main_count = 0
+        subitem_count = 0
 
-    @classmethod
-    def _expand(cls, item: dict[str, Any]) -> list[dict[str, Any]]:
-        """Return only fire-service records from a provider-grouped incident."""
-        candidates = [{k: v for k, v in item.items() if k != "subitems"}]
+        for raw in meldingen:
+            if not isinstance(raw, dict):
+                continue
+            main_count += 1
+            if main is None:
+                main = raw
+            children = raw.get("subitems") or []
+            if isinstance(children, list):
+                valid = [child for child in children if isinstance(child, dict)]
+                subitem_count += len(valid)
+                if subitem is None and valid:
+                    subitem = valid[0]
+
+        def schema(item: dict[str, Any] | None) -> dict[str, Any] | None:
+            if item is None:
+                return None
+            capcodes = item.get("capcodes") or []
+            capcode_keys: list[str] = []
+            if isinstance(capcodes, list):
+                for capcode in capcodes:
+                    if isinstance(capcode, dict):
+                        capcode_keys = sorted(str(key) for key in capcode.keys())
+                        break
+            return {
+                "keys": sorted(str(key) for key in item.keys()),
+                "service_fields": self._debug_service_fields(item),
+                "capcode_keys": capcode_keys,
+            }
+
+        self.provider_debug = {
+            "query_services": ["2"],
+            "main_item_count": main_count,
+            "subitem_count": subitem_count,
+            "main_item_schema": schema(main),
+            "subitem_schema": schema(subitem),
+        }
+
+    @staticmethod
+    def _expand(item: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return main alert plus grouped subitems while provider schema is diagnosed."""
+        out = [{k: v for k, v in item.items() if k != "subitems"}]
         subitems = item.get("subitems") or []
         if isinstance(subitems, list):
-            candidates.extend(x for x in subitems if isinstance(x, dict))
-        return [
-            candidate
-            for candidate in candidates
-            if cls._is_fire_service_item(candidate)
-        ]
+            out.extend(x for x in subitems if isinstance(x, dict))
+        return out
 
     @staticmethod
     def _as_float(value: Any) -> float | None:
