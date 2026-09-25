@@ -8,7 +8,7 @@
   - **P2000 via ether (RTL-SDR, beta)**
   - **P2000 online + ether (beta)**
 - Added `source_labels` to `sensor.p2000_status`.
-- Added `source_label` to every item in `recent_events`.
+- Added `source_label` to `last_event`, each provider diagnostic and every item in `recent_events`.
 - Internal source ids stay unchanged as `online` and `rtl` for backwards compatibility and automation stability.
 
 ## Notes
