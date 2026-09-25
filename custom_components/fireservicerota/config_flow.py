@@ -8,11 +8,15 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_P2000_ENABLED,
+    CONF_P2000_RTL_TOPIC,
     CONF_P2000_SCAN_INTERVAL,
     CONF_P2000_SOURCE,
     DOMAIN,
+    P2000_DEFAULT_RTL_TOPIC,
     P2000_DEFAULT_SCAN_INTERVAL,
+    P2000_SOURCE_BOTH,
     P2000_SOURCE_ONLINE,
+    P2000_SOURCE_RTL,
     URL_LIST,
 )
 
@@ -168,7 +172,19 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional(
                     CONF_P2000_SOURCE,
                     default=current.get(CONF_P2000_SOURCE, P2000_SOURCE_ONLINE),
-                ): vol.In({P2000_SOURCE_ONLINE: "Online feed (beta)"}),
+                ): vol.In(
+                    {
+                        P2000_SOURCE_ONLINE: "Online feed",
+                        P2000_SOURCE_RTL: "RTL-SDR via MQTT (beta)",
+                        P2000_SOURCE_BOTH: "Online + RTL-SDR (beta)",
+                    }
+                ),
+                vol.Optional(
+                    CONF_P2000_RTL_TOPIC,
+                    default=str(
+                        current.get(CONF_P2000_RTL_TOPIC, P2000_DEFAULT_RTL_TOPIC)
+                    ),
+                ): str,
                 vol.Optional(
                     CONF_P2000_SCAN_INTERVAL,
                     default=int(
