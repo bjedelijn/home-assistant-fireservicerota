@@ -16,7 +16,7 @@ from homeassistant.core import callback
 from .model import P2000Event
 
 _LOGGER = logging.getLogger(__name__)
-_VEHICLE_RE = re.compile(r"(?<!\\d)\\d{6}(?!\\d)")
+_VEHICLE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
 _DEFAULT_TOPIC = "homeassistant/sensor/p2000_rtlsdr/2005/attributes"
 
 
@@ -155,7 +155,7 @@ class P2000RtlMqttProvider:
         if isinstance(capcodes_value, list):
             capcodes = [str(value).strip() for value in capcodes_value if str(value).strip()]
         elif capcodes_value not in (None, ""):
-            capcodes = [value for value in re.split(r"[\\s,]+", str(capcodes_value)) if value]
+            capcodes = [value for value in re.split(r"[\s,]+", str(capcodes_value)) if value]
         else:
             capcodes = [value for value in raw_capcodes.split() if value]
 
