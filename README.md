@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current release candidate: `1.2.0-rc.8`**
+**Current stable release: `1.2.0`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -10,7 +10,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** release candidate. `1.2.0-rc.8` keeps the rc.7 lifecycle/storage fixes and re-enables strict Brandweer-only filtering using the live-verified AlarmeringDroid schema: `dienstid == "2"`, with `dienst == "Brandweer"` only as a fallback when the numeric id is absent. Provider-schema diagnostics remain available for validation. RTL-SDR remains outside 1.2.0.
+> **Status:** stable release `1.2.0`. This release consolidates the field-tested 1.2.0 beta/RC line: optional Netherlands P2000 enrichment, Brandbase-backed vehicle resolution, strict Brandweer-only AlarmeringDroid filtering, persistent P2000 matches, multi-incident lifecycle handling, staffing/response enrichment and multi-station account discovery. RTL-SDR remains outside 1.2.0.
 
 ## Safety notice
 
@@ -31,6 +31,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Dashboard examples](docs/Dashboard-Examples.md)
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
+- [1.2.0 release notes](docs/Release-Notes-1.2.0.md)
 - [1.2.0-rc.8 release notes](docs/Release-Notes-1.2.0-rc.8.md)
 - [1.2.0-rc.7 release notes](docs/Release-Notes-1.2.0-rc.7.md)
 - [1.2.0-rc.6 release notes](docs/Release-Notes-1.2.0-rc.6.md)
@@ -59,7 +60,7 @@ Extended adds or expands:
 - Automatic authenticated-user, station/group and membership discovery.
 - Generic `own_stations` and `own_affiliations` discovery from active memberships, including multi-station users and non-station/regional specialist groups.
 - Incident-level `own_incident_affiliations` derived from task and response context without hard-coded station or group IDs.
-- Multi-station duty / availability support. Duty/availability is read-only in 1.2.0-rc.1; no paraat/niet-paraat planning write is implemented.
+- Multi-station duty / availability support. Duty/availability is read-only in 1.2.0; no paraat/niet-paraat planning write is implemented.
 - Legacy user-level `do_not_disturb` state when that optional API field is supplied; mobile alert settings are modeled separately.
 - Dynamic task / alert-group resolution.
 - Per-membership incident response data and response switches. These controls can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries.
@@ -81,7 +82,7 @@ No specific station, user, membership, task, vehicle or local priority mapping i
 
 For BrandweerRooster Netherlands, Extended can optionally enrich active incidents with P2000 data. This feature is disabled by default and has no effect on FireServiceRota UK entries.
 
-The 1.2.0 release candidate includes:
+The 1.2.0 release includes:
 
 - the online P2000 provider talks directly to the AlarmeringDroid feed;
 - the provider request selects service `2` (Brandweer); live provider diagnostics confirmed both main items and grouped subitems expose `dienstid="2"` and `dienst="Brandweer"`, so rc.8 applies strict per-item Brandweer filtering on `dienstid` with a name fallback only when the numeric id is absent;
