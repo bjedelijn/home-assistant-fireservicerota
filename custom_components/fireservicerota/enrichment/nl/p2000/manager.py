@@ -28,6 +28,7 @@ _MATCH_WINDOW_AFTER = timedelta(hours=3)
 _GROUP_RADIUS_METERS = 250
 _GROUP_WINDOW = timedelta(minutes=90)
 _BUFFER_RETENTION = timedelta(minutes=60)
+_PRACTICAL_EVENT_WINDOW = timedelta(seconds=90)
 _GROUP_CLOSE_GRACE = timedelta(minutes=10)
 _GROUP_END_CLUSTER = timedelta(minutes=15)
 _PERSISTENT_MATCH_LIMIT = 25
@@ -108,6 +109,60 @@ class P2000EnrichmentManager:
         return recent
 
     @property
+    def recent_practical_events(self) -> list[dict[str, Any]]:
+        """Group equivalent online/ether observations into practical P2000 alerts."""
+        ordered = sorted(
+            self._buffer.values(),
+            key=lambda item: self._event_timestamp(item).timestamp(),
+        )
+        grouped: list[dict[str, Any]] = []
+
+        for event in ordered:
+            normalized_message = self._normalized_p2000_message(event.message)
+            event_time = self._event_timestamp(event)
+            target = None
+
+            for group in reversed(grouped):
+                if group["normalized_message"] != normalized_message:
+                    continue
+                if abs(
+                    (event_time - group["anchor_time"]).total_seconds()
+                ) <= _PRACTICAL_EVENT_WINDOW.total_seconds():
+                    target = group
+                    break
+
+            if target is None:
+                target = {
+                    "normalized_message": normalized_message,
+                    "anchor_time": event_time,
+                    "events": [],
+                }
+                grouped.append(target)
+
+            target["events"].append(event)
+
+        practical = [
+            self._build_practical_event(group["events"])
+            for group in grouped
+            if group["events"]
+        ]
+        practical.sort(
+            key=lambda item: (
+                self._parse_datetime(item.get("event_time"))
+                or self._parse_datetime(item.get("first_received_at"))
+                or datetime.now().astimezone()
+            ),
+            reverse=True,
+        )
+        return practical[:20]
+
+    @property
+    def last_practical_event(self) -> dict[str, Any] | None:
+        """Return the newest grouped practical P2000 alert."""
+        recent = self.recent_practical_events
+        return recent[0] if recent else None
+
+    @property
     def persistent_matches(self) -> list[dict[str, Any]]:
         """Return bounded persistent practical-incident P2000 matches."""
         return sorted(
@@ -182,6 +237,8 @@ class P2000EnrichmentManager:
             "last_poll_result_count": self._last_poll_result_count,
             "last_event": self.last_event,
             "recent_events": self.recent_events,
+            "last_practical_event": self.last_practical_event,
+            "recent_practical_events": self.recent_practical_events,
             "providers": providers,
             "vehicle_registry": self._vehicle_registry.status,
         }
@@ -396,6 +453,161 @@ class P2000EnrichmentManager:
     @staticmethod
     def _event_key(event: P2000Event) -> str:
         return event.external_id or f"{event.event_time}|{event.message}"
+
+    @staticmethod
+    def _normalized_p2000_message(message: str) -> str:
+        """Normalize formatting for pairing the same alert across providers."""
+        return " ".join(str(message or "").casefold().split())
+
+    def _matched_bwr_timing(
+        self, events: list[P2000Event]
+    ) -> dict[str, Any]:
+        """Return earliest BrandweerRooster observation for a matched practical alert."""
+        matches: list[dict[str, Any]] = []
+        for incident in self._correlation_incidents():
+            if any(self._matches(incident, event) for event in events):
+                matches.append(incident)
+
+        observed: list[tuple[datetime, dict[str, Any]]] = []
+        for incident in matches:
+            seen = self._parse_datetime(incident.get("first_seen_at"))
+            if seen is not None:
+                observed.append((seen, incident))
+
+        if not observed:
+            return {
+                "bwr_received_at": None,
+                "bwr_incident_ids": [],
+                "bwr_first_seen_source": None,
+            }
+
+        observed_at, first_incident = min(observed, key=lambda item: item[0])
+        return {
+            "bwr_received_at": observed_at.isoformat(),
+            "bwr_incident_ids": sorted(
+                {
+                    str(incident.get("id"))
+                    for incident in matches
+                    if incident.get("id") is not None
+                }
+            ),
+            "bwr_first_seen_source": first_incident.get("first_seen_source"),
+        }
+
+    def _build_practical_event(
+        self, events: list[P2000Event]
+    ) -> dict[str, Any]:
+        """Build one dashboard-friendly alert while preserving source evidence."""
+        ordered = sorted(events, key=self._event_timestamp)
+        latest = ordered[-1]
+        sources = sorted({event.source for event in ordered})
+        source_events: dict[str, dict[str, Any]] = {}
+
+        for source in sources:
+            source_items = [event for event in ordered if event.source == source]
+            first = min(
+                source_items,
+                key=lambda item: (
+                    self._parse_datetime(item.received_at)
+                    or self._event_timestamp(item)
+                ),
+            )
+            source_events[source] = {
+                "source": source,
+                "source_label": _SOURCE_LABELS.get(source, source),
+                "event_time": first.event_time,
+                "received_at": first.received_at,
+                "external_id": first.external_id,
+            }
+
+        arrivals: list[tuple[datetime, str]] = []
+        for source, item in source_events.items():
+            received = self._parse_datetime(item.get("received_at"))
+            if received is not None:
+                arrivals.append((received, source))
+        arrivals.sort(key=lambda item: (item[0], item[1]))
+
+        first_source = arrivals[0][1] if arrivals else None
+        first_received_at = arrivals[0][0] if arrivals else None
+        online_received = self._parse_datetime(
+            (source_events.get("online") or {}).get("received_at")
+        )
+        ether_received = self._parse_datetime(
+            (source_events.get("rtl") or {}).get("received_at")
+        )
+
+        bwr = self._matched_bwr_timing(ordered)
+        bwr_received = self._parse_datetime(bwr.get("bwr_received_at"))
+
+        def delta_seconds(first: datetime | None, second: datetime | None) -> float | None:
+            if first is None or second is None:
+                return None
+            return round((second - first).total_seconds(), 3)
+
+        units = sorted({unit for event in ordered for unit in event.units})
+        capcodes: dict[str, str | None] = {}
+        for event in ordered:
+            for item in event.capcodes:
+                code = str(item.get("capcode") or "").strip()
+                if not code:
+                    continue
+                description = str(item.get("omschrijving") or "").strip() or None
+                if code not in capcodes or (capcodes[code] is None and description):
+                    capcodes[code] = description
+
+        return {
+            "event_time": latest.event_time,
+            "message": latest.message,
+            "human_message": next(
+                (
+                    event.human_message
+                    for event in reversed(ordered)
+                    if event.human_message
+                ),
+                None,
+            ),
+            "sources": sources,
+            "source_labels": [
+                _SOURCE_LABELS.get(source, source) for source in sources
+            ],
+            "source_count": len(sources),
+            "first_source": first_source,
+            "first_source_label": (
+                _SOURCE_LABELS.get(first_source, first_source)
+                if first_source is not None
+                else None
+            ),
+            "first_received_at": (
+                first_received_at.isoformat()
+                if first_received_at is not None
+                else None
+            ),
+            "online_received_at": (
+                online_received.isoformat()
+                if online_received is not None
+                else None
+            ),
+            "ether_received_at": (
+                ether_received.isoformat()
+                if ether_received is not None
+                else None
+            ),
+            "bwr_received_at": bwr.get("bwr_received_at"),
+            "bwr_incident_ids": bwr.get("bwr_incident_ids", []),
+            "bwr_first_seen_source": bwr.get("bwr_first_seen_source"),
+            "arrival_deltas_seconds": {
+                "ether_to_online": delta_seconds(ether_received, online_received),
+                "ether_to_bwr": delta_seconds(ether_received, bwr_received),
+                "online_to_bwr": delta_seconds(online_received, bwr_received),
+            },
+            "units": units,
+            "capcodes": [
+                {"capcode": code, "omschrijving": description}
+                for code, description in sorted(capcodes.items())
+            ],
+            "source_events": source_events,
+        }
+
 
     @staticmethod
     def _same_enrichment(existing: Any, new: dict[str, Any]) -> bool:
