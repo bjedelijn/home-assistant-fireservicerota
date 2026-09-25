@@ -2,7 +2,7 @@
 
 **Current stable release: `1.2.0`**
 
-**Current development release on `1.3.0-beta`: `1.3.0-beta.1`**
+**Current development release on `1.3.0-beta`: `1.3.0-beta.2`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -126,6 +126,12 @@ vehicle identifiers. `unit_candidates_raw` and `unresolved_unit_candidates`
 exist for diagnostics; `units` is the consumer-facing confirmed list. Local
 specialist mappings or presentation overrides can still be layered on top in
 Home Assistant without hard-coding them into the integration.
+
+### 1.3.0-beta.2
+
+- fixes RTL-SDR six-digit unit-candidate extraction, so callsigns such as `026832` enter the shared confirmation pipeline;
+- exposes `providers.rtl.provider_debug.last_event` for the last MQTT-normalized RTL event;
+- exposes `recent_events` on `sensor.p2000_status` with the newest 20 events from the shared 60-minute buffer, making online-vs-RTL diagnostics possible without an incident match.
 
 ### 1.3.0 beta: local RTL-SDR source
 
