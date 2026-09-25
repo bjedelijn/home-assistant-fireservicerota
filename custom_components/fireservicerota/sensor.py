@@ -12,6 +12,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CONF_P2000_ENABLED,
+    CONF_P2000_RTL_TOPIC,
     CONF_P2000_SCAN_INTERVAL,
     CONF_P2000_SOURCE,
     DATA_CLIENT,
@@ -19,8 +20,11 @@ from .const import (
     DATA_INCIDENT_STORE,
     DATA_P2000_MANAGER,
     DOMAIN as FIRESERVICEROTA_DOMAIN,
+    P2000_DEFAULT_RTL_TOPIC,
     P2000_DEFAULT_SCAN_INTERVAL,
+    P2000_SOURCE_BOTH,
     P2000_SOURCE_ONLINE,
+    P2000_SOURCE_RTL,
 )
 from .incident_store import ACTIVE_INCIDENT_REFRESH_SECONDS, HISTORY_LIMIT, IncidentStore
 from .enrichment.nl.p2000 import P2000EnrichmentManager
@@ -49,11 +53,12 @@ async def async_setup_entry(
         entities.append(MobileDevicesSensor(client, coordinator))
 
     options = {**entry.data, **entry.options}
+    selected_p2000_source = options.get(CONF_P2000_SOURCE, P2000_SOURCE_ONLINE)
     if (
         entry.data.get("url") == "www.brandweerrooster.nl"
         and options.get(CONF_P2000_ENABLED, False)
-        and options.get(CONF_P2000_SOURCE, P2000_SOURCE_ONLINE)
-        == P2000_SOURCE_ONLINE
+        and selected_p2000_source
+        in {P2000_SOURCE_ONLINE, P2000_SOURCE_RTL, P2000_SOURCE_BOTH}
     ):
         p2000_manager = P2000EnrichmentManager(
             hass,
@@ -61,6 +66,8 @@ async def async_setup_entry(
             scan_interval=options.get(
                 CONF_P2000_SCAN_INTERVAL, P2000_DEFAULT_SCAN_INTERVAL
             ),
+            source=selected_p2000_source,
+            rtl_topic=options.get(CONF_P2000_RTL_TOPIC, P2000_DEFAULT_RTL_TOPIC),
         )
         hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
             DATA_P2000_MANAGER
