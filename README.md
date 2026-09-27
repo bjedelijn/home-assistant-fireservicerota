@@ -2,7 +2,7 @@
 
 **Current stable release: `1.2.0`**
 
-**Current development release on `1.3.0-beta`: `1.3.0-beta.4`**
+**Current development release on `1.3.0-beta`: `1.3.0-beta.5`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -126,6 +126,15 @@ vehicle identifiers. `unit_candidates_raw` and `unresolved_unit_candidates`
 exist for diagnostics; `units` is the consumer-facing confirmed list. Local
 specialist mappings or presentation overrides can still be layered on top in
 Home Assistant without hard-coding them into the integration.
+
+### 1.3.0-beta.5
+
+- tightens P2000 -> BrandweerRooster incident matching when a provider lacks coordinates;
+- exact appliance/callsign, postcode, city/street/location-reference evidence now takes precedence over generic incident wording;
+- a known P2000 city that does not occur in the BWR incident is a hard reject;
+- generic wording such as `Stank/hind. lucht (binnen)` can no longer match an unrelated incident by itself;
+- previously attached P2000 messages are revalidated with the current matcher, so stale false positives are removed automatically;
+- persistent P2000 match storage is also revalidated and cleaned when an overlapping practical incident is rebuilt.
 
 ### 1.3.0-beta.4
 
