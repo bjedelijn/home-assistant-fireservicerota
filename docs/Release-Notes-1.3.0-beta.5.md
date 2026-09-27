@@ -1,23 +1,31 @@
 # FireServiceRota Extended 1.3.0-beta.5
 
-## Fixes
+## Changes
 
-- Hardened P2000-to-BrandweerRooster correlation for providers without coordinates.
-- Appliance/callsign overlap, exact postcode, and explicit city/street/location-reference evidence are treated as strong matching signals.
-- A known P2000 city that is absent from the BrandweerRooster incident is rejected.
-- Generic incident wording alone is no longer sufficient to attach a P2000 alert.
-- Existing attached P2000 messages are revalidated on rebuild, so false-positive historical enrichment can be removed.
-- Persistent match storage is revalidated using the same matcher.
+- Tightens P2000 -> BrandweerRooster matching when one provider has no coordinates.
+- A six-digit appliance/callsign present on both the BWR incident and P2000 alert is treated as strong evidence.
+- Exact postcode remains strong evidence when available.
+- Explicit city information that conflicts with the BWR incident is a hard reject.
+- Explicit street/city/location-reference data must substantively match the BWR incident.
+- Generic incident wording alone is no longer sufficient to correlate an alert.
+- Previously attached P2000 messages are revalidated during each rebuild.
+- Stale false-positive messages are removed from incident enrichment automatically.
+- Persistent P2000 matches are rebuilt from revalidated events and removed when no valid evidence remains.
+- Clearing stale P2000 enrichment never changes incident lifecycle, closure, staffing, responses, or original BrandweerRooster data.
 
-## Concrete regression case
+## Field regression case
 
-A Hardenberg incident with:
+Incident 3068369 in Hardenberg correctly matched:
 
-`P 2 BON-01 Stank/hind. lucht (binnen) Parkweg Hardenberg 042330`
+- P2000 online: Parkweg Hardenberg, unit 042330
+- P2000 via ether: Parkweg Hardenberg, unit 042330
 
-must not absorb unrelated RTL-SDR alerts such as:
+Later RTL-SDR alerts from Lisse (161130) and Den Haag (157230) had the same generic text `Stank/hind. lucht (binnen)` and were incorrectly attached by the beta.4 text fallback.
 
-- `P 1 BDH-01 Stank/hind. lucht (binnen) Koningstraat Lisse 161130`
-- `P 2 BDH-01 Stank/hind. lucht (binnen) Obrechtstraat 's-Gravenhage 157230`
+Beta.5 rejects those alerts because their location evidence does not match Hardenberg. Existing stored enrichment is revalidated so the incorrect units can disappear automatically after the manager runs.
 
-The Hardenberg online/ether observations remain valid because they carry matching Hardenberg/Parkweg and/or `042330` evidence.
+## Compatibility
+
+- Internal P2000 source ids remain `online` and `rtl`.
+- Raw provider buffering, practical online/ether grouping, source labels and beta.4 timing diagnostics remain available.
+- Stable `extended` remains 1.2.0.
