@@ -401,14 +401,25 @@ class P2000EnrichmentManager:
                 )
 
             matched_by_key: dict[str, P2000Event] = {}
+            # Revalidate previously attached messages with the current matcher.
+            # This lets matcher fixes remove stale/false-positive enrichment
+            # instead of carrying it forward forever.
             for incident in group:
-                for event in self._events_from_enrichment(incident.get("p2000_enrichment")):
-                    matched_by_key[self._event_key(event)] = event
+                for event in self._events_from_enrichment(
+                    incident.get("p2000_enrichment")
+                ):
+                    if any(self._matches(member, event) for member in group):
+                        matched_by_key[self._event_key(event)] = event
+
             for event in buffered:
                 if any(self._matches(incident, event) for incident in group):
                     matched_by_key[self._event_key(event)] = event
+
             matched = list(matched_by_key.values())
             if not matched:
+                for incident_id in incident_ids:
+                    self._incident_store.clear_p2000_enrichment(incident_id)
+                self._forget_persistent_match(group_meta)
                 continue
 
             enrichment = self._build_enrichment(matched, incidents=group)
@@ -649,6 +660,19 @@ class P2000EnrichmentManager:
             if event is not None
         ]
 
+    def _forget_persistent_match(self, group_meta: dict[str, Any]) -> None:
+        """Remove stored matches that overlap a practical incident group."""
+        group_id = str(group_meta.get("group_id") or "").strip()
+        ids = {str(x) for x in (group_meta.get("incident_ids") or [])}
+        removed = False
+        for key, item in list(self._persistent_matches.items()):
+            item_ids = {str(x) for x in (item.get("incident_ids") or [])}
+            if key == group_id or ids.intersection(item_ids):
+                self._persistent_matches.pop(key, None)
+                removed = True
+        if removed:
+            self._schedule_persistent_save()
+
     def _remember_persistent_match(
         self,
         group_meta: dict[str, Any],
@@ -665,15 +689,38 @@ class P2000EnrichmentManager:
             if key == group_id or ids.intersection(str(x) for x in (item.get("incident_ids") or []))
         ]
         events = {}
+        correlation_incidents = incidents or []
         for key in overlap:
             old = self._persistent_matches.get(key) or {}
             ids.update(str(x) for x in (old.get("incident_ids") or []))
-            for event in self._events_from_enrichment(old.get("p2000_enrichment")):
-                events[self._event_key(event)] = event
+            for event in self._events_from_enrichment(
+                old.get("p2000_enrichment")
+            ):
+                if (
+                    not correlation_incidents
+                    or any(
+                        self._matches(incident, event)
+                        for incident in correlation_incidents
+                    )
+                ):
+                    events[self._event_key(event)] = event
+
         for event in self._events_from_enrichment(enrichment):
-            events[self._event_key(event)] = event
+            if (
+                not correlation_incidents
+                or any(
+                    self._matches(incident, event)
+                    for incident in correlation_incidents
+                )
+            ):
+                events[self._event_key(event)] = event
+
+        if not events:
+            self._forget_persistent_match(group_meta)
+            return
+
         rebuilt = self._build_enrichment(
-            list(events.values()), incidents=incidents or []
+            list(events.values()), incidents=correlation_incidents
         )
         rebuilt["incident_group_id"] = group_id
         rebuilt["incident_ids"] = sorted(ids)
@@ -846,41 +893,125 @@ class P2000EnrichmentManager:
             result.add(text)
         return result
 
+    @staticmethod
+    def _six_digit_tokens(value: Any) -> set[str]:
+        """Return standalone six-digit tokens used as appliance candidates."""
+        return set(re.findall(r"(?<!\\d)\\d{6}(?!\\d)", str(value or "")))
+
+    @staticmethod
+    def _normalize_postcode(value: Any) -> str:
+        """Normalize a Dutch postcode for exact comparison."""
+        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
     @classmethod
     def _matches(cls, incident: dict[str, Any], event: P2000Event) -> bool:
+        """Conservatively correlate a P2000 alert to one BWR incident."""
         if not cls._time_matches(incident, event):
             return False
 
-        incident_lat = cls._as_float(incident.get("latitude"))
-        incident_lon = cls._as_float(incident.get("longitude"))
-        if incident_lat is not None and incident_lon is not None:
-            if event.latitude is not None and event.longitude is not None:
-                return cls._distance_meters(
-                    incident_lat, incident_lon, event.latitude, event.longitude
-                ) <= _MATCH_RADIUS_METERS
+        incident_lat = cls._incident_coordinate(incident, "latitude")
+        incident_lon = cls._incident_coordinate(incident, "longitude")
+        if (
+            incident_lat is not None
+            and incident_lon is not None
+            and event.latitude is not None
+            and event.longitude is not None
+        ):
+            # When both sides have coordinates, they are authoritative.
+            return cls._distance_meters(
+                incident_lat, incident_lon, event.latitude, event.longitude
+            ) <= _MATCH_RADIUS_METERS
 
+        address = incident.get("address")
+        address_text = (
+            str(address.get("formatted_address") or "")
+            if isinstance(address, dict)
+            else ""
+        )
         incident_text = " ".join(
             str(value or "")
             for value in (
                 incident.get("body"),
                 incident.get("formatted_address"),
-                (incident.get("address") or {}).get("formatted_address")
-                if isinstance(incident.get("address"), dict)
-                else "",
+                address_text,
             )
         )
-        event_text = " ".join(
-            x for x in (event.message, event.human_message, event.street, event.city) if x
-        )
-        left = cls._tokens(incident_text)
-        right = cls._tokens(event_text)
-        common = left & right
+        incident_tokens = cls._tokens(incident_text)
 
-        # A street/city match is stronger than generic incident wording.
-        explicit = cls._tokens(" ".join(x for x in (event.street, event.city) if x))
-        if explicit and left & explicit:
+        # A callsign/appliance explicitly present on both sides is strong
+        # evidence and remains useful when a provider has no coordinates.
+        incident_units = cls._six_digit_tokens(incident_text)
+        event_units = {str(unit) for unit in event.units if str(unit)}
+        if incident_units and event_units and incident_units & event_units:
             return True
-        return len(common) >= 2
+
+        # Exact postcode is also strong location evidence.
+        event_postcode = cls._normalize_postcode(event.postcode)
+        if event_postcode:
+            incident_postcodes = {
+                cls._normalize_postcode(token)
+                for token in re.findall(
+                    r"\\b\\d{4}\\s*[A-Za-z]{2}\\b", incident_text
+                )
+            }
+            if event_postcode in incident_postcodes:
+                return True
+            if incident_postcodes:
+                return False
+
+        # Prefer provider-normalized location fields. A known city that is not
+        # present in the BWR incident is a hard reject; this prevents a generic
+        # incident type such as "Stank/hind. lucht (binnen)" from linking Lisse
+        # or Den Haag to a Hardenberg incident.
+        event_city_tokens = cls._tokens(event.city or "")
+        if event_city_tokens and not (event_city_tokens & incident_tokens):
+            return False
+
+        explicit_location = " ".join(
+            value
+            for value in (
+                event.street,
+                event.city,
+                event.location_reference,
+                event.postcode,
+            )
+            if value
+        )
+        explicit_tokens = cls._tokens(explicit_location)
+        if explicit_tokens:
+            overlap = explicit_tokens & incident_tokens
+            if len(overlap) >= 2:
+                return True
+
+            # One exact city plus one matching street/reference token is enough
+            # even when punctuation/house-number formatting differs.
+            if event_city_tokens and event_city_tokens & incident_tokens:
+                non_city = explicit_tokens - event_city_tokens
+                if non_city & incident_tokens:
+                    return True
+
+            # Explicit location data exists but does not substantively match.
+            return False
+
+        # Some RTL messages are not fully parsed by the add-on. In that case,
+        # compare the raw message only against the BWR address/location, never
+        # against generic incident-type wording.
+        incident_location = " ".join(
+            value
+            for value in (
+                incident.get("formatted_address"),
+                address_text,
+            )
+            if value
+        )
+        location_tokens = cls._tokens(incident_location)
+        if location_tokens:
+            message_tokens = cls._tokens(event.message)
+            return len(location_tokens & message_tokens) >= 2
+
+        # Without coordinates, a matching appliance, postcode, or usable
+        # location evidence, do not guess from generic incident words.
+        return False
 
     @staticmethod
     def _time_matches(incident: dict[str, Any], event: P2000Event) -> bool:
