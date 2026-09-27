@@ -1157,6 +1157,17 @@ class IncidentStore:
         snapshot["p2000_enrichment"] = enrichment
         self._notify()
 
+    def clear_p2000_enrichment(self, incident_id: Any) -> None:
+        """Remove stale P2000 enrichment without altering incident lifecycle."""
+        if incident_id is None:
+            return
+        key = self._key(incident_id)
+        snapshot = self._incidents.get(key)
+        if snapshot is None or "p2000_enrichment" not in snapshot:
+            return
+        snapshot.pop("p2000_enrichment", None)
+        self._notify()
+
     def apply_incident_group(self, incident_id: Any, group: dict) -> None:
         """Attach logical incident-group metadata while keeping API ids separate."""
         if incident_id is None or not isinstance(group, dict):
