@@ -53,9 +53,9 @@ data:
   mode: next_schedule_change
 ```
 
-For `next_schedule_change`, the integration reads the membership's combined schedule. If the current effective schedule already has the requested state, the override ends at the end of that contiguous period. If the current effective schedule has the opposite state, the override ends when a future schedule interval first has the requested state.
+For `next_schedule_change`, the integration reads the selected station membership's `combined_schedule` and uses the **end of the current agenda interval**. This matches the BrandweerRooster quick action: paraat and niet paraat both run only until the next roster change for that member on that post. The requested new availability state does not change the calculated end time.
 
-The lookup window is seven days. If no suitable takeover point is found, the action fails instead of creating an open-ended exception.
+The lookup window is seven days. If no current or next schedule interval can be found, the action fails instead of creating an open-ended exception.
 
 ### Custom period
 
@@ -100,8 +100,8 @@ CarPlay presentation is intentionally not implemented inside the integration. Bu
 A practical per-post set is:
 
 ```text
-Paraat tot volgende rooster-overgang
-Niet paraat tot volgende rooster-overgang
+Paraat tot volgende roosterwijziging
+Niet paraat tot volgende roosterwijziging
 Paraat 1 uur
 Paraat 2 uur
 Paraat 4 uur
