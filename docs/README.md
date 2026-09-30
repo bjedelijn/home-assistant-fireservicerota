@@ -4,7 +4,7 @@
 
 These pages contain practical examples for **FireServiceRota Extended**. They are written to be reusable for different users and organizations and intentionally avoid local station IDs, vehicle numbers, private addresses, personal device names and other installation-specific data.
 
-Current examples target **`1.2.0`**.
+Current examples target **`1.3.0-rc.1`**.
 
 > Home Assistant is an additional information and automation layer. Do not use it as the only emergency alerting method. Official pager, app, P2000 and/or other approved alerting channels remain leading.
 
@@ -21,6 +21,7 @@ Questions, bug reports and contributions can be handled through the GitHub repos
 - [Dashboard examples](Dashboard-Examples.md)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
+- [1.3.0-rc.1 release notes](Release-Notes-1.3.0-rc.1.md)
 - [1.2.0 release notes](Release-Notes-1.2.0.md)
 - [1.2.0-rc.8 release notes](Release-Notes-1.2.0-rc.8.md)
 
@@ -34,11 +35,12 @@ sensor.actieve_incidenten
 sensor.incidenthistorie
 sensor.pager
 sensor.mobiele_apparaten
+sensor.p2000_status
 ```
 
 Multi-station installations can also expose station-specific duty entities and incident-response switches. Exact entity IDs depend on Home Assistant naming, language and the station names returned by the API.
 
-Duty/availability is read-only in 1.2.0. Incident-response switches can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries. Public dashboard examples intentionally do not provide response buttons.
+Duty/availability is read-only in 1.3.0-rc.1. Incident-response switches can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries. Public dashboard examples intentionally do not provide response buttons.
 
 The legacy user-level `do_not_disturb` binary sensor remains for compatibility only when the API supplies that field. It is not the same as the per-device `alert_notifications_enabled` field on `sensor.mobiele_apparaten`.
 
@@ -61,6 +63,9 @@ The examples focus on information exposed by the integration itself:
 - opt-in `fireservicerota.backfill_history_staffing` for older retained history that genuinely lacks staffing data
 - read-only pager/mobile communication diagnostics
 - optional Netherlands-only P2000 enrichment, including separate BR/HV/IBGS scales and GRIP
+- optional P2000 online, P2000 via ether (RTL-SDR/MQTT), or both sources
+- P2000 practical-event grouping and source-arrival timing diagnostics via `sensor.p2000_status`
+- stricter location-aware P2000 correlation with automatic cleanup of stale false-positive enrichment
 
 The complete package combines these building blocks in one privacy-safe example. It demonstrates repeated TTS wording, separate day/night volumes, an optional on-duty guard for nighttime speech, and explicit Cast-session stop for speaker targets while leaving tablet targets untouched. BrandweerRooster mobile notification settings are not used as Home Assistant TTS gating.
 
