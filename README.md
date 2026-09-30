@@ -2,7 +2,7 @@
 
 **Current stable release: `1.2.0`**
 
-**Current development release on `1.3.0-beta`: `1.3.0-beta.5`**
+**Current release candidate on `1.3.0-rc`: `1.3.0-rc.1`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -33,6 +33,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Dashboard examples](docs/Dashboard-Examples.md)
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
+- [1.3.0-rc.1 release notes](docs/Release-Notes-1.3.0-rc.1.md)
 - [1.2.0 release notes](docs/Release-Notes-1.2.0.md)
 - [1.2.0-rc.8 release notes](docs/Release-Notes-1.2.0-rc.8.md)
 - [1.2.0-rc.7 release notes](docs/Release-Notes-1.2.0-rc.7.md)
