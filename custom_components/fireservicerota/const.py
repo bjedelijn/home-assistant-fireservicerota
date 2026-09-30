@@ -27,6 +27,7 @@ SERVICE_SEND_PAGER_MESSAGE = "send_pager_message"
 SERVICE_BACKFILL_HISTORY_STAFFING = "backfill_history_staffing"
 SERVICE_MARK_INCIDENT_CLOSED = "mark_incident_closed"
 SERVICE_REOPEN_INCIDENT = "reopen_incident"
+SERVICE_SET_STATION_AVAILABILITY = "set_station_availability"
 
 ATTR_ENTRY_ID = "entry_id"
 ATTR_INCIDENT_ID = "incident_id"
