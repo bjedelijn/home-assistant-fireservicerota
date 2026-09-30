@@ -34,6 +34,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
 - [Station availability / paraat](docs/Station-Availability.md)
+- [CarPlay / Siri availability](docs/CarPlay-Siri-Availability.md)
 - [1.3.0-rc.4 release notes](docs/Release-Notes-1.3.0-rc.4.md)
 - [1.3.0-rc.2 release notes](docs/Release-Notes-1.3.0-rc.2.md)
 - [1.3.0-rc.1 release notes](docs/Release-Notes-1.3.0-rc.1.md)
