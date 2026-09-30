@@ -2,7 +2,7 @@
 
 ## Install the integration
 
-For the current release candidate **1.2.0-rc.1**, install the contents of:
+For the current release candidate **1.3.0-rc.1**, install the contents of:
 
 ```text
 custom_components/fireservicerota
@@ -26,6 +26,7 @@ sensor.actieve_incidenten
 sensor.incidenthistorie
 sensor.pager
 sensor.mobiele_apparaten
+sensor.p2000_status
 ```
 
 Depending on your account, additional entities can include:
@@ -39,7 +40,7 @@ The exact names can differ by Home Assistant language and entity-registry histor
 
 ### Duty / availability
 
-Station-specific duty entities are read-only in 1.2.0-rc.1. Extended reads the current combined schedule for each active station membership, but does not create paraat/niet-paraat planning exceptions.
+Station-specific duty entities are read-only in 1.3.0-rc.1. Extended reads the current combined schedule for each active station membership, but does not create paraat/niet-paraat planning exceptions.
 
 ### Incident response switches
 
@@ -56,6 +57,20 @@ For BrandweerRooster Netherlands, `sensor.mobiele_apparaten` exposes privacy-fil
 Mobile push tokens, UUIDs, IMEI, serial identifiers and live-update tokens are deliberately not exposed.
 
 The legacy user-level `do_not_disturb` entity can still exist for compatibility when the API supplies that field. Do not treat it as the same thing as mobile-device alert notification settings.
+
+## Optional P2000 sources in 1.3.0-rc.1
+
+For BrandweerRooster Netherlands, P2000 enrichment can use:
+
+- **P2000 online** - internet source, polled by the integration;
+- **P2000 via ether** - local RTL-SDR reception delivered through MQTT;
+- **P2000 online + ether** - keeps both observations and compares when Home Assistant saw them.
+
+The internal provider IDs remain `online` and `rtl`. Human-readable labels are exposed as `P2000 online` and `P2000 via ether`.
+
+When both sources are enabled, `sensor.p2000_status` exposes raw recent events plus grouped practical events such as `last_practical_event` and `recent_practical_events`. Arrival timing uses the Home Assistant observation timestamp; the online provider's source timestamp can be minute-resolution and should not be treated as precise latency.
+
+RTL-SDR/MQTT is optional. If it is not configured, the existing online-only P2000 behavior continues to work.
 
 ## What the three incident sensors are for
 
@@ -135,7 +150,7 @@ It uses placeholder entities only. Replace them with your own entity IDs before 
 
 ## Updating
 
-An optional Git-based updater for Home Assistant OS / Supervised installations is documented in [Updating from Git](Updating.md). The documented script supports selecting a branch such as `1.2.0-rc` while testing a release candidate.
+An optional Git-based updater for Home Assistant OS / Supervised installations is documented in [Updating from Git](Updating.md). The documented script supports selecting a branch such as `1.3.0-rc` while testing the current release candidate.
 
 ## Next steps
 
@@ -144,4 +159,4 @@ An optional Git-based updater for Home Assistant OS / Supervised installations i
 - Use [iPhone critical alerts](iPhone-Critical-Alerts.md) for iOS critical notifications.
 - Use [Crew staffing and assignments](Crew-Staffing.md) for current staffing semantics.
 - Use [Dashboard examples](Dashboard-Examples.md) for privacy-neutral incident, communication and P2000 examples.
-- Read the [1.2.0-rc.1 release notes](Release-Notes-1.2.0-rc.1.md) for the consolidated 1.2.0 changes.
+- Read the [1.3.0-rc.1 release notes](Release-Notes-1.3.0-rc.1.md) for the current 1.3.0 release-candidate changes.
