@@ -7,6 +7,7 @@
 - [Crew staffing and assignments](Crew-Staffing.md)
 - [Dashboard examples](Dashboard-Examples.md)
 - [Station availability / paraat](Station-Availability.md)
+- [CarPlay / Siri availability](CarPlay-Siri-Availability.md)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
 - [1.3.0-rc.2 release notes](Release-Notes-1.3.0-rc.2.md)
