@@ -4,7 +4,7 @@
 
 These pages contain practical examples for **FireServiceRota Extended**. They are written to be reusable for different users and organizations and intentionally avoid local station IDs, vehicle numbers, private addresses, personal device names and other installation-specific data.
 
-Current examples target **`1.3.0-rc.2`**.
+Current examples target **`1.3.0-rc.4`**.
 
 > Home Assistant is an additional information and automation layer. Do not use it as the only emergency alerting method. Official pager, app, P2000 and/or other approved alerting channels remain leading.
 
@@ -22,6 +22,7 @@ Questions, bug reports and contributions can be handled through the GitHub repos
 - [Station availability / paraat](Station-Availability.md)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
+- [1.3.0-rc.4 release notes](Release-Notes-1.3.0-rc.4.md)
 - [1.3.0-rc.2 release notes](Release-Notes-1.3.0-rc.2.md)
 - [1.3.0-rc.1 release notes](Release-Notes-1.3.0-rc.1.md)
 - [1.2.0 release notes](Release-Notes-1.2.0.md)
