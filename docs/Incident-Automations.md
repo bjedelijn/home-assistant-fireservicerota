@@ -106,6 +106,37 @@ automation category. Installations may still keep explicit local overrides for
 known specialist appliances, but those overrides belong in the local Home
 Assistant configuration rather than in the integration.
 
+## Inspect P2000 source and arrival timing
+
+In 1.3.0-rc.1, incident enrichment keeps P2000 provider observations separate while also exposing grouped practical-event diagnostics through `sensor.p2000_status`.
+
+For incident automations, use the incident's own `p2000_enrichment.sources`, `units` and `source_timing`. Do not infer latency from the online provider's minute-resolution source timestamp; compare `observed_at` values instead.
+
+Example:
+
+```yaml
+- variables:
+    p2000: >-
+      {{ trigger.to_state.attributes.get('p2000_enrichment', {}) or {} }}
+    p2000_sources: >-
+      {{ p2000.get('sources', []) or [] }}
+    p2000_timing: >-
+      {{ p2000.get('source_timing', {}) or {} }}
+    p2000_timing_sources: >-
+      {{ p2000_timing.get('sources', {}) or {} }}
+
+- action: system_log.write
+  data:
+    level: info
+    message: >-
+      P2000 sources={{ p2000_sources }};
+      ether={{ p2000_timing_sources.get('p2000_rtl', {}).get('observed_at') }};
+      online={{ p2000_timing_sources.get('p2000_online', {}).get('observed_at') }};
+      bwr={{ p2000_timing_sources.get('brandweerrooster', {}).get('observed_at') }}
+```
+
+If both providers report the same physical alert, keep the raw records for diagnostics and use the grouped practical-event data only for presentation/timing. The 1.3.0 matcher also revalidates previously attached enrichment so stale false-positive location matches can be removed automatically.
+
 ## Prevent duplicate custom actions
 
 If your own automation must perform an action only once per incident or update, keep a small list of processed keys in an `input_text` helper.
