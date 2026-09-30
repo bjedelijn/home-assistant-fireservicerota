@@ -195,6 +195,36 @@ Example:
     {% endfor %}
 ```
 
+## P2000 source and timing card
+
+1.3.0-rc.1 exposes provider diagnostics through `sensor.p2000_status`. This example shows the latest grouped practical P2000 alert without hard-coding local vehicle numbers:
+
+```yaml
+- type: markdown
+  title: P2000 sources
+  content: |-
+    {% set p = state_attr('sensor.p2000_status', 'last_practical_event') or {} %}
+    {% if not p %}
+    No recent practical P2000 event.
+    {% else %}
+    **{{ p.get('message', 'P2000 alert') }}**
+
+    Sources: {{ p.get('source_labels', []) | join(', ') }}
+    First: {{ p.get('first_source_label', 'unknown') }}
+
+    Ether received: {{ p.get('ether_received_at', 'n/a') }}
+    Online received: {{ p.get('online_received_at', 'n/a') }}
+    BWR received: {{ p.get('bwr_received_at', 'n/a') }}
+
+    {% set d = p.get('arrival_deltas_seconds', {}) or {} %}
+    Ether -> online: {{ d.get('ether_to_online', 'n/a') }} s
+    Ether -> BWR: {{ d.get('ether_to_bwr', 'n/a') }} s
+    Online -> BWR: {{ d.get('online_to_bwr', 'n/a') }} s
+    {% endif %}
+```
+
+The grouped practical event is for presentation and timing only. The underlying raw online/ether records remain available separately in `recent_events`.
+
 ## Response-control safety
 
 Incident snapshots can show the authenticated user's response status. The standard dashboard examples intentionally do **not** include buttons that call incident-response switches.
