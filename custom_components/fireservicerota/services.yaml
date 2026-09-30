@@ -135,13 +135,13 @@ set_station_availability:
         boolean:
     mode:
       name: Period
-      description: End the override when the schedule takes over again, after a fixed duration, or at a custom end time.
+      description: End the override at the next agenda change for this station membership, after a fixed duration, or at a custom end time.
       required: true
       default: next_schedule_change
       selector:
         select:
           options:
-            - label: Tot volgende rooster-overgang
+            - label: Tot volgende roosterwijziging
               value: next_schedule_change
             - label: 1 uur
               value: 1h
