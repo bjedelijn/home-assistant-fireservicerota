@@ -105,3 +105,73 @@ reopen_incident:
       selector:
         select:
           options: [incident, group]
+
+set_station_availability:
+  name: Set station availability
+  description: Create a temporary paraat/niet-paraat override for one dynamically discovered station membership.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional Home Assistant config entry ID. Required only when multiple FireServiceRota config entries are loaded.
+      selector:
+        text:
+    membership_id:
+      name: Membership ID
+      description: Active station membership to update. Use this or station_id. If the account has exactly one station membership, both may be omitted.
+      selector:
+        number:
+          mode: box
+    station_id:
+      name: Station ID
+      description: Dynamically discovered station to update. Use this or membership_id.
+      selector:
+        number:
+          mode: box
+    available:
+      name: Paraat
+      description: Turn paraat on or off for the selected post during the temporary override.
+      required: true
+      selector:
+        boolean:
+    mode:
+      name: Period
+      description: End the override when the schedule takes over again, after a fixed duration, or at a custom end time.
+      required: true
+      default: next_schedule_change
+      selector:
+        select:
+          options:
+            - label: Tot volgende rooster-overgang
+              value: next_schedule_change
+            - label: 1 uur
+              value: 1h
+            - label: 2 uur
+              value: 2h
+            - label: 4 uur
+              value: 4h
+            - label: 8 uur
+              value: 8h
+            - label: Aangepaste periode
+              value: custom
+    start_time:
+      name: Starttijd
+      description: Optional start time. When omitted, the current 15-minute block is used.
+      selector:
+        datetime:
+    end_time:
+      name: Eindtijd
+      description: Required only for custom mode.
+      selector:
+        datetime:
+    comments:
+      name: Opmerking
+      description: Optional comment stored with the BrandweerRooster schedule exception.
+      default: Home Assistant
+      selector:
+        text:
+    ignore_schedule_warnings:
+      name: Roosterwaarschuwingen negeren
+      description: Allow the write even when BrandweerRooster reports a staffing warning.
+      default: true
+      selector:
+        boolean:
