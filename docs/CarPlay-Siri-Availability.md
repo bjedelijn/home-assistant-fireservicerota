@@ -158,11 +158,12 @@ On the iPhone:
 
 1. Make sure the Home Assistant Companion app is installed, logged in and can reach the Home Assistant instance.
 2. Open **Shortcuts** and create a new shortcut, for example **Brandweer Post A paraat**.
-3. Add the Home Assistant action that calls the corresponding Home Assistant script.
+3. Add Home Assistant **Run Script** and select the corresponding wrapper script.
 4. Add a short wait (about one second is normally enough because the Home Assistant script itself waits for the verified service response).
-5. Add a Home Assistant action that reads the state of:
-   `input_text.brandweer_paraat_laatste_resultaat`.
-6. Add Apple's **Speak Text** action and pass the helper state to it.
+5. Add Home Assistant **Render template** with:
+   `{{ states('input_text.brandweer_paraat_laatste_resultaat') }}`
+   and use its output in the next step. Render template requires an administrator account in the Companion app.
+6. Add Apple's **Speak Text** action and pass the rendered text to it.
 7. Give the shortcut a short, unique Siri phrase.
 8. Test the shortcut on the iPhone before using it through CarPlay.
 
@@ -186,3 +187,21 @@ For driving use, prefer a small set of common commands rather than exposing ever
 ## Safety
 
 Do not use Home Assistant / Siri / CarPlay as the only availability or emergency-alerting mechanism. Official BrandweerRooster and organization procedures remain leading.
+
+
+## Home Assistant CarPlay Quick Access
+
+The Home Assistant iOS app can also expose `script` entities directly in CarPlay Quick Access. This is useful for large touch targets such as:
+
+```text
+Post A paraat
+Post A niet paraat
+Post A paraat 1 uur
+Post A niet paraat 1 uur
+```
+
+Configure this on the iPhone under **Companion App Settings -> CarPlay -> Quick Access**.
+
+Direct script buttons are useful for touch control, while the Siri Shortcut flow above is preferred when spoken read-back is required.
+
+On supported iOS versions, CarPlay can also expose Home Assistant Assist and predefined Assist prompts. When the selected Assist pipeline has TTS configured, the response can be played through the vehicle audio system.
