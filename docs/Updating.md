@@ -145,7 +145,7 @@ Update the stable branch:
 Test the 1.3.0 release candidate:
 
 ```bash
-/config/update_fsr.sh 1.2.0-rc
+/config/update_fsr.sh 1.3.0-rc
 ```
 
 Return to the stable branch:
