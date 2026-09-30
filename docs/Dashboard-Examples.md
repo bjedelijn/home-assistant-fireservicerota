@@ -240,3 +240,121 @@ state_attr('sensor.actieve_incidenten', 'incidents') or []
 ```
 
 This is also why the popup above separates the latest incident card from the active-incidents overview.
+
+
+## Station availability popup
+
+A useful dashboard pattern is to make each station-duty card open a post-specific Bubble Card popup. The popup then calls small wrapper scripts around `fireservicerota.set_station_availability`.
+
+Public examples use placeholder entity/script names. Replace them with the station-duty sensor and scripts from the local installation.
+
+### Clickable station status
+
+```yaml
+- type: custom:mushroom-template-card
+  entity: binary_sensor.duty_post_a
+  primary: Post A
+  secondary: >-
+    {% if is_state('binary_sensor.duty_post_a', 'on') %}
+      Paraat
+    {% elif is_state('binary_sensor.duty_post_a', 'off') %}
+      Niet paraat
+    {% else %}
+      Status onbekend
+    {% endif %}
+  icon: mdi:fire-station
+  icon_color: >-
+    {% if is_state('binary_sensor.duty_post_a', 'on') %}green
+    {% elif is_state('binary_sensor.duty_post_a', 'off') %}grey
+    {% else %}orange{% endif %}
+  tap_action:
+    action: navigate
+    navigation_path: '#fireservicerota-paraat-post-a'
+```
+
+### Post-specific popup
+
+```yaml
+- type: custom:bubble-card
+  card_type: pop-up
+  hash: '#fireservicerota-paraat-post-a'
+  button_type: name
+  name: Post A · paraatheid
+  icon: mdi:fire-station
+  width_desktop: 760px
+  cards:
+    - type: custom:mushroom-template-card
+      entity: binary_sensor.duty_post_a
+      primary: >-
+        {% if is_state('binary_sensor.duty_post_a', 'on') %}
+          Paraat
+        {% elif is_state('binary_sensor.duty_post_a', 'off') %}
+          Niet paraat
+        {% else %}
+          Status onbekend
+        {% endif %}
+      secondary: Actuele BrandweerRooster-status
+      icon: mdi:account-check
+      icon_color: >-
+        {% if is_state('binary_sensor.duty_post_a', 'on') %}green{% else %}grey{% endif %}
+
+    - type: horizontal-stack
+      cards:
+        - type: custom:mushroom-template-card
+          primary: Paraat
+          secondary: Tot volgende roosterwijziging
+          icon: mdi:account-check
+          icon_color: green
+          tap_action:
+            action: call-service
+            service: script.brandweer_post_a_paraat
+
+        - type: custom:mushroom-template-card
+          primary: Niet paraat
+          secondary: Tot volgende roosterwijziging
+          icon: mdi:account-off
+          icon_color: red
+          tap_action:
+            action: call-service
+            service: script.brandweer_post_a_niet_paraat
+
+    - type: horizontal-stack
+      cards:
+        - type: custom:mushroom-template-card
+          primary: Paraat · 1 uur
+          icon: mdi:timer-check
+          icon_color: green
+          tap_action:
+            action: call-service
+            service: script.brandweer_post_a_paraat_1u
+
+        - type: custom:mushroom-template-card
+          primary: Niet paraat · 1 uur
+          icon: mdi:timer-off
+          icon_color: red
+          tap_action:
+            action: call-service
+            service: script.brandweer_post_a_niet_paraat_1u
+
+    - type: horizontal-stack
+      cards:
+        - type: custom:mushroom-template-card
+          primary: Paraat · 2 uur
+          icon: mdi:timer-check
+          icon_color: green
+          tap_action:
+            action: call-service
+            service: script.brandweer_post_a_paraat_2u
+
+        - type: custom:mushroom-template-card
+          primary: Niet paraat · 2 uur
+          icon: mdi:timer-off
+          icon_color: red
+          tap_action:
+            action: call-service
+            service: script.brandweer_post_a_niet_paraat_2u
+```
+
+Use the same pattern for 4h and 8h buttons. For multi-station users, create one popup per station or generate the wrapper scripts from local station IDs. The integration itself remains station-ID agnostic.
+
+For verified Siri/CarPlay feedback, see [CarPlay / Siri availability](CarPlay-Siri-Availability.md).
