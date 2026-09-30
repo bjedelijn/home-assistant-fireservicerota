@@ -30,6 +30,14 @@ from .const import (
     ATTR_CONFIRMATION,
     ATTR_ENTRY_ID,
     ATTR_INCIDENT_ID,
+    ATTR_MEMBERSHIP_ID,
+    ATTR_STATION_ID,
+    ATTR_AVAILABLE,
+    ATTR_MODE,
+    ATTR_START_TIME,
+    ATTR_END_TIME,
+    ATTR_COMMENTS,
+    ATTR_IGNORE_SCHEDULE_WARNINGS,
     ATTR_LIMIT,
     ATTR_MESSAGE,
     ATTR_SCOPE,
@@ -44,6 +52,10 @@ from .const import (
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
+    SERVICE_SET_STATION_AVAILABILITY,
+    AVAILABILITY_MODE_DURATIONS,
+    AVAILABILITY_MODE_NEXT_SCHEDULE,
+    AVAILABILITY_MODE_CUSTOM,
     WSS_BWRURL,
 )
 
@@ -70,6 +82,26 @@ LOCAL_INCIDENT_CLOSE_SCHEMA = vol.Schema({
     vol.Required(ATTR_INCIDENT_ID): vol.Coerce(str),
     vol.Optional(ATTR_SCOPE, default="group"): vol.In({"incident", "group"}),
 })
+
+SET_STATION_AVAILABILITY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Optional(ATTR_MEMBERSHIP_ID): vol.Coerce(int),
+        vol.Optional(ATTR_STATION_ID): vol.Coerce(int),
+        vol.Required(ATTR_AVAILABLE): cv.boolean,
+        vol.Required(ATTR_MODE, default=AVAILABILITY_MODE_NEXT_SCHEDULE): vol.In(
+            {
+                AVAILABILITY_MODE_NEXT_SCHEDULE,
+                *AVAILABILITY_MODE_DURATIONS.keys(),
+                AVAILABILITY_MODE_CUSTOM,
+            }
+        ),
+        vol.Optional(ATTR_START_TIME): cv.datetime,
+        vol.Optional(ATTR_END_TIME): cv.datetime,
+        vol.Optional(ATTR_COMMENTS, default="Home Assistant"): cv.string,
+        vol.Optional(ATTR_IGNORE_SCHEDULE_WARNINGS, default=True): cv.boolean,
+    }
+)
 
 BACKFILL_HISTORY_STAFFING_SCHEMA = vol.Schema(
     {
@@ -153,6 +185,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_BACKFILL_HISTORY_STAFFING,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
+            SERVICE_SET_STATION_AVAILABILITY,
         ):
             if hass.services.has_service(DOMAIN, service):
                 hass.services.async_remove(DOMAIN, service)
@@ -228,6 +261,30 @@ def _async_register_services(hass: HomeAssistant) -> None:
         client.last_pager_message = result
         dispatcher_send(hass, f"{DOMAIN}_{client.entry_id}_pager_update")
 
+    async def async_set_station_availability(call: ServiceCall) -> dict:
+        """Create a temporary availability override for one station membership."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+
+        result = await client.async_set_station_availability(
+            membership_id=call.data.get(ATTR_MEMBERSHIP_ID),
+            station_id=call.data.get(ATTR_STATION_ID),
+            available=call.data[ATTR_AVAILABLE],
+            mode=call.data.get(ATTR_MODE, AVAILABILITY_MODE_NEXT_SCHEDULE),
+            start_time=call.data.get(ATTR_START_TIME),
+            end_time=call.data.get(ATTR_END_TIME),
+            comments=call.data.get(ATTR_COMMENTS, "Home Assistant"),
+            ignore_schedule_warnings=call.data.get(
+                ATTR_IGNORE_SCHEDULE_WARNINGS, True
+            ),
+        )
+
+        coordinator = entry_data.get(DATA_COORDINATOR)
+        if coordinator is not None:
+            await coordinator.async_request_refresh()
+
+        return result
+
     async def async_backfill_history_staffing(call: ServiceCall) -> dict:
         """Re-fetch retained closed incidents that lack staffing data."""
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
@@ -274,6 +331,15 @@ def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_SEND_PAGER_MESSAGE,
             async_send_pager_message,
             schema=SEND_PAGER_MESSAGE_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_STATION_AVAILABILITY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_STATION_AVAILABILITY,
+            async_set_station_availability,
+            schema=SET_STATION_AVAILABILITY_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_HISTORY_STAFFING):
@@ -896,6 +962,218 @@ class FireServiceRotaClient:
                 str(item.get("group_id")),
             ),
         )
+
+    def _resolve_station_membership(
+        self,
+        membership_id: int | None = None,
+        station_id: int | None = None,
+    ) -> tuple[int, dict]:
+        """Resolve exactly one active station membership for an availability write."""
+        if membership_id is not None:
+            membership = self.membership_index.get(membership_id)
+            if not membership:
+                raise HomeAssistantError(
+                    f"Membership {membership_id} is not an active station membership "
+                    "for this FireServiceRota account"
+                )
+            if station_id is not None and membership.get("station_id") != station_id:
+                raise HomeAssistantError(
+                    f"Membership {membership_id} does not belong to station {station_id}"
+                )
+            return membership_id, membership
+
+        if station_id is not None:
+            matches = [
+                (candidate_id, membership)
+                for candidate_id, membership in self.membership_index.items()
+                if membership.get("station_id") == station_id
+            ]
+            if len(matches) != 1:
+                raise HomeAssistantError(
+                    f"Station {station_id} does not resolve to exactly one active "
+                    "station membership"
+                )
+            return matches[0]
+
+        if len(self.membership_index) == 1:
+            return next(iter(self.membership_index.items()))
+
+        raise HomeAssistantError(
+            "membership_id or station_id is required when multiple station "
+            "memberships are active"
+        )
+
+    @staticmethod
+    def _floor_to_quarter(value: datetime) -> datetime:
+        """Floor a datetime to the current 15-minute BrandweerRooster block."""
+        return value.replace(
+            minute=(value.minute // 15) * 15,
+            second=0,
+            microsecond=0,
+        )
+
+    def _availability_schedule_params(
+        self, start: datetime, days: int = 7
+    ) -> dict:
+        """Return a wider local schedule window for availability calculations."""
+        end = start + timedelta(days=days)
+        return {
+            "start_time": start.isoformat(),
+            "end_time": end.isoformat(),
+        }
+
+    @staticmethod
+    def _next_schedule_takeover(
+        schedule: dict,
+        now: datetime,
+        desired_available: bool,
+    ) -> datetime | None:
+        """Find when the effective schedule next makes the override unnecessary.
+
+        If the current schedule already has the desired state, return the end of
+        its contiguous run. Otherwise return the start of the first future
+        interval with the desired state.
+        """
+        parsed = []
+        for interval in schedule.get("intervals", []) or []:
+            start_raw = interval.get("start_time")
+            end_raw = interval.get("end_time")
+            if not start_raw or not end_raw:
+                continue
+            try:
+                start = datetime.fromisoformat(start_raw)
+                end = datetime.fromisoformat(end_raw)
+            except (TypeError, ValueError):
+                continue
+            if end <= now:
+                continue
+            parsed.append((start, end, bool(interval.get("available"))))
+
+        parsed.sort(key=lambda item: item[0])
+        if not parsed:
+            return None
+
+        current = next(
+            (
+                item
+                for item in parsed
+                if item[0] <= now < item[1]
+            ),
+            None,
+        )
+
+        if current and current[2] == desired_available:
+            cursor_end = current[1]
+            for start, end, state in parsed:
+                if start < cursor_end:
+                    continue
+                if start > cursor_end:
+                    return cursor_end
+                if state != desired_available:
+                    return start
+                cursor_end = max(cursor_end, end)
+            return cursor_end
+
+        for start, _end, state in parsed:
+            if start > now and state == desired_available:
+                return start
+
+        return None
+
+    async def async_set_station_availability(
+        self,
+        *,
+        membership_id: int | None,
+        station_id: int | None,
+        available: bool,
+        mode: str,
+        start_time: datetime | None,
+        end_time: datetime | None,
+        comments: str,
+        ignore_schedule_warnings: bool,
+    ) -> dict:
+        """Create a temporary availability exception for one station membership."""
+        membership_id, membership = self._resolve_station_membership(
+            membership_id, station_id
+        )
+
+        timezone = ZoneInfo(str(self._hass.config.time_zone))
+        now = datetime.now(timezone)
+        start = start_time or self._floor_to_quarter(now)
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone)
+        else:
+            start = start.astimezone(timezone)
+        start = self._floor_to_quarter(start)
+
+        if mode in AVAILABILITY_MODE_DURATIONS:
+            end = start + timedelta(minutes=AVAILABILITY_MODE_DURATIONS[mode])
+        elif mode == AVAILABILITY_MODE_CUSTOM:
+            if end_time is None:
+                raise HomeAssistantError("end_time is required for custom mode")
+            end = end_time
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone)
+            else:
+                end = end.astimezone(timezone)
+            end = self._floor_to_quarter(end)
+        elif mode == AVAILABILITY_MODE_NEXT_SCHEDULE:
+            schedule = await self.async_api_get(
+                f"memberships/{membership_id}/combined_schedule",
+                self._availability_schedule_params(start),
+            )
+            if not isinstance(schedule, dict):
+                raise HomeAssistantError(
+                    f"Could not retrieve schedule for membership {membership_id}"
+                )
+            end = self._next_schedule_takeover(schedule, now, available)
+            if end is None:
+                raise HomeAssistantError(
+                    "No matching schedule transition was found in the next 7 days"
+                )
+            end = self._floor_to_quarter(end.astimezone(timezone))
+        else:
+            raise HomeAssistantError(f"Unsupported availability mode: {mode}")
+
+        if end <= start:
+            raise HomeAssistantError("Availability end_time must be after start_time")
+
+        body = {
+            "start_time": start.isoformat(),
+            "end_time": end.isoformat(),
+            "available": bool(available),
+            "comments": comments,
+            "ignore_schedule_warnings": bool(ignore_schedule_warnings),
+            "channel": "desktop",
+        }
+
+        result = await self.update_call(
+            self.fsr._request,
+            "POST",
+            f"memberships/{membership_id}/schedule_exceptions",
+            f"set availability for membership {membership_id}",
+            None,
+            body,
+            False,
+        )
+        if not isinstance(result, dict):
+            raise HomeAssistantError(
+                f"BrandweerRooster did not accept availability for membership {membership_id}"
+            )
+
+        await self._async_update_membership_duty()
+        dispatcher_send(self._hass, f"{DOMAIN}_{self.entry_id}_update")
+
+        return {
+            "membership_id": membership_id,
+            "station_id": membership.get("station_id"),
+            "station_name": membership.get("station_name"),
+            "available": bool(available),
+            "mode": mode,
+            "start_time": start.isoformat(),
+            "end_time": end.isoformat(),
+            "api_result": result,
+        }
 
     def _schedule_window_params(self) -> dict:
         """Return today's local schedule window in API-compatible format."""
