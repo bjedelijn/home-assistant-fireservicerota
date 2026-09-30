@@ -1174,6 +1174,13 @@ class FireServiceRotaClient:
         if end <= start:
             raise HomeAssistantError("Availability end_time must be after start_time")
 
+        previous_data = self.membership_duty.get(membership_id)
+        previous_available = (
+            bool(previous_data.get("available"))
+            if isinstance(previous_data, dict) and "available" in previous_data
+            else None
+        )
+
         body = {
             "start_time": start.isoformat(),
             "end_time": end.isoformat(),
@@ -1200,14 +1207,35 @@ class FireServiceRotaClient:
         await self._async_update_membership_duty()
         dispatcher_send(self._hass, f"{DOMAIN}_{self.entry_id}_update")
 
+        actual_data = self.membership_duty.get(membership_id)
+        actual_available = (
+            bool(actual_data.get("available"))
+            if isinstance(actual_data, dict) and "available" in actual_data
+            else None
+        )
+        requested_available = bool(available)
+        confirmed = (
+            actual_available is not None
+            and actual_available == requested_available
+        )
+        status_changed = (
+            previous_available is not None
+            and actual_available is not None
+            and actual_available != previous_available
+        )
+
         return {
             "membership_id": membership_id,
             "station_id": membership.get("station_id"),
             "station_name": membership.get("station_name"),
-            "available": bool(available),
+            "available": requested_available,
             "mode": mode,
             "start_time": start.isoformat(),
             "end_time": end.isoformat(),
+            "previous_available": previous_available,
+            "actual_available": actual_available,
+            "confirmed": confirmed,
+            "status_changed": status_changed,
             "api_result": result,
         }
 
