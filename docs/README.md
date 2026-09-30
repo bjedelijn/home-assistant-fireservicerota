@@ -20,6 +20,7 @@ Questions, bug reports and contributions can be handled through the GitHub repos
 - [Crew staffing and assignments](Crew-Staffing.md)
 - [Dashboard examples](Dashboard-Examples.md)
 - [Station availability / paraat](Station-Availability.md)
+- [CarPlay / Siri availability](CarPlay-Siri-Availability.md)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
 - [1.3.0-rc.4 release notes](Release-Notes-1.3.0-rc.4.md)
