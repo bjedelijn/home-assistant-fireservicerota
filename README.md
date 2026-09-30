@@ -2,7 +2,7 @@
 
 **Current stable release: `1.2.0`**
 
-**Current release candidate on `1.3.0-rc`: `1.3.0-rc.1`**
+**Current release candidate on `1.3.0-rc`: `1.3.0-rc.2`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -33,6 +33,8 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Dashboard examples](docs/Dashboard-Examples.md)
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
+- [Station availability / paraat](docs/Station-Availability.md)
+- [1.3.0-rc.2 release notes](docs/Release-Notes-1.3.0-rc.2.md)
 - [1.3.0-rc.1 release notes](docs/Release-Notes-1.3.0-rc.1.md)
 - [1.2.0 release notes](docs/Release-Notes-1.2.0.md)
 - [1.2.0-rc.8 release notes](docs/Release-Notes-1.2.0-rc.8.md)
@@ -63,7 +65,7 @@ Extended adds or expands:
 - Automatic authenticated-user, station/group and membership discovery.
 - Generic `own_stations` and `own_affiliations` discovery from active memberships, including multi-station users and non-station/regional specialist groups.
 - Incident-level `own_incident_affiliations` derived from task and response context without hard-coded station or group IDs.
-- Multi-station duty / availability support. Duty/availability is read-only in 1.2.0; no paraat/niet-paraat planning write is implemented.
+- Multi-station duty / availability support plus temporary paraat/niet-paraat writes per dynamically discovered station membership in 1.3.0-rc.2. Fixed periods of 1, 2, 4 and 8 hours, next-schedule takeover and a custom period are supported.
 - Legacy user-level `do_not_disturb` state when that optional API field is supplied; mobile alert settings are modeled separately.
 - Dynamic task / alert-group resolution.
 - Per-membership incident response data and response switches. These controls can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries.
