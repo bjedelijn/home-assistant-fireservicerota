@@ -13,3 +13,5 @@
 - [1.3.0-rc.1 release notes](Release-Notes-1.3.0-rc.1.md)
 - [1.2.0 release notes](Release-Notes-1.2.0.md)
 - [1.2.0-rc.8 release notes](Release-Notes-1.2.0-rc.8.md)
+
+- [1.3.0-rc.4 release notes](Release-Notes-1.3.0-rc.4.md)
