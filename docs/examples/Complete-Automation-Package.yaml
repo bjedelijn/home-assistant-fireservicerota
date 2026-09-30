@@ -1,6 +1,6 @@
 ###############################################################################
 # FireServiceRota Extended - Complete Automation Package
-# Target: 1.2.0
+# Target: 1.3.0-rc.1
 #
 # Privacy-safe example package. It intentionally contains no station IDs,
 # vehicle numbers, addresses, coordinates, personal names, Telegram settings,
@@ -179,6 +179,14 @@ automation:
             {{ trigger.to_state.state | string }}
           new_task_ids: >-
             {{ trigger.to_state.attributes.get('new_task_ids', []) or [] }}
+          p2000: >-
+            {{ trigger.to_state.attributes.get('p2000_enrichment', {}) or {} }}
+          confirmed_units: >-
+            {{ p2000.get('units', []) or [] }}
+          p2000_sources: >-
+            {{ p2000.get('sources', []) or [] }}
+          p2000_source_timing: >-
+            {{ p2000.get('source_timing', {}) or {} }}
 
       - condition: template
         alias: Live FireServiceRota event only
