@@ -1071,16 +1071,16 @@ class FireServiceRotaClient:
         return {"intervals": intervals}
 
     @staticmethod
-    def _next_schedule_takeover(
+    def _next_schedule_change(
         schedule: dict,
         now: datetime,
-        desired_available: bool,
     ) -> datetime | None:
-        """Find when the effective schedule next makes the override unnecessary.
+        """Return the end of the current membership schedule interval.
 
-        If the current schedule already has the desired state, return the end of
-        its contiguous run. Otherwise return the start of the first future
-        interval with the desired state.
+        BrandweerRooster's quick paraat/niet-paraat action applies only until
+        the next agenda change for that station membership. The requested new
+        availability state does not influence that end time: both paraat and
+        niet paraat use the same next interval boundary.
         """
         parsed = []
         for interval in schedule.get("intervals", []) or []:
@@ -1095,7 +1095,7 @@ class FireServiceRotaClient:
                 continue
             if end <= now:
                 continue
-            parsed.append((start, end, bool(interval.get("available"))))
+            parsed.append((start, end))
 
         parsed.sort(key=lambda item: item[0])
         if not parsed:
@@ -1109,24 +1109,12 @@ class FireServiceRotaClient:
             ),
             None,
         )
+        if current is not None:
+            return current[1]
 
-        if current and current[2] == desired_available:
-            cursor_end = current[1]
-            for start, end, state in parsed:
-                if start < cursor_end:
-                    continue
-                if start > cursor_end:
-                    return cursor_end
-                if state != desired_available:
-                    return start
-                cursor_end = max(cursor_end, end)
-            return cursor_end
-
-        for start, _end, state in parsed:
-            if start > now and state == desired_available:
-                return start
-
-        return None
+        # A gap is unusual for combined_schedule, but if one exists the start
+        # of the next interval is the next agenda boundary we can safely use.
+        return next((start for start, _end in parsed if start > now), None)
 
     async def async_set_station_availability(
         self,
@@ -1174,10 +1162,10 @@ class FireServiceRotaClient:
                 raise HomeAssistantError(
                     f"Could not retrieve schedule for membership {membership_id}"
                 )
-            end = self._next_schedule_takeover(schedule, now, available)
+            end = self._next_schedule_change(schedule, now)
             if end is None:
                 raise HomeAssistantError(
-                    "No matching schedule transition was found in the next 7 days"
+                    "No next schedule change was found in the next 7 days"
                 )
             end = self._floor_to_quarter(end.astimezone(timezone))
         else:
