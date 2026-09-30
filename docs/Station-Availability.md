@@ -71,6 +71,58 @@ data:
 
 Start and end times are normalized to BrandweerRooster 15-minute blocks. If `start_time` is omitted, the current 15-minute block is used.
 
+## Write -> read-back verification (rc.4)
+
+In rc.4 the service does not stop at a successful POST. After BrandweerRooster accepts the schedule exception, the integration refreshes the membership duty data and compares the **actual** availability with the requested availability.
+
+When the action response is requested, these fields are returned:
+
+```text
+previous_available
+actual_available
+confirmed
+status_changed
+start_time
+end_time
+```
+
+Meaning:
+
+- `confirmed: true` means the refreshed BrandweerRooster membership state matches the requested state.
+- `status_changed: true` means the refreshed state is different from the state seen before the write.
+- `confirmed: true` together with `status_changed: false` means the requested state was already active; the temporary period can still have been updated.
+- `confirmed: false` means the requested state was not confirmed by the read-back and should not be announced as successful.
+
+Example with a Home Assistant response variable:
+
+```yaml
+- action: fireservicerota.set_station_availability
+  data:
+    station_id: 123
+    available: true
+    mode: next_schedule_change
+  response_variable: availability_result
+
+- choose:
+    - conditions:
+        - condition: template
+          value_template: "{{ availability_result.confirmed | default(false) }}"
+      sequence:
+        - action: logbook.log
+          data:
+            name: FireServiceRota
+            message: >-
+              Confirmed: {{ availability_result.station_name }}
+              is paraat until {{ availability_result.end_time }}.
+  default:
+    - action: logbook.log
+      data:
+        name: FireServiceRota
+        message: "Availability write was not confirmed."
+```
+
+This verification is useful for dashboard confirmation, Siri/CarPlay speech and any automation where a successful HTTP response alone is not enough.
+
 ## Per-post behavior
 
 Availability is always written to the selected **station membership**:
@@ -93,9 +145,7 @@ ignore_schedule_warnings: true
 
 This matches the intended quick-action behavior: staffing warnings do not cause an otherwise valid CarPlay/Home Assistant action to fail unexpectedly. Set the field to `false` if you explicitly want BrandweerRooster staffing warnings to reject the write.
 
-## CarPlay / dashboards
-
-CarPlay presentation is intentionally not implemented inside the integration. Build the driving UI in Home Assistant and call the service above.
+## Dashboard quick actions
 
 A practical per-post set is:
 
@@ -114,6 +164,6 @@ Niet paraat 8 uur
 
 Use the station-specific duty binary sensors to discover the relevant `station_id` / `membership_id` attributes instead of hard-coding personal IDs into reusable blueprints or public examples.
 
-After a successful write, the integration refreshes membership availability so Home Assistant reflects the updated BrandweerRooster state.
+See [Dashboard examples](Dashboard-Examples.md) for a Bubble Card popup pattern and [CarPlay / Siri availability](CarPlay-Siri-Availability.md) for spoken, verified feedback.
 
 > Home Assistant is an additional operational convenience layer. Official BrandweerRooster and organization procedures remain leading.
