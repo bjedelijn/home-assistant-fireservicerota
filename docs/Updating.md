@@ -5,7 +5,7 @@ This is an optional update method for users who keep a local Git clone of the re
 The stable development branch is `extended`. Release-candidate testers can select a branch explicitly, for example:
 
 ```bash
-/config/update_fsr.sh 1.2.0-rc
+/config/update_fsr.sh 1.3.0-rc
 ```
 
 The example script below defaults to `extended` when no branch is supplied.
@@ -142,7 +142,7 @@ Update the stable branch:
 /config/update_fsr.sh
 ```
 
-Test the 1.2.0 release candidate:
+Test the 1.3.0 release candidate:
 
 ```bash
 /config/update_fsr.sh 1.2.0-rc
