@@ -1012,15 +1012,63 @@ class FireServiceRotaClient:
             microsecond=0,
         )
 
-    def _availability_schedule_params(
-        self, start: datetime, days: int = 7
-    ) -> dict:
-        """Return a wider local schedule window for availability calculations."""
-        end = start + timedelta(days=days)
+    @staticmethod
+    def _availability_schedule_day_params(day_start: datetime) -> dict:
+        """Return one local calendar day in the format accepted by combined_schedule."""
+        day_end = day_start + timedelta(days=1)
         return {
-            "start_time": start.isoformat(),
-            "end_time": end.isoformat(),
+            "start_time": day_start.strftime("%Y-%m-%dT00:00:00%z"),
+            "end_time": day_end.strftime("%Y-%m-%dT00:00:00%z"),
         }
+
+    async def _async_get_availability_schedule(
+        self,
+        membership_id: int,
+        start: datetime,
+        days: int = 7,
+    ) -> dict | None:
+        """Fetch availability day by day and merge the intervals.
+
+        BrandweerRooster's combined_schedule endpoint is reliable with the
+        one-day windows already used by the duty sensors, while a single
+        multi-day request is not accepted consistently. Availability actions
+        therefore reuse that proven request format and look ahead one day at a
+        time.
+        """
+        timezone = ZoneInfo(str(self._hass.config.time_zone))
+        local_start = start.astimezone(timezone)
+        day_start = local_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        intervals = []
+        received_schedule = False
+
+        for day_offset in range(days):
+            window_start = day_start + timedelta(days=day_offset)
+            schedule = await self.async_api_get(
+                f"memberships/{membership_id}/combined_schedule",
+                self._availability_schedule_day_params(window_start),
+            )
+            if not isinstance(schedule, dict):
+                _LOGGER.warning(
+                    "Could not retrieve availability schedule for membership %s "
+                    "on %s",
+                    membership_id,
+                    window_start.date(),
+                )
+                continue
+
+            received_schedule = True
+            day_intervals = schedule.get("intervals", []) or []
+            if isinstance(day_intervals, list):
+                intervals.extend(
+                    interval
+                    for interval in day_intervals
+                    if isinstance(interval, dict)
+                )
+
+        if not received_schedule:
+            return None
+
+        return {"intervals": intervals}
 
     @staticmethod
     def _next_schedule_takeover(
@@ -1118,9 +1166,9 @@ class FireServiceRotaClient:
                 end = end.astimezone(timezone)
             end = self._floor_to_quarter(end)
         elif mode == AVAILABILITY_MODE_NEXT_SCHEDULE:
-            schedule = await self.async_api_get(
-                f"memberships/{membership_id}/combined_schedule",
-                self._availability_schedule_params(start),
+            schedule = await self._async_get_availability_schedule(
+                membership_id,
+                start,
             )
             if not isinstance(schedule, dict):
                 raise HomeAssistantError(
