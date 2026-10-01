@@ -132,22 +132,18 @@ script:
           laatste_id: "{{ state_attr('sensor.actieve_incidenten', 'latest_incident_id') }}"
 
       - variables:
-          incident_json: >-
-            {% set ns = namespace(item={}) %}
+          incident: >-
+            {% set ns = namespace(item=none) %}
             {% if incidenten | count > 0 %}
               {% for i in incidenten %}
                 {% if laatste_id is not none and (i.id | string) == (laatste_id | string) %}
                   {% set ns.item = i %}
                 {% endif %}
               {% endfor %}
-              {% if not ns.item %}
-                {% set ns.item = incidenten[0] %}
-              {% endif %}
+              {{ ns.item if ns.item is not none else incidenten[0] }}
+            {% else %}
+              {{ dict() }}
             {% endif %}
-            {{ ns.item | to_json }}
-
-      - variables:
-          incident: "{{ incident_json | from_json }}"
           resultaat_tekst: >-
             {% if not incident %}
               Er is momenteel geen actieve brandweermelding.
@@ -206,15 +202,7 @@ script:
           historie: "{{ state_attr('sensor.incidenthistorie', 'incidents') or [] }}"
 
       - variables:
-          incident_json: >-
-            {% if historie | count > 0 %}
-              {{ historie[0] | to_json }}
-            {% else %}
-              {{ {} | to_json }}
-            {% endif %}
-
-      - variables:
-          incident: "{{ incident_json | from_json }}"
+          incident: "{{ historie[0] if historie | count > 0 else dict() }}"
           resultaat_tekst: >-
             {% if not incident %}
               Er is geen historische brandweermelding beschikbaar.
