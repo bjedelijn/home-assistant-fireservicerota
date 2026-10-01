@@ -1,11 +1,26 @@
-# Example package: verified station availability for dashboard / Siri / CarPlay
-# Replace placeholder station_id / station_name / wrapper scripts for your installation.
+# Example package: verified station availability + Assist / CarPlay incident speech
+# Public example: replace placeholder station IDs / names with your installation values.
+#
+# Demonstrates one central result text used by:
+# - dashboard scripts
+# - Home Assistant Assist
+# - CarPlay Quick Access Assist prompts
+# - optional Siri Shortcuts
+#
+# Expected incident entities in a Dutch installation:
+# - sensor.actieve_incidenten
+# - sensor.incidenthistorie
 
 input_text:
   brandweer_paraat_laatste_resultaat:
     name: Brandweer paraat laatste resultaat
     max: 255
     icon: mdi:account-check-outline
+
+  brandweer_laatste_resultaat:
+    name: Brandweer laatste resultaat
+    max: 255
+    icon: mdi:message-text-outline
 
 script:
   brandweer_paraat_wijzig:
@@ -28,7 +43,7 @@ script:
           station_id: "{{ station_id | int }}"
           available: "{{ available | bool }}"
           mode: "{{ availability_mode }}"
-          comments: "Home Assistant · CarPlay/dashboard"
+          comments: "Home Assistant - dashboard/Assist/CarPlay"
         response_variable: fsr_result
 
       - variables:
@@ -48,40 +63,25 @@ script:
             {% elif actueel is sameas false %}niet paraat
             {% else %}onbekend
             {% endif %}
+          resultaat_tekst: >-
+            {% if bevestigd and gewijzigd %}
+              {{ station_name }} is nu {{ gewenst_tekst }} tot {{ eind_tekst }}.
+            {% elif bevestigd %}
+              {{ station_name }} stond al {{ gewenst_tekst }}.
+              De periode is bevestigd tot {{ eind_tekst }}.
+            {% else %}
+              Wijziging niet bevestigd.
+              {{ station_name }} staat volgens BrandweerRooster nu {{ actueel_tekst }}.
+            {% endif %}
 
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ bevestigd and gewijzigd }}"
-            sequence:
-              - action: input_text.set_value
-                target:
-                  entity_id: input_text.brandweer_paraat_laatste_resultaat
-                data:
-                  value: >-
-                    {{ station_name }} is nu {{ gewenst_tekst }} tot {{ eind_tekst }}.
+      - action: input_text.set_value
+        target:
+          entity_id:
+            - input_text.brandweer_paraat_laatste_resultaat
+            - input_text.brandweer_laatste_resultaat
+        data:
+          value: "{{ resultaat_tekst | trim | truncate(255, true, '') }}"
 
-          - conditions:
-              - condition: template
-                value_template: "{{ bevestigd and not gewijzigd }}"
-            sequence:
-              - action: input_text.set_value
-                target:
-                  entity_id: input_text.brandweer_paraat_laatste_resultaat
-                data:
-                  value: >-
-                    {{ station_name }} stond al {{ gewenst_tekst }}.
-                    De periode is bevestigd tot {{ eind_tekst }}.
-
-        default:
-          - action: input_text.set_value
-            target:
-              entity_id: input_text.brandweer_paraat_laatste_resultaat
-            data:
-              value: >-
-                Wijziging niet bevestigd. {{ station_name }} staat volgens BrandweerRooster nu {{ actueel_tekst }}.
-
-  # Example wrappers for one post. Duplicate for additional posts and replace station_id.
   brandweer_post_a_paraat:
     alias: Brandweer Post A - Paraat tot roosterwijziging
     sequence:
@@ -122,22 +122,207 @@ script:
           available: false
           availability_mode: 1h
 
-  brandweer_post_a_paraat_2u:
-    alias: Brandweer Post A - Paraat 2 uur
+  brandweer_actieve_melding_info:
+    alias: Brandweer - Actieve melding informatie
+    icon: mdi:fire-truck
+    mode: restart
     sequence:
-      - action: script.brandweer_paraat_wijzig
-        data:
-          station_id: 123
-          station_name: Post A
-          available: true
-          availability_mode: 2h
+      - variables:
+          incidenten: "{{ state_attr('sensor.actieve_incidenten', 'incidents') or [] }}"
+          laatste_id: "{{ state_attr('sensor.actieve_incidenten', 'latest_incident_id') }}"
 
-  brandweer_post_a_niet_paraat_2u:
-    alias: Brandweer Post A - Niet paraat 2 uur
+      - variables:
+          incident_json: >-
+            {% set ns = namespace(item={}) %}
+            {% if incidenten | count > 0 %}
+              {% for i in incidenten %}
+                {% if laatste_id is not none and (i.id | string) == (laatste_id | string) %}
+                  {% set ns.item = i %}
+                {% endif %}
+              {% endfor %}
+              {% if not ns.item %}
+                {% set ns.item = incidenten[0] %}
+              {% endif %}
+            {% endif %}
+            {{ ns.item | to_json }}
+
+      - variables:
+          incident: "{{ incident_json | from_json }}"
+          resultaat_tekst: >-
+            {% if not incident %}
+              Er is momenteel geen actieve brandweermelding.
+            {% else %}
+              {% set body = (incident.body | default('Onbekende melding')) | string %}
+              {% set prio = (incident.prio | default('')) | string %}
+              {% set taken = (incident.resolved_tasks or [])
+                | map(attribute='name') | select | unique | list %}
+              {% set summary = incident.crew_summary or {} %}
+              {% set responding_count = summary.responding_count | default(none) %}
+              {% set individual = summary.individual_assignments_available | default(false) %}
+              {% set a = incident.own_assignment or {} %}
+              {% set responses = incident.responses_by_station or [] %}
+              {% set ack = responses
+                | selectattr('status', 'equalto', 'acknowledged') | list %}
+              {% set rej = responses
+                | selectattr('status', 'equalto', 'rejected') | list %}
+
+              {% if prio %}{{ prio }}. {% endif %}{{ body }}.
+              {% if taken %} Opkomst: {{ taken | join(', ') }}.{% endif %}
+              {% if responding_count is not none %}
+                {{ responding_count }} mensen hebben opkomen aangegeven.
+              {% endif %}
+              {% if (incident.own_responding | default(false)) or (ack | count > 0) %}
+                Je hebt opkomen aangegeven.
+              {% elif rej | count > 0 %}
+                Je hebt aangegeven niet op te komen.
+              {% else %}
+                Je hebt nog geen opkomstreactie gegeven.
+              {% endif %}
+              {% if individual == false %}
+                Individuele indeling is niet beschikbaar.
+              {% elif a.assigned == true %}
+                Je bent ingedeeld{% if a.task_names %}
+                  voor {{ a.task_names | join(', ') }}
+                {% endif %}.
+              {% else %}
+                Je bent niet individueel ingedeeld.
+              {% endif %}
+            {% endif %}
+
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.brandweer_laatste_resultaat
+        data:
+          value: >-
+            {{ resultaat_tekst | regex_replace('\\s+', ' ')
+              | trim | truncate(255, true, '') }}
+
+  brandweer_laatste_melding_info:
+    alias: Brandweer - Laatste historische melding informatie
+    icon: mdi:history
+    mode: restart
     sequence:
+      - variables:
+          historie: "{{ state_attr('sensor.incidenthistorie', 'incidents') or [] }}"
+
+      - variables:
+          incident_json: >-
+            {% if historie | count > 0 %}
+              {{ historie[0] | to_json }}
+            {% else %}
+              {{ {} | to_json }}
+            {% endif %}
+
+      - variables:
+          incident: "{{ incident_json | from_json }}"
+          resultaat_tekst: >-
+            {% if not incident %}
+              Er is geen historische brandweermelding beschikbaar.
+            {% else %}
+              {% set body = (incident.body | default('Onbekende melding')) | string %}
+              {% set prio = (incident.prio | default('')) | string %}
+              {% set created = incident.created_at | default('') %}
+              {% set summary = incident.crew_summary or {} %}
+              {% set responding_count = summary.responding_count | default(none) %}
+              {% set taken = (incident.resolved_tasks or [])
+                | map(attribute='name') | select | unique | list %}
+              {% set individual = summary.individual_assignments_available | default(false) %}
+              {% set a = incident.own_assignment or {} %}
+
+              De laatste melding was
+              {% if created %}
+                {{ as_datetime(created).astimezone().strftime('%d-%m om %H:%M') }}.
+              {% endif %}
+              {% if prio %} {{ prio }}.{% endif %}
+              {{ body }}.
+              {% if taken %} Opkomst: {{ taken | join(', ') }}.{% endif %}
+              {% if responding_count is not none %}
+                {{ responding_count }} mensen zijn opgekomen.
+              {% endif %}
+              {% if incident.own_responding | default(false) %}
+                Jij hebt opkomen aangegeven.
+              {% endif %}
+              {% if individual == true and a.assigned == true %}
+                Jij was ingedeeld{% if a.task_names %}
+                  voor {{ a.task_names | join(', ') }}
+                {% endif %}.
+              {% endif %}
+            {% endif %}
+
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.brandweer_laatste_resultaat
+        data:
+          value: >-
+            {{ resultaat_tekst | regex_replace('\\s+', ' ')
+              | trim | truncate(255, true, '') }}
+
+automation:
+  - id: fireservicerota_assist_availability_example
+    alias: FireServiceRota - Assist availability example
+    mode: queued
+    triggers:
+      - trigger: conversation
+        id: post_a_paraat
+        command:
+          - "brandweer post a paraat"
+      - trigger: conversation
+        id: post_a_niet_paraat
+        command:
+          - "brandweer post a niet paraat"
+      - trigger: conversation
+        id: post_a_paraat_1h
+        command:
+          - "brandweer post a paraat een uur"
+          - "brandweer post a paraat 1 uur"
+      - trigger: conversation
+        id: post_a_niet_paraat_1h
+        command:
+          - "brandweer post a niet paraat een uur"
+          - "brandweer post a niet paraat 1 uur"
+
+    actions:
+      - variables:
+          beschikbaar: "{{ 'niet_paraat' not in trigger.id }}"
+          availability_mode: >-
+            {{ '1h' if '_1h' in trigger.id else 'next_schedule_change' }}
+
       - action: script.brandweer_paraat_wijzig
         data:
           station_id: 123
           station_name: Post A
-          available: false
-          availability_mode: 2h
+          available: "{{ beschikbaar }}"
+          availability_mode: "{{ availability_mode }}"
+
+      - set_conversation_response: >-
+          {{ states('input_text.brandweer_laatste_resultaat') }}
+
+  - id: fireservicerota_assist_active_incident_example
+    alias: FireServiceRota - Assist active incident example
+    mode: restart
+    triggers:
+      - trigger: conversation
+        command:
+          - "brandweer actieve melding"
+          - "actieve brandweermelding"
+          - "wat is de actieve brandweermelding"
+          - "wat is het actieve incident"
+    actions:
+      - action: script.brandweer_actieve_melding_info
+      - set_conversation_response: >-
+          {{ states('input_text.brandweer_laatste_resultaat') }}
+
+  - id: fireservicerota_assist_last_incident_example
+    alias: FireServiceRota - Assist last incident example
+    mode: restart
+    triggers:
+      - trigger: conversation
+        command:
+          - "brandweer laatste melding"
+          - "laatste brandweermelding"
+          - "wat was de laatste brandweermelding"
+          - "wat was het laatste incident"
+    actions:
+      - action: script.brandweer_laatste_melding_info
+      - set_conversation_response: >-
+          {{ states('input_text.brandweer_laatste_resultaat') }}
