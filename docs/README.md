@@ -20,8 +20,8 @@ Questions, bug reports and contributions can be handled through the GitHub repos
 - [Crew staffing and assignments](Crew-Staffing.md)
 - [Dashboard examples](Dashboard-Examples.md)
 - [Station availability / paraat](Station-Availability.md)
-- [CarPlay / Siri availability](CarPlay-Siri-Availability.md)
-- [Verified station availability package example](examples/Station-Availability-CarPlay-Package.yaml)
+- [CarPlay / Siri availability and spoken incident information](CarPlay-Siri-Availability.md)
+- [Station availability + CarPlay Assist package example](examples/Station-Availability-CarPlay-Package.yaml)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
 - [1.3.0-rc.4 release notes](Release-Notes-1.3.0-rc.4.md)
@@ -62,6 +62,8 @@ The examples focus on information exposed by the integration itself:
 - `own_assignment`
 - `crew_requirements`
 - `crew_summary.individual_assignments_available`
+- `crew_summary.responding_count` for compact active/history speech
+- CarPlay Quick Access Assist prompts for verified availability and incident summaries
 - `fireservicerota_assignment_finalized`
 - final staffing capture on operational closure
 - restart-safe restoration of normalized staffing / own-response history
