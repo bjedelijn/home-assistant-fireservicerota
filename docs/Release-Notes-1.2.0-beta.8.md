@@ -21,7 +21,7 @@ For each six-digit P2000 unit, `unit_details` can provide a station fallback:
 
 ```yaml
 unit_details:
-  - unit: "209031"
+  - unit: "012345"
     station_name: Example-Station
     station_source: p2000_capcode
     station_confidence: high
@@ -42,13 +42,13 @@ Explicit P2000 scale changes are normalized into a group-level timeline. Repeate
 
 ```yaml
 escalation_timeline:
-  - event_time: "2026-09-22T22:36:00+02:00"
+  - event_time: "2026-01-01T12:00:00+01:00"
     type: fire_scale
     level: medium_fire
-  - event_time: "2026-09-22T22:45:00+02:00"
+  - event_time: "2026-01-01T12:10:00+01:00"
     type: fire_scale
     level: large_fire
-  - event_time: "2026-09-22T22:52:00+02:00"
+  - event_time: "2026-01-01T12:20:00+01:00"
     type: grip
     level: grip_1
 
