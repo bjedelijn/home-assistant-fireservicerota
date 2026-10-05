@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended documentation
 
-**Extended maintainer:** Bernd Edelijn
+**Extended maintainer:** repository owner
 
 These pages contain practical examples for **FireServiceRota Extended**. They are written to be reusable for different users and organizations and intentionally avoid local station IDs, vehicle numbers, private addresses, personal device names and other installation-specific data.
 
