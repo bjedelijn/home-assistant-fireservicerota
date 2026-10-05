@@ -1,0 +1,84 @@
+name: Security
+
+on:
+  push:
+    branches:
+      - extended
+  pull_request:
+    branches:
+      - extended
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bandit:
+    name: Bandit static security scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Bandit
+        run: python -m pip install --upgrade bandit
+
+      - name: Run Bandit
+        run: bandit -r custom_components/fireservicerota -ll
+
+  dependency-audit:
+    name: Python dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip-audit
+
+      - name: Build requirements from manifest
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("custom_components/fireservicerota/manifest.json").read_text(encoding="utf-8"))
+          requirements = manifest.get("requirements", [])
+          Path("/tmp/fireservicerota-requirements.txt").write_text(
+              "\n".join(requirements) + "\n",
+              encoding="utf-8",
+          )
+          print("\n".join(requirements))
+          PY
+
+      - name: Audit Python dependencies
+        run: pip-audit -r /tmp/fireservicerota-requirements.txt
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
