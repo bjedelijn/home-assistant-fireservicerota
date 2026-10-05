@@ -166,7 +166,7 @@ class P2000RtlMqttProvider:
         units = sorted(set(_VEHICLE_RE.findall(message)))
 
         digest_input = "|".join((raw_timestamp, group_id, " ".join(capcodes), message))
-        digest = hashlib.sha1(digest_input.encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha1(digest_input.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
         external_id = f"rtl:{raw_timestamp or received_at}:{group_id}:{digest}"
 
         return P2000Event(
