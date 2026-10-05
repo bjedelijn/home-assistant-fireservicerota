@@ -4,7 +4,7 @@
 
 These pages contain practical examples for **FireServiceRota Extended**. They are written to be reusable for different users and organizations and intentionally avoid local station IDs, vehicle numbers, private addresses, personal device names and other installation-specific data.
 
-Current examples target **`1.3.0-rc.4`**.
+Current examples target **`1.3.0`**.
 
 > Home Assistant is an additional information and automation layer. Do not use it as the only emergency alerting method. Official pager, app, P2000 and/or other approved alerting channels remain leading.
 
@@ -24,6 +24,7 @@ Questions, bug reports and contributions can be handled through the GitHub repos
 - [Station availability + CarPlay Assist package example](examples/Station-Availability-CarPlay-Package.yaml)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
+- [1.3.0 release notes](Release-Notes-1.3.0.md)
 - [1.3.0-rc.4 release notes](Release-Notes-1.3.0-rc.4.md)
 - [1.3.0-rc.2 release notes](Release-Notes-1.3.0-rc.2.md)
 - [1.3.0-rc.1 release notes](Release-Notes-1.3.0-rc.1.md)
@@ -45,7 +46,7 @@ sensor.p2000_status
 
 Multi-station installations can also expose station-specific duty entities and incident-response switches. Exact entity IDs depend on Home Assistant naming, language and the station names returned by the API.
 
-From 1.3.0-rc.2, station duty remains readable per membership and `fireservicerota.set_station_availability` can create a temporary paraat/niet-paraat schedule exception for one dynamically discovered station membership. Incident-response switches can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries.
+From 1.3.0, station duty remains readable per membership and `fireservicerota.set_station_availability` can create a temporary paraat/niet-paraat schedule exception for one dynamically discovered station membership. Incident-response switches can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries.
 
 The legacy user-level `do_not_disturb` binary sensor remains for compatibility only when the API supplies that field. It is not the same as the per-device `alert_notifications_enabled` field on `sensor.mobiele_apparaten`.
 
