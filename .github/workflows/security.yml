@@ -2,9 +2,6 @@ name: Security
 
 on:
   push:
-  pull_request:
-    branches:
-      - extended
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
@@ -13,42 +10,26 @@ permissions:
   contents: read
 
 jobs:
-  bandit:
-    name: Bandit static security scan
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+  security:
+    name: Security checks
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout full history
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      - name: Install Bandit
-        run: python -m pip install --upgrade bandit
+      - name: Install security tools
+        run: python -m pip install --upgrade bandit pip-audit
 
       - name: Run Bandit
         run: bandit -r custom_components/fireservicerota -ll
-
-  dependency-audit:
-    name: Python dependency audit
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install pip-audit
-        run: python -m pip install --upgrade pip-audit
 
       - name: Build requirements from manifest
         run: |
@@ -67,17 +48,6 @@ jobs:
 
       - name: Audit Python dependencies
         run: pip-audit -r /tmp/fireservicerota-requirements.txt
-
-  secrets:
-    name: Secret scan
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout full history
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
