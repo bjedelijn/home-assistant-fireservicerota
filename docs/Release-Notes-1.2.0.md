@@ -49,15 +49,15 @@ This behavior was validated against the live provider schema during rc.5 through
 
 ## Validation from the RC line
 
-The release-candidate tests included the Hardenberg practical incident around Stelling/McDonald's. The final resolver produced exactly the five expected confirmed fire-service units:
+The release-candidate tests included an anonymized practical incident. The final resolver produced exactly the five expected confirmed fire-service placeholder units:
 
-- `041095`
-- `042270`
-- `042330`
-- `042334`
-- `053171`
+- `011111`
+- `012347`
+- `012345`
+- `012346`
+- `013456`
 
-Unrelated six-digit values `732699` and `732701` were no longer presented as fire-service vehicles, and rc.8 corrected the provider discipline filter using the live-verified AlarmeringDroid fields.
+Unrelated placeholder six-digit values `987654` and `987655` were no longer presented as fire-service vehicles, and rc.8 corrected the provider discipline filter using the live-verified AlarmeringDroid fields.
 
 ## Compatibility and scope
 

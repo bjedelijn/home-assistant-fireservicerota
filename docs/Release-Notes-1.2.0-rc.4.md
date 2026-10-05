@@ -16,17 +16,17 @@ rc.4 now:
 
 The filter is generic and contains no station, region, user, membership, task or local vehicle identifiers.
 
-## Hardenberg validation case
+## Anonymized validation case
 
-For the Stelling/McDonald's incident the expected confirmed fire-service units remain:
+For the anonymized validation incident the expected confirmed fire-service units remain:
 
-- `041095`
-- `042330`
-- `042334`
-- `042270`
-- `053171`
+- `011111`
+- `012345`
+- `012346`
+- `012347`
+- `013456`
 
-The unrelated six-digit candidates `732699` and `732701` must no longer enter the normal online P2000 buffer when they originate from grouped non-fire-service records. The rc.3 resolver still protects enrichment if malformed, historic or alternative-source data contains an unconfirmed six-digit candidate.
+The unrelated placeholder six-digit candidates `987654` and `987655` must no longer enter the normal online P2000 buffer when they originate from grouped non-fire-service records. The rc.3 resolver still protects enrichment if malformed, historic or alternative-source data contains an unconfirmed six-digit candidate.
 
 ## Scope
 

@@ -3,11 +3,11 @@
 **Current stable release: `1.3.0`**
 
 
-**Extended maintainer:** Bernd Edelijn
+**Extended maintainer:** repository owner
 
 This repository is a fork of the original [`cyberjunky/home-assistant-fireservicerota`](https://github.com/cyberjunky/home-assistant-fireservicerota) integration by Ron Klinkien / Cyberjunky and contributors.
 
-The original integration and its core design remain credited to Ron Klinkien / Cyberjunky. This fork does **not** claim maintainership of the original project. The `extended` branch is an independent extension built on top of that work and maintained by Bernd Edelijn.
+The original integration and its core design remain credited to Ron Klinkien / Cyberjunky. This fork does **not** claim maintainership of the original project. The `extended` branch is an independent extension built on top of that work and maintained in this repository.
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
@@ -160,7 +160,7 @@ Home Assistant without hard-coding them into the integration.
 
 ### 1.3.0-beta.2
 
-- fixes RTL-SDR six-digit unit-candidate extraction, so callsigns such as `026832` enter the shared confirmation pipeline;
+- fixes RTL-SDR six-digit unit-candidate extraction, so callsigns such as `012345` enter the shared confirmation pipeline;
 - exposes `providers.rtl.provider_debug.last_event` for the last MQTT-normalized RTL event;
 - exposes `recent_events` on `sensor.p2000_status` with the newest 20 events from the shared 60-minute buffer, making online-vs-RTL diagnostics possible without an incident match.
 

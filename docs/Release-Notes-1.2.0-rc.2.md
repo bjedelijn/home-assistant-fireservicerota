@@ -8,7 +8,7 @@ This release candidate keeps the 1.2.0 scope focused on the existing Netherlands
 - When online P2000 enrichment is enabled, Extended reads the public Brandbase current-vehicle region index and caches normalized vehicle metadata only in Home Assistant storage.
 - The cache refresh interval is seven days. A stale or unavailable source never clears a previously valid local cache.
 - Region discovery is dynamic from the Brandbase current region index, so the implementation is not tied to one station or one safety region.
-- Exact numeric callsigns such as `04-2330` are normalized to the six-digit P2000 unit form `042330`.
+- Exact numeric callsigns such as `01-2345` are normalized to the six-digit P2000 unit form `012345`.
 - Unique matches can provide callsign, region, station, vehicle type and a conservative normalized type code.
 - Multiple conflicting matches stay ambiguous; Extended does not guess.
 - Existing capcode-derived `station_hints` remain available and are preserved as diagnostic evidence when an exact registry match supplies the canonical station.

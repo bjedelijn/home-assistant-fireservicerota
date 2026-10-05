@@ -13,16 +13,16 @@
 - Persistent P2000 matches are rebuilt from revalidated events and removed when no valid evidence remains.
 - Clearing stale P2000 enrichment never changes incident lifecycle, closure, staffing, responses, or original BrandweerRooster data.
 
-## Field regression case
+## Anonymized regression case
 
-Incident 3068369 in Hardenberg correctly matched:
+An anonymized test incident correctly matched:
 
-- P2000 online: Parkweg Hardenberg, unit 042330
-- P2000 via ether: Parkweg Hardenberg, unit 042330
+- P2000 online: Example Street, Example City, unit 012345
+- P2000 via ether: Example Street, Example City, unit 012345
 
-Later RTL-SDR alerts from Lisse (161130) and Den Haag (157230) had the same generic text `Stank/hind. lucht (binnen)` and were incorrectly attached by the beta.4 text fallback.
+Later RTL-SDR alerts from two unrelated example locations, using placeholder units `023456` and `034567`, had the same generic incident wording and were incorrectly attached by the beta.4 text fallback.
 
-Beta.5 rejects those alerts because their location evidence does not match Hardenberg. Existing stored enrichment is revalidated so the incorrect units can disappear automatically after the manager runs.
+Beta.5 rejects those alerts because their location evidence does not match the target incident. Existing stored enrichment is revalidated so the incorrect units can disappear automatically after the manager runs.
 
 ## Compatibility
 
