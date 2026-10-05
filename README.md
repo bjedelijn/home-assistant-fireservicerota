@@ -1,8 +1,7 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current stable release: `1.2.0`**
+**Current stable release: `1.3.0`**
 
-**Current release candidate on `1.3.0-rc`: `1.3.0-rc.4`**
 
 **Extended maintainer:** Bernd Edelijn
 
@@ -12,7 +11,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** stable release `1.2.0`. This release consolidates the field-tested 1.2.0 beta/RC line: optional Netherlands P2000 enrichment, Brandbase-backed vehicle resolution, strict Brandweer-only AlarmeringDroid filtering, persistent P2000 matches, multi-incident lifecycle handling, staffing/response enrichment and multi-station account discovery. RTL-SDR remains outside 1.2.0.
+> **Status:** stable release `1.3.0`. This release promotes the field-tested 1.3.0 beta/RC line, including verified per-station availability writes, multi-membership incident context, optional P2000 via ether support, richer source timing diagnostics, and reusable Home Assistant Assist / CarPlay examples.
 
 ## Safety notice
 
@@ -36,6 +35,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Station availability / paraat](docs/Station-Availability.md)
 - [CarPlay / Siri availability and spoken incident information](docs/CarPlay-Siri-Availability.md)
 - [Station availability + CarPlay Assist package example](docs/examples/Station-Availability-CarPlay-Package.yaml)
+- [1.3.0 release notes](docs/Release-Notes-1.3.0.md)
 - [1.3.0-rc.4 release notes](docs/Release-Notes-1.3.0-rc.4.md)
 - [1.3.0-rc.2 release notes](docs/Release-Notes-1.3.0-rc.2.md)
 - [1.3.0-rc.1 release notes](docs/Release-Notes-1.3.0-rc.1.md)
@@ -68,7 +68,7 @@ Extended adds or expands:
 - Automatic authenticated-user, station/group and membership discovery.
 - Generic `own_stations` and `own_affiliations` discovery from active memberships, including multi-station users and non-station/regional specialist groups.
 - Incident-level `own_incident_affiliations` derived from task and response context without hard-coded station or group IDs.
-- Multi-station duty / availability support plus temporary paraat/niet-paraat writes per dynamically discovered station membership. Fixed periods of 1, 2, 4 and 8 hours, the next station-membership roster change, and a custom period are supported. In 1.3.0-rc.4 the action also performs a membership-duty read-back and returns `confirmed` / `status_changed` metadata for reliable dashboard and Siri/CarPlay feedback.
+- Multi-station duty / availability support plus temporary paraat/niet-paraat writes per dynamically discovered station membership. Fixed periods of 1, 2, 4 and 8 hours, the next station-membership roster change, and a custom period are supported. In 1.3.0 the action also performs a membership-duty read-back and returns `confirmed` / `status_changed` metadata for reliable dashboard and Siri/CarPlay feedback.
 - Legacy user-level `do_not_disturb` state when that optional API field is supplied; mobile alert settings are modeled separately.
 - Dynamic task / alert-group resolution.
 - Per-membership incident response data and response switches. These controls can write acknowledged/rejected responses and are disabled by default for newly created entity-registry entries.
