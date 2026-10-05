@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - extended
+  pull_request:
+    branches:
+      - extended
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Python / JSON / YAML
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install validation tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff PyYAML
+
+      - name: Python syntax check
+        run: python -m compileall -q custom_components
+
+      - name: Ruff critical checks
+        run: ruff check custom_components --select=E9,F63,F7,F82
+
+      - name: Validate JSON files
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          files = list(Path("custom_components").rglob("*.json"))
+          for path in files:
+              with path.open("r", encoding="utf-8") as fh:
+                  json.load(fh)
+              print(f"OK {path}")
+          PY
+
+      - name: Validate YAML files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          files = list(Path("custom_components").rglob("*.yaml")) + list(Path("docs/examples").rglob("*.yaml"))
+          for path in files:
+              with path.open("r", encoding="utf-8") as fh:
+                  yaml.safe_load(fh)
+              print(f"OK {path}")
+          PY
+
+      - name: Validate manifest requirements
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("custom_components/fireservicerota/manifest.json").read_text(encoding="utf-8"))
+          requirements = manifest.get("requirements", [])
+          if not requirements:
+              raise SystemExit("manifest.json has no requirements")
+          for requirement in requirements:
+              if "==" not in requirement:
+                  raise SystemExit(f"Requirement is not pinned: {requirement}")
+              print(f"OK pinned requirement: {requirement}")
+          PY
