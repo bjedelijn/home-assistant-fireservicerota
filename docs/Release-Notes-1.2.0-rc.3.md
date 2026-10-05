@@ -16,7 +16,7 @@ P2000 message text can contain six-digit numeric tokens that look like appliance
 - `vehicles` contains confirmed vehicle records only.
 - Existing stored P2000 messages can be rebuilt through the new resolver, so retained historical incidents with P2000 enrichment can also lose old false-positive unit candidates.
 
-This specifically prevents unrelated six-digit values such as `732699` and `732701` from being presented as dispatched vehicles when no vehicle or strong capcode identity supports them.
+This specifically prevents unrelated placeholder six-digit values such as `987654` and `987655` from being presented as dispatched vehicles when no vehicle or strong capcode identity supports them.
 
 ## Scope
 
