@@ -53,7 +53,7 @@
 - Previously attached enrichment is revalidated automatically.
 - False-positive P2000 enrichment and overlapping persistent matches are cleaned up without changing BrandweerRooster lifecycle data.
 
-A field regression case during beta testing showed later RTL-SDR alerts from Lisse and Den Haag being attached to a Hardenberg incident because they shared generic wording. The beta.5 matcher fix rejected those mismatched locations and automatically removed the stale units while retaining the correct Hardenberg online/ether observations.
+An anonymized field regression case during beta testing showed later RTL-SDR alerts from unrelated locations being attached to a target incident because they shared generic wording. The beta.5 matcher fix rejected those mismatched locations and automatically removed the stale units while retaining the correct online/ether observations.
 
 ## Field validation completed before RC.1
 
@@ -65,7 +65,7 @@ The beta line has been validated with live BrandweerRooster / P2000 traffic, inc
 - BrandweerRooster WebSocket timing compared with P2000 arrival timing;
 - local ether reception consistently arriving before or independently of the online polling source in observed cases;
 - automatic cleanup of a confirmed false-positive cross-location match;
-- correct retention of genuine Hardenberg and Gramsbergen matches after stricter matching.
+- correct retention of genuine anonymized matches after stricter matching.
 
 ## Compatibility
 
