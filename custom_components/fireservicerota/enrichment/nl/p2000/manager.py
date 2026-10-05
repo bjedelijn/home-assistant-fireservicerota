@@ -961,8 +961,8 @@ class P2000EnrichmentManager:
 
         # Prefer provider-normalized location fields. A known city that is not
         # present in the BWR incident is a hard reject; this prevents a generic
-        # incident type such as "Stank/hind. lucht (binnen)" from linking Lisse
-        # or Den Haag to a Hardenberg incident.
+        # generic incident wording from linking an unrelated provider location
+        # to the wrong BrandweerRooster incident.
         event_city_tokens = cls._tokens(event.city or "")
         if event_city_tokens and not (event_city_tokens & incident_tokens):
             return False
