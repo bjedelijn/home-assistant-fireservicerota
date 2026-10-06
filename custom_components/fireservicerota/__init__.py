@@ -65,6 +65,8 @@ _LOGGER = logging.getLogger(__name__)
 
 SUPPORTED_PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SWITCH]
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 SEND_PAGER_MESSAGE_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_ENTRY_ID): cv.string,
