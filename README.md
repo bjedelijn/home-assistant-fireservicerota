@@ -13,6 +13,12 @@ The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRoos
 
 > **Status:** stable release `1.3.0`. This release promotes the field-tested 1.3.0 beta/RC line, including verified per-station availability writes, multi-membership incident context, optional P2000 via ether support, richer source timing diagnostics, and reusable Home Assistant Assist / CarPlay examples.
 
+## Installation and updates
+
+HACS is the recommended installation and update method for normal Home Assistant use. Add this repository as a custom **Integration** repository in HACS, install **FireServiceRota Extended**, and restart Home Assistant when HACS requests it.
+
+A manual Git-based update workflow remains documented for development, branch testing, and installations that intentionally do not use HACS: [Updating / manual Git workflow](docs/Updating.md).
+
 ## Safety notice
 
 Do not rely on Home Assistant or this integration as your only emergency alerting method. Official pager, app, P2000 and/or other approved alerting channels remain leading.
@@ -184,6 +190,18 @@ topic in the Extended options. RTL-SDR reception remains supplementary and does
 not replace official alerting.
 
 Configure this under **Settings -> Devices & services -> FireServiceRota Extended -> Configure**.
+
+## Repository validation
+
+Repository changes are automatically checked with multiple validation layers before they are merged:
+
+- CI validates Python syntax, critical Ruff checks, JSON/YAML files, dependency version declarations, and imports the integration against the latest Home Assistant package as a compatibility smoke test.
+- Security checks include Bandit, dependency auditing, and secret scanning.
+- CodeQL performs static security analysis.
+- HACS Action validates the repository as a HACS custom integration.
+- Home Assistant Hassfest validates integration metadata, dependencies, translations, services, and other Home Assistant conventions.
+
+The Home Assistant import check is a compatibility smoke test; it does not replace testing a release in a real Home Assistant installation.
 
 ## Architecture
 
