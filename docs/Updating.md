@@ -1,6 +1,21 @@
-# Updating FireServiceRota Extended from Git
+# Updating FireServiceRota Extended
 
-This is an optional update method for users who keep a local Git clone of the repository on Home Assistant OS / Supervised, where the `ha` CLI is available.
+## Recommended: HACS
+
+For normal Home Assistant installations, HACS is the recommended installation and update method.
+
+1. Add `bjedelijn/home-assistant-fireservicerota` to HACS as a custom repository with category **Integration**.
+2. Install **FireServiceRota Extended** through HACS.
+3. Use the normal HACS update flow for future versions.
+4. Restart Home Assistant when HACS indicates that a restart is required.
+
+HACS manages the integration files under `custom_components/fireservicerota`; your existing Home Assistant config entry is not removed when the integration files are updated.
+
+Repository compatibility is automatically checked with the official HACS Action and Home Assistant Hassfest in GitHub Actions. These checks improve release quality but are not a guarantee that every individual Home Assistant installation will restart without issues, so keeping a recent Home Assistant backup remains recommended.
+
+## Optional: manual Git workflow
+
+This method is intended for users who deliberately keep a local Git clone of the repository on Home Assistant OS / Supervised, where the `ha` CLI is available, or who want to test a specific development/release-candidate branch.
 
 The stable development branch is `extended`. Release-candidate testers can select a branch explicitly, for example:
 
