@@ -1,18 +1,18 @@
 {
   "domain": "fireservicerota",
   "name": "FireServiceRota Extended",
-  "config_flow": true,
-  "version": "1.3.0",
-  "documentation": "https://github.com/bjedelijn/home-assistant-fireservicerota/tree/extended",
-  "issue_tracker": "https://github.com/bjedelijn/home-assistant-fireservicerota/issues",
-  "iot_class": "cloud_polling",
   "after_dependencies": [
     "mqtt"
   ],
+  "codeowners": [
+    "@bjedelijn"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/bjedelijn/home-assistant-fireservicerota/tree/extended",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/bjedelijn/home-assistant-fireservicerota/issues",
   "requirements": [
     "pyfireservicerota>=0.0.49"
   ],
-  "codeowners": [
-    "@bjedelijn"
-  ]
+  "version": "1.3.0"
 }
