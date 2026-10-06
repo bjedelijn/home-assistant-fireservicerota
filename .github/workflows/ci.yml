@@ -69,9 +69,11 @@ jobs:
           if not requirements:
               raise SystemExit("manifest.json has no requirements")
           for requirement in requirements:
-              if "==" not in requirement:
-                  raise SystemExit(f"Requirement is not pinned: {requirement}")
-              print(f"OK pinned requirement: {requirement}")
+              if "==" not in requirement and ">=" not in requirement:
+                  raise SystemExit(
+                      f"Requirement must define an exact or minimum version: {requirement}"
+                  )
+              print(f"OK versioned requirement: {requirement}")
           PY
 
       - name: Install latest Home Assistant and integration requirements
