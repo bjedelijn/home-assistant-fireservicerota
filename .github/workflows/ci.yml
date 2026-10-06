@@ -99,7 +99,7 @@ jobs:
         run: |
           python - <<'PY'
           import importlib
-          import homeassistant
+          from importlib.metadata import version
 
           modules = (
               "custom_components.fireservicerota",
@@ -109,7 +109,7 @@ jobs:
               "custom_components.fireservicerota.switch",
           )
 
-          print(f"Home Assistant version: {homeassistant.__version__}")
+          print(f"Home Assistant version: {version('homeassistant')}")
           for module in modules:
               importlib.import_module(module)
               print(f"OK imported {module}")
