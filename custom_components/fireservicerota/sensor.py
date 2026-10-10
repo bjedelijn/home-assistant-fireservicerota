@@ -292,9 +292,11 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
         existing = self._incident_store.get_raw(incident_id) or {"id": incident_id}
         store_merged = dict(existing)
         store_merged.update(incident)
-        for key in ("trigger", "previous_task_ids", "new_task_ids"):
-            if key not in incident and key in existing:
-                store_merged[key] = existing[key]
+        # Live WebSocket metadata is intentionally transient. REST enrichment
+        # must not keep replaying the original new/update trigger or task delta,
+        # otherwise state-based automations can fire again on staffing refreshes.
+        store_merged.pop("trigger", None)
+        store_merged.pop("new_task_ids", None)
         store_enriched = self._client.enrich_incident_data(store_merged)
         self._incident_store.upsert(store_enriched, source="rest")
         self._incident_store.mark_rest_refreshed(incident_id)
@@ -308,12 +310,19 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
         merged = dict(self._state_attributes)
         merged.update(incident)
 
-        if "trigger" not in incident and "trigger" in self._state_attributes:
-            merged["trigger"] = self._state_attributes["trigger"]
+        # Only an actual WebSocket payload may expose trigger/new_task_ids.
+        # Clear both after the follow-up REST read so later staffing/lifecycle
+        # refreshes do not look like another live incident event.
+        merged.pop("trigger", None)
+        merged.pop("new_task_ids", None)
 
-        for key in ("previous_task_ids", "new_task_ids"):
-            if key not in incident and key in self._state_attributes:
-                merged[key] = self._state_attributes[key]
+        if (
+            "previous_task_ids" not in incident
+            and "previous_task_ids" in self._state_attributes
+        ):
+            merged["previous_task_ids"] = self._state_attributes[
+                "previous_task_ids"
+            ]
 
         self._state_attributes = self._client.enrich_incident_data(merged)
         self._state = self._state_attributes.get("body", self._state)
