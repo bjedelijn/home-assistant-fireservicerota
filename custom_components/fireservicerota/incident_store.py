@@ -717,6 +717,13 @@ class IncidentStore:
 
         self._apply_staffing(snapshot, data, previous)
 
+        if source != "websocket":
+            # trigger/new_task_ids describe one live WebSocket event, not the
+            # persisted incident state. Keeping them through REST refreshes can
+            # retrigger notifications whenever staffing or lifecycle data changes.
+            snapshot.pop("trigger", None)
+            snapshot.pop("new_task_ids", None)
+
         address = data.get("address")
         if isinstance(address, dict):
             snapshot["address"] = {
@@ -980,9 +987,13 @@ class IncidentStore:
                 existing = self.get_raw(incident_id) or {"id": incident_id}
                 merged = dict(existing)
                 merged.update(incident)
-                for preserve in ("trigger", "previous_task_ids", "new_task_ids"):
-                    if preserve not in incident and preserve in existing:
-                        merged[preserve] = existing[preserve]
+                if (
+                    "previous_task_ids" not in incident
+                    and "previous_task_ids" in existing
+                ):
+                    merged["previous_task_ids"] = existing[
+                        "previous_task_ids"
+                    ]
 
                 enriched = self._client.enrich_incident_data(merged)
                 snapshot = self.upsert(enriched, source="rest", notify=False)
@@ -1051,9 +1062,13 @@ class IncidentStore:
                     existing = self.get_raw(incident_id) or {"id": incident_id}
                     merged = dict(existing)
                     merged.update(incident)
-                    for preserve in ("trigger", "previous_task_ids", "new_task_ids"):
-                        if preserve not in incident and preserve in existing:
-                            merged[preserve] = existing[preserve]
+                    if (
+                        "previous_task_ids" not in incident
+                        and "previous_task_ids" in existing
+                    ):
+                        merged["previous_task_ids"] = existing[
+                            "previous_task_ids"
+                        ]
                     enriched = self._client.enrich_incident_data(merged)
                     self.upsert(enriched, source="rest")
 
@@ -1451,9 +1466,13 @@ class IncidentStore:
                 existing = self.get_raw(current_id) or {"id": current_id}
                 merged = dict(existing)
                 merged.update(incident)
-                for preserve in ("trigger", "previous_task_ids", "new_task_ids"):
-                    if preserve not in incident and preserve in existing:
-                        merged[preserve] = existing[preserve]
+                if (
+                    "previous_task_ids" not in incident
+                    and "previous_task_ids" in existing
+                ):
+                    merged["previous_task_ids"] = existing[
+                        "previous_task_ids"
+                    ]
 
                 enriched = self._client.enrich_incident_data(merged)
                 snapshot = self.upsert(enriched, source="rest", notify=False)
@@ -1503,9 +1522,13 @@ class IncidentStore:
                 existing = self.get_raw(incident_id) or {"id": incident_id}
                 merged = dict(existing)
                 merged.update(incident)
-                for preserve in ("trigger", "previous_task_ids", "new_task_ids"):
-                    if preserve not in incident and preserve in existing:
-                        merged[preserve] = existing[preserve]
+                if (
+                    "previous_task_ids" not in incident
+                    and "previous_task_ids" in existing
+                ):
+                    merged["previous_task_ids"] = existing[
+                        "previous_task_ids"
+                    ]
                 enriched = self._client.enrich_incident_data(merged)
                 self.upsert(enriched, source="rest", notify=False)
                 changed = True
