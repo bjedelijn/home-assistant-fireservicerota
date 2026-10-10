@@ -1,0 +1,58 @@
+name: Publish stable release
+
+on:
+  push:
+    branches:
+      - extended
+    paths:
+      - custom_components/fireservicerota/manifest.json
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish version tag and release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read integration version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("custom_components/fireservicerota/manifest.json").read_text())
+          print(data["version"])
+          PY
+          )"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check release notes
+        shell: bash
+        run: |
+          test -f "docs/Release-Notes-${{ steps.version.outputs.version }}.md"
+
+      - name: Publish GitHub release if tag is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists; nothing to publish."
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "FireServiceRota Extended $VERSION" \
+            --notes-file "docs/Release-Notes-$VERSION.md"
