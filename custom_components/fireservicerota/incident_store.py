@@ -18,6 +18,7 @@ FINAL_CLOSED_REFRESH_DELAY_SECONDS = 2
 FAST_INCIDENT_REFRESH_WINDOW_SECONDS = 100
 FAST_INCIDENT_REFRESH_GRACE_SECONDS = 20
 PENDING_API_REFRESH_SECONDS = 1800
+RESTORED_ACTIVE_MAX_AGE_SECONDS = 24 * 60 * 60
 
 OPERATIONAL_STATUS_ACTIVE = "active"
 OPERATIONAL_STATUS_GROUP_PENDING = "group_closed_pending_api"
@@ -239,6 +240,57 @@ class IncidentStore:
             if value not in (None, ""):
                 return value
         return None
+
+    @classmethod
+    def should_restore_as_active(cls, data: dict) -> bool:
+        """Return whether a persisted active snapshot is still plausible.
+
+        RestoreEntity can contain an incident that was once active but for which
+        BrandweerRooster never supplied an operational end_time. A stale snapshot
+        must not come back to life after a Home Assistant/integration reload just
+        because the persisted API state still says e.g. "alerting".
+
+        Explicit lifecycle evidence wins. Otherwise an unverified active restore
+        is accepted only while the incident is recent.
+        """
+        if cls._first_value(data, END_TIME_KEYS) is not None:
+            return False
+
+        raw_status = cls._first_value(data, STATUS_KEYS)
+        status_text = (
+            str(raw_status).strip().lower() if raw_status is not None else ""
+        )
+        if status_text in CLOSED_STATUS_VALUES:
+            return False
+        if status_text in OPEN_STATUS_VALUES:
+            return True
+
+        if isinstance(data.get("active"), bool):
+            return data["active"]
+
+        for key in (
+            "closed",
+            "ended",
+            "resolved",
+            "completed",
+            "cancelled",
+            "canceled",
+        ):
+            if data.get(key) is True:
+                return False
+
+        started = _parse_datetime(
+            data.get("start_time")
+            or data.get("created_at")
+            or data.get("first_seen_at")
+        )
+        if started is None:
+            # Without a usable age we keep the previous behavior rather than
+            # risking a false close of a genuinely active incident.
+            return True
+
+        age_seconds = (datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds()
+        return age_seconds <= RESTORED_ACTIVE_MAX_AGE_SECONDS
 
     def _station_info(self, group_id: Any) -> dict:
         """Resolve a station/group id without hard-coded local station data."""
@@ -1141,13 +1193,23 @@ class IncidentStore:
             if not isinstance(incident, dict) or incident.get("id") is None:
                 continue
             restored = dict(incident)
-            restored["incident_active"] = active
-            self.upsert(
+            restore_active = active and self.should_restore_as_active(restored)
+            restored["incident_active"] = restore_active
+            snapshot = self.upsert(
                 restored,
                 source="restore",
-                default_active=active,
+                default_active=restore_active,
                 notify=False,
             )
+            if active and not restore_active and snapshot is not None:
+                # Do not invent an end timestamp or claim that the API closed the
+                # incident. We only archive the stale persisted active snapshot
+                # locally so it cannot reappear in sensor.active_incidents.
+                snapshot["incident_active"] = False
+                snapshot["lifecycle_known"] = False
+                snapshot["operational_status"] = "stale_restored"
+                snapshot["api_closed"] = False
+                snapshot["restored_active_stale"] = True
             changed = True
         if changed:
             self._notify()
