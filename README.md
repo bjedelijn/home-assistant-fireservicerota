@@ -1,6 +1,6 @@
 # FireServiceRota / BrandweerRooster Extended for Home Assistant
 
-**Current stable release: `1.3.1`**
+**Current stable release: `1.3.2`**
 
 
 **Extended maintainer:** repository owner
@@ -11,7 +11,7 @@ The original integration and its core design remain credited to Ron Klinkien / C
 
 The goal of **Extended** is to keep the existing FireServiceRota / BrandweerRooster Home Assistant functionality compatible, while exposing more of the BrandweerRooster API in a generic way for users who belong to one or more stations.
 
-> **Status:** stable release `1.3.1`. This patch release keeps the 1.3.0 feature set and fixes repeated notification/automation triggers caused by REST staffing refreshes replaying transient live WebSocket metadata.
+> **Status:** stable release `1.3.2`. This patch release prevents stale persisted incidents from being restored as active after a Home Assistant/integration reload when BrandweerRooster has no reliable operational end state.
 
 ## Installation and updates
 
@@ -41,7 +41,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Station availability / paraat](docs/Station-Availability.md)
 - [CarPlay / Siri availability and spoken incident information](docs/CarPlay-Siri-Availability.md)
 - [Station availability + CarPlay Assist package example](docs/examples/Station-Availability-CarPlay-Package.yaml)
-- [1.3.1 release notes](docs/Release-Notes-1.3.1.md)
+- [1.3.2 release notes](docs/Release-Notes-1.3.2.md)\n- [1.3.1 release notes](docs/Release-Notes-1.3.1.md)
 - [1.3.0 release notes](docs/Release-Notes-1.3.0.md)
 - [1.3.0-rc.4 release notes](docs/Release-Notes-1.3.0-rc.4.md)
 - [1.3.0-rc.2 release notes](docs/Release-Notes-1.3.0-rc.2.md)

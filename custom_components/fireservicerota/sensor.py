@@ -202,11 +202,21 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
                 )
                 restored = dict(self._state_attributes)
                 restored["body"] = self._state
-                self._incident_store.upsert(
+                restore_active = self._incident_store.should_restore_as_active(
+                    restored
+                )
+                restored["incident_active"] = restore_active
+                snapshot = self._incident_store.upsert(
                     restored,
                     source="restore",
-                    default_active=True,
+                    default_active=restore_active,
                 )
+                if not restore_active and snapshot is not None:
+                    snapshot["incident_active"] = False
+                    snapshot["lifecycle_known"] = False
+                    snapshot["operational_status"] = "stale_restored"
+                    snapshot["api_closed"] = False
+                    snapshot["restored_active_stale"] = True
                 # Re-fetch the incident so Extended attributes and lifecycle
                 # information are refreshed after a Home Assistant restart.
                 self.hass.async_create_task(self._async_enrich_from_rest(incident_id))
