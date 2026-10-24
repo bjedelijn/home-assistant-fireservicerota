@@ -57,7 +57,7 @@ def select_retained_history_ids(
 _REPORTED_STATUS_LABELS = frozenset({
     "dispatched", "shown_up", "no_show", "rejected", "expired",
     "cancelled", "canceled", "acknowledged", "accepted",
-    "responding", "arrived", "at_station",
+    "responding", "arrived", "at_station", "unknown",
 })
 
 
@@ -66,16 +66,17 @@ def _reported_status_code(raw: Any) -> str:
 
     Some valid BrandweerRooster response codes do not belong to our known
     enum. Previously they were all collapsed to 'other', losing evidence.
-    Prefix previously unknown codes with 'unmapped:' and allow only bounded,
-    ASCII, machine-readable enum values (no free-form/private API strings).
+    Literal API 'unknown' remains 'unknown', while a missing or blank
+    status becomes 'missing'. Prefix otherwise unrecognized enum tokens
+    with 'unmapped:'; never store unbounded/free-form private text.
     """
     if raw is None:
-        return "unknown"
+        return "missing"
     if not isinstance(raw, str):
         return "other"
     value = raw.strip().casefold()
     if not value:
-        return "unknown"
+        return "missing"
     if value in _REPORTED_STATUS_LABELS:
         return value
     if re.fullmatch(r"[a-z][a-z0-9_-]{0,39}", value):
