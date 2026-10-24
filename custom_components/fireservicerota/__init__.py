@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .fairness_audit import analyze_incident_fairness
 from .historical_fairness import (
     build_historical_role_preview,
+    select_retained_history_ids,
     summarize_incident_for_history,
 )
 from .historical_fairness_store import HistoricalFairnessStorage
@@ -407,23 +408,13 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 raise HomeAssistantError(
                     "FireServiceRota incident history is not ready yet"
                 )
-            all_ids = [
-                str(snapshot["id"])
-                for snapshot in incident_store.history
-                if snapshot.get("id") is not None
-            ]
-            offset = call.data[ATTR_OFFSET]
-            ids = all_ids[offset:offset + call.data[ATTR_LIMIT]]
+            batch = select_retained_history_ids(
+                incident_store.history,
+                offset=call.data[ATTR_OFFSET],
+                limit=call.data[ATTR_LIMIT],
+            )
+            ids = batch.pop("ids")
             source = "retained_closed_history"
-            batch = {
-                "offset": offset,
-                "available_retained_incidents": len(all_ids),
-                "next_offset": (
-                    min(offset + call.data[ATTR_LIMIT], len(all_ids))
-                    if offset + call.data[ATTR_LIMIT] < len(all_ids)
-                    else None
-                ),
-            }
         else:
             if call.data[ATTR_OFFSET]:
                 raise HomeAssistantError(
