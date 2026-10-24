@@ -142,8 +142,8 @@ which may differ from the recorded states at incident time. Regular calls
   across stations; newer observations evict the oldest if necessary.
 - Each record stores only the incident ID, station ID, latest proposal timestamp,
   proposal count, incident task ID context, role, unique person label and
-  membership/user IDs, aggregate per-role API-reported status counts and
-  membership-linked skill-assignment counts, and unmatched/ambiguous counters.
+  membership/user IDs, per-person retrospective API status and matching skill-assignment presence,
+  plus role-level totals, and unmatched/ambiguous counters.
   It does **not** store the full audit report, individual response histories,
   exact pager details, or OAuth tokens.
 - The feature runs **only when invoked**. It does not poll older incidents or
