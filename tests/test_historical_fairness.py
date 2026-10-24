@@ -195,3 +195,89 @@ def test_retained_history_batch_can_be_empty_and_filters_bad_ids():
 def test_retained_history_batch_rejects_out_of_bounds(offset, limit):
     with pytest.raises(ValueError):
         select_retained_history_ids([{"id": 1}], offset=offset, limit=limit)
+
+
+def test_single_and_multiple_task_contexts_do_not_assign_vehicle_seats():
+    first = analysis()
+    first["staffing_by_group"]["incident_task_ids"] = [88]
+    result_one = summarize_incident_for_history(first, 100)["record"]
+    assert result_one["task_context"] == "single_incident_task"
+    assert result_one["incident_task_ids"] == ["88"]
+    assert all("task_id" not in person for person in result_one["people"])
+
+    multiple = analysis(incident_id="12002")
+    multiple["staffing_by_group"]["incident_task_ids"] = [88, 99]
+    result_many = summarize_incident_for_history(multiple, 100)["record"]
+    assert result_many["task_context"] == "multiple_incident_tasks"
+    assert result_many["incident_task_ids"] == ["88", "99"]
+    assert all("task_id" not in person for person in result_many["people"])
+
+    summary = build_historical_role_preview([result_one, result_many], 100)
+    assert summary["task_context_incident_counts"] == {
+        "single_incident_task": 1,
+        "multiple_incident_tasks": 1,
+        "no_task_ids": 0,
+        "legacy_not_imported": 0,
+    }
+
+
+def test_comparison_uses_only_reported_api_states_and_explicit_memberships():
+    sample = analysis()
+    group = sample["staffing_by_group"]["groups"][0]
+    group["response_people"][0]["reported_status"] = "dispatched"
+    group["response_people"][1]["reported_status"] = "shown_up"
+    group["skill_assignments"] = [
+        {"membership_id": 11, "skill_ids": [42]},
+        {"user_id": 2, "skill_ids": [43]},  # No membership: do not infer.
+    ]
+    record = summarize_incident_for_history(sample, 100)["record"]
+    by_role = {item["role"]: item for item in record["role_api_observations"]}
+    assert by_role["Bevelvoerder"]["reported_status_counts"] == {
+        "dispatched": 1
+    }
+    assert by_role["Chauffeur"]["reported_status_counts"] == {"shown_up": 1}
+    assert by_role["Bevelvoerder"]["api_skill_assignment_member_appearances"] == 1
+    assert by_role["Chauffeur"]["api_skill_assignment_member_appearances"] == 0
+
+    preview = build_historical_role_preview([record], 100)
+    assert preview["proposal_to_api_record_comparison"][
+        "incidents_with_comparison_data"
+    ] == 1
+    rows = {
+        item["role"]: item
+        for item in preview["proposal_to_api_record_comparison"]["role_observations"]
+    }
+    assert rows["Bevelvoerder"]["reported_status_counts"]["dispatched"] == 1
+    assert preview["actual_vehicle_crew_verified"] is False
+    assert preview["prediction_status"] == "history_only_not_a_lineup_prediction"
+
+
+def test_conflicting_api_reported_status_is_not_forced_to_one_result():
+    sample = analysis()
+    group = sample["staffing_by_group"]["groups"][0]
+    group["response_people"].append(
+        {
+            "user_id": 1, "membership_id": 11,
+            "user_name": "Person One", "reported_status": "no_show",
+        }
+    )
+    group["response_people"][0]["reported_status"] = "dispatched"
+    record = summarize_incident_for_history(sample, 100)["record"]
+    captain = {
+        item["role"]: item for item in record["role_api_observations"]
+    }["Bevelvoerder"]
+    assert captain["ambiguous_reported_status_count"] == 1
+    assert captain["reported_status_counts"] == {}
+
+
+def test_legacy_cached_records_are_kept_without_false_api_comparison():
+    record = summarize_incident_for_history(analysis(), 100)["record"]
+    del record["task_context"]
+    del record["incident_task_ids"]
+    del record["role_api_observations"]
+    summary = build_historical_role_preview([record], 100)
+    assert summary["distinct_incidents_with_complete_matched_audit"] == 1
+    assert summary["task_context_incident_counts"]["legacy_not_imported"] == 1
+    assert summary["proposal_to_api_record_comparison"][
+        "incidents_with_comparison_data"
+    ] == 0
