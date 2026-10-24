@@ -168,5 +168,9 @@ def test_all_roles_are_analyzed_independently_including_commanders():
     ]
     assert roles["Aspirant Manschap"]["unique_proposed_people"] == 1
     # The same person can occupy different functions across proposals.
-    assert roles["Bevelvoerder"]["people"][0]["name"] == "Person One"
-    assert roles["Chauffeur"]["people"][0]["name"] == "Person One"
+    assert {p["name"] for p in roles["Bevelvoerder"]["people"]} == {
+        "Person One", "Person Five"
+    }
+    assert {p["name"] for p in roles["Chauffeur"]["people"]} == {
+        "Person One", "Person Two"
+    }
