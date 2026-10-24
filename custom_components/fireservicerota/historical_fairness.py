@@ -297,6 +297,59 @@ def _cached_status_for_preview(status: Any) -> Any:
     return "unknown" if status == "unmapped:unknown" else status
 
 
+def _incident_evidence_overview(record: dict[str, Any]) -> dict[str, Any]:
+    """Private, identity-free per-incident diagnostic for recorded proposals.
+
+    Roles are the exact proposal labels, not validated vehicle seats.
+    Counts match one distinct (membership_id, role) per incident.
+    """
+    roles: dict[str, int] = {}
+    member_roles: dict[str, set[str]] = {}
+    statuses: dict[str, int] = {}
+    comparison_seats = 0
+    assigned_seats = 0
+    counted: set[tuple[str, str]] = set()
+
+    for item in record.get("people") or []:
+        if not isinstance(item, dict):
+            continue
+        membership = _id(item.get("membership_id"))
+        role = _label(item.get("role"))
+        if not membership or not role or (membership, role) in counted:
+            continue
+        counted.add((membership, role))
+        roles[role] = roles.get(role, 0) + 1
+        member_roles.setdefault(membership, set()).add(role)
+        if "api_reported_status" in item:
+            status = _cached_status_for_preview(item["api_reported_status"])
+            statuses[status] = statuses.get(status, 0) + 1
+            comparison_seats += 1
+            if item.get("api_skill_assignment_recorded") is True:
+                assigned_seats += 1
+
+    role_seats = len(counted)
+    return {
+        "incident_id": _id(record.get("incident_id")),
+        "latest_proposal_at": record.get("latest_proposal_at"),
+        "task_context": record.get("task_context") or "legacy_not_imported",
+        "incident_task_ids": list(record.get("incident_task_ids") or []),
+        "proposal_snapshots_seen": record.get("proposal_snapshots_seen"),
+        "role_seats": [
+            {"role": role, "proposed_seats": count}
+            for role, count in sorted(roles.items())
+        ],
+        "total_proposed_role_seats": role_seats,
+        "distinct_proposed_memberships": len(member_roles),
+        "members_in_multiple_proposed_roles": sum(
+            len(member_roles[key]) > 1 for key in member_roles
+        ),
+        "api_comparison_role_seats": comparison_seats,
+        "api_reported_status_counts": dict(sorted(statuses.items())),
+        "api_skill_assignment_member_role_seats": assigned_seats,
+        "interpretation": "source_proposal_and_retrospective_api_records_only",
+    }
+
+
 def build_historical_role_preview(
     records: list[dict[str, Any]], station_id: int | str,
 ) -> dict[str, Any]:
@@ -431,6 +484,9 @@ def build_historical_role_preview(
             for role, candidates in sorted(roles.items())
         ],
         "task_context_incident_counts": context_counts,
+        "incident_evidence_overview": [
+            _incident_evidence_overview(record) for record in observed
+        ],
         "person_api_comparison_status": "retrospective_api_records_not_verified_turnout",
         "proposal_to_api_record_comparison": {
             "incidents_with_comparison_data": role_evidence_incidents,
