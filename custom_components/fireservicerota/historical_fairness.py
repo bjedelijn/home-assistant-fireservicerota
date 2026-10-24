@@ -61,6 +61,28 @@ _REPORTED_STATUS_LABELS = frozenset({
 })
 
 
+def _reported_status_code(raw: Any) -> str:
+    """Retain safe unknown API enum tokens without guessing their meaning.
+
+    Some valid BrandweerRooster response codes do not belong to our known
+    enum. Previously they were all collapsed to 'other', losing evidence.
+    Prefix previously unknown codes with 'unmapped:' and allow only bounded,
+    ASCII, machine-readable enum values (no free-form/private API strings).
+    """
+    if raw is None:
+        return "unknown"
+    if not isinstance(raw, str):
+        return "other"
+    value = raw.strip().casefold()
+    if not value:
+        return "unknown"
+    if value in _REPORTED_STATUS_LABELS:
+        return value
+    if re.fullmatch(r"[a-z][a-z0-9_-]{0,39}", value):
+        return f"unmapped:{value}"
+    return "other"
+
+
 def _task_context(staffing: dict[str, Any]) -> dict[str, Any]:
     """Record incident-level task IDs, without assigning the proposal to a task."""
     task_ids = sorted(
@@ -98,11 +120,7 @@ def _annotate_member_api_records(
             membership = _id(person.get("membership_id"))
             if membership is None:
                 continue
-            raw_status = str(person.get("reported_status") or "").strip().lower()
-            normalized = (
-                raw_status if raw_status in _REPORTED_STATUS_LABELS
-                else "other" if raw_status else "unknown"
-            )
+            normalized = _reported_status_code(person.get("reported_status"))
             statuses.setdefault(membership, set()).add(normalized)
 
         for assignment in group.get("skill_assignments") or []:
