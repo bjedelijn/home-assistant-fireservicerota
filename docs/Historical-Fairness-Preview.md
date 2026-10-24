@@ -91,6 +91,34 @@ For Gramsbergen-like stations without automatic assignment, proposal history
 will normally be absent. No suggestions **does not** automatically prove that
 the setting is disabled.
 
+## Compact, incident-by-incident audit (no personnel list)
+
+The cache now exposes an optional read-only view that avoids returning
+individual names or membership/user IDs. In Developer Tools → Actions:
+
+```yaml
+action: fireservicerota.preview_fairness_history
+data:
+  station_id: 194
+  overview_only: true
+```
+
+The response includes `incident_evidence_overview` ordered newest first:
+incident ID, original proposal timestamp, task context/IDs, source role
+labels with proposed seat counts, number of distinct proposed memberships,
+members who appear in several distinct roles in one proposal, and
+retrospective API-reported status and skill-assignment counts.
+
+This is useful to inspect a case with two `Chauffeur` proposals or
+an overlapping proposed person without publishing full personnel lists.
+More than one proposed chauffeur is **not by itself evidence of a bug or
+two vehicles**, and a single API task ID does not prove everyone physically
+travelled in one crew.
+
+The full `historical_roles` candidate list is deliberately omitted
+when `overview_only: true`. This does not alter stored data, fetch
+anything from the API, or create a next-crew prediction.
+
 ## Task/vehicle context and registered API response comparison
 
 The import now retains the numeric `incident_task_ids` in each private summary
