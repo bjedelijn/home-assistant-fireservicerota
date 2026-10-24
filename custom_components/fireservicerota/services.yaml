@@ -200,3 +200,8 @@ analyze_incident_fairness:
           min: 1
           max: 20
           mode: box
+    station_staffing_modes:
+      name: Confirmed automatic staffing per station (optional)
+      description: "Optional station IDs mapped to enabled/disabled for this incident only. Not persisted and never sent to BrandweerRooster. Example: {'3853': disabled}. Absence of fairness suggestions is not evidence of disabled staffing."
+      selector:
+        object:
