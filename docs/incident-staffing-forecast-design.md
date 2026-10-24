@@ -76,7 +76,20 @@ Incomplete or ambiguous mappings must be labelled as such.
 - Apply configurable retention and minimize personal details stored in
   Home Assistant's recorder or persistent store.
 
-### 3. Historical comparison (future)
+### 3. Historical comparison (prototype on feature branch)
+
+The opt-in prototype in `feature/historical-fairness-preview` provides
+`import_fairness_history`, `preview_fairness_history` and
+`clear_fairness_history`. It fetches a bounded batch of complete audits and
+stores only last-proposal-per-incident role appearances linked to unique
+station-specific membership IDs in HA private storage. No automatic import is
+performed; maximum 100 summaries across stations per configuration entry.
+
+The result is `history_only_not_a_lineup_prediction`: no fairness probability
+or next-lineup score is computed. See
+[Historical-Fairness-Preview.md](Historical-Fairness-Preview.md) for usage.
+
+### 3b. True historical comparison (future)
 
 - Compare multiple incidents **per station, task and skill**: alerts,
   acknowledged responses, fairness proposals, API-dispatched,
