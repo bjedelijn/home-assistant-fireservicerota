@@ -247,6 +247,12 @@ import_fairness_history:
           min: 1
           max: 10
           mode: box
+    refresh:
+      name: Refresh previously imported incident IDs
+      description: "Normally already imported incidents are skipped without contacting BrandweerRooster. Enable this to deliberately re-fetch them."
+      default: false
+      selector:
+        boolean:
 
 preview_fairness_history:
   name: Preview historical fairness profiles
