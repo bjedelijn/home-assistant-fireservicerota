@@ -45,7 +45,7 @@ proposal per distinct incident. A short audit page is not treated as proof that
 the audit history is complete. When an audit is incomplete, its data is **not
 imported**.
 
-The tool rejects unresolved/multiple responding stations, repeated member
+Already imported incident IDs are skipped without extra API requests by default.\nSet `refresh: true` to explicitly re-fetch previously cached incidents.\n\nThe tool rejects unresolved/multiple responding stations, repeated member
 names mapping to multiple membership IDs, unknown proposal names, and
 non-matching station identities. It reports why a particular incident was
 skipped. A successful import may still contain unmatched proposed seats; those
