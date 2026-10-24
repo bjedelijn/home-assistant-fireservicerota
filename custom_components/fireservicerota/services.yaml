@@ -238,6 +238,15 @@ import_fairness_history:
           min: 1
           max: 10
           mode: box
+    offset:
+      name: Start at retained incident number
+      description: "Skip the newest N locally retained closed incidents to import the next batch (0-24). Use offset 0, 10, 20 for up to 25 records. Not allowed with explicit incident_ids."
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 24
+          mode: box
     max_pages:
       name: Maximum audit pages per incident
       description: "1-10; incomplete audit logs are rejected rather than used for historical profiles."
