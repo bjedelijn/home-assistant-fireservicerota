@@ -5,6 +5,7 @@ import pytest
 
 from custom_components.fireservicerota.historical_fairness import (
     _reported_status_code,
+    build_compact_history_evidence,
     build_historical_role_preview,
     select_retained_history_ids,
     summarize_incident_for_history,
@@ -490,3 +491,18 @@ def test_incident_evidence_legacy_reports_missing_comparison_not_unknown():
     assert row["api_comparison_role_seats"] == 0
     assert row["api_reported_status_counts"] == {}
     assert row["total_proposed_role_seats"] == 2
+
+
+def test_compact_preview_omits_candidate_identifiers_and_full_name_lists():
+    record = summarize_incident_for_history(analysis(), 100)["record"]
+    full = build_historical_role_preview([record], 100)
+    compact = build_compact_history_evidence(full)
+    assert compact["distinct_incidents_with_complete_matched_audit"] == 1
+    assert len(compact["incident_evidence_overview"]) == 1
+    assert "historical_roles" not in compact
+    assert compact["prediction_status"] == "history_only_not_a_lineup_prediction"
+    assert compact["actual_vehicle_crew_verified"] is False
+    assert "Person One" not in str(compact)
+    assert "Person Two" not in str(compact)
+    assert "membership_id" not in str(compact)
+    assert "user_id" not in str(compact)
