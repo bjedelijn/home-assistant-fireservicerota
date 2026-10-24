@@ -91,6 +91,50 @@ For Gramsbergen-like stations without automatic assignment, proposal history
 will normally be absent. No suggestions **does not** automatically prove that
 the setting is disabled.
 
+## Task/vehicle context and registered API response comparison
+
+The import now retains the numeric `incident_task_ids` in each private summary
+and reports `task_context_incident_counts` in the preview:
+
+- `single_incident_task`: the incident API listed only one task.
+- `multiple_incident_tasks`: multiple possible tasks/vehicles. **No proposal
+  person or role is attributed to any specific vehicle.**
+- `no_task_ids`: task information not provided.
+- `legacy_not_imported`: cached before this extension; task context is
+  unknown until deliberately refreshed.
+
+Role names such as "Manschap", "Chauffeur" or "Chauffeur Redvoertuig" remain
+exact source labels, **not** a unique vehicle/task identifier. Vehicle/task
+allocation will be supported only after source relationships are confirmed.
+
+The new `proposal_to_api_record_comparison` section summarizes, per role,
+the number of uniquely identified people from the **latest proposal** with
+a corresponding API-reported status (e.g. `dispatched`, `shown_up`,
+`no_show`, or `unknown`) and whether an API skill-assignment record exists
+for that explicit membership. These are aggregated counts, **not**
+independently verified turnout or confirmed seats. An API skill assignment
+might describe a *different skill* than the proposed role. Conflicting
+reported statuses are counted as ambiguous, never guessed.
+
+Existing `.storage` records stay intact, and the preview will clearly show
+how many imported incidents still lack this extra context. To populate the
+additional evidence, **explicitly** reload a small batch:
+
+```yaml
+action: fireservicerota.import_fairness_history
+data:
+  station_id: 100
+  offset: 0
+  limit: 5
+  max_pages: 5
+  refresh: true
+```
+
+Do this only if you need the comparison. `refresh: true` re-reads complete
+audit logs and uses the freshest recorded statuses available at query time,
+which may differ from the recorded states at incident time. Regular calls
+(`refresh: false`) skip cached incidents.
+
 ## Storage and privacy
 
 - Local private key: `fireservicerota.historical_fairness_<entry_id>`.
