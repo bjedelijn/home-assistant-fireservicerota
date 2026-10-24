@@ -265,7 +265,7 @@ import_fairness_history:
 
 preview_fairness_history:
   name: Preview historical fairness profiles
-  description: "Read cached historical candidate appearances grouped by role, for one station. Descriptive only; this is not a next-crew prediction."
+  description: "Read cached historical candidate appearances grouped by role, for one station. Use overview_only for a compact incident-by-incident diagnostic without personnel names or IDs."
   fields:
     entry_id:
       name: Config entry ID
@@ -278,6 +278,12 @@ preview_fairness_history:
         number:
           min: 1
           mode: box
+    overview_only:
+      name: Compact incident comparison only
+      description: "Exclude full candidate and membership lists; return only per-incident role counts, reported API statuses and task context. No roster prediction."
+      default: false
+      selector:
+        boolean:
 
 clear_fairness_history:
   name: Delete cached fairness history
