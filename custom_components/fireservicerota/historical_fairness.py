@@ -288,6 +288,15 @@ def summarize_incident_for_history(
     }
 
 
+def _cached_status_for_preview(status: Any) -> Any:
+    """Repair the exact old label for the *literal* API code 'unknown'.
+
+    This is presentation-only: no network requests, storage writes or
+    guesses about old generic 'other' counts.
+    """
+    return "unknown" if status == "unmapped:unknown" else status
+
+
 def build_historical_role_preview(
     records: list[dict[str, Any]], station_id: int | str,
 ) -> dict[str, Any]:
@@ -355,6 +364,7 @@ def build_historical_role_preview(
                 )
                 for status, count in (item.get("reported_status_counts") or {}).items():
                     statuses = bucket["reported_status_counts"]
+                    status = _cached_status_for_preview(status)
                     statuses[status] = statuses.get(status, 0) + int(count)
         
         skipped_unmatched += int(record.get("unmatched_proposal_seats") or 0)
@@ -389,7 +399,7 @@ def build_historical_role_preview(
             # Legacy cached rows intentionally do not claim a status.
             if "api_reported_status" in item:
                 candidate["incidents_with_person_api_comparison"] += 1
-                status = item["api_reported_status"]
+                status = _cached_status_for_preview(item["api_reported_status"])
                 counts = candidate["api_reported_status_counts"]
                 counts[status] = counts.get(status, 0) + 1
                 if item.get("api_skill_assignment_recorded") is True:
