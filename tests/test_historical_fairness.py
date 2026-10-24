@@ -281,3 +281,68 @@ def test_legacy_cached_records_are_kept_without_false_api_comparison():
     assert summary["proposal_to_api_record_comparison"][
         "incidents_with_comparison_data"
     ] == 0
+
+
+def test_per_member_history_preserves_exact_api_status_and_no_guessed_assignment():
+    sample = analysis()
+    group = sample["staffing_by_group"]["groups"][0]
+    group["response_people"][0]["reported_status"] = "dispatched"
+    group["response_people"][1]["reported_status"] = "no_show"
+    group["skill_assignments"] = [
+        {"membership_id": 11, "skill_ids": [42]},
+        {"user_id": 2, "skill_ids": [43]},  # Missing membership is not inferred.
+    ]
+    record = summarize_incident_for_history(sample, 100)["record"]
+    per_membership = {item["membership_id"]: item for item in record["people"]}
+    assert per_membership["11"]["api_reported_status"] == "dispatched"
+    assert per_membership["11"]["api_skill_assignment_recorded"] is True
+    assert per_membership["22"]["api_reported_status"] == "no_show"
+    assert per_membership["22"]["api_skill_assignment_recorded"] is False
+    assert record["api_record_checked_at"].endswith("+00:00")
+
+    roles = {
+        item["role"]: item["candidates"][0]
+        for item in build_historical_role_preview([record], 100)["historical_roles"]
+    }
+    assert roles["Bevelvoerder"]["incidents_with_person_api_comparison"] == 1
+    assert roles["Bevelvoerder"]["api_reported_status_counts"] == {"dispatched": 1}
+    assert roles["Bevelvoerder"]["api_skill_assignment_recorded_incidents"] == 1
+    assert roles["Chauffeur"]["api_reported_status_counts"] == {"no_show": 1}
+    assert roles["Chauffeur"]["api_skill_assignment_recorded_incidents"] == 0
+
+
+def test_per_member_ambiguous_status_not_inferred_as_dispatched():
+    sample = analysis()
+    people = sample["staffing_by_group"]["groups"][0]["response_people"]
+    people[0]["reported_status"] = "dispatched"
+    people.append({
+        "membership_id": 11, "user_id": 1, "user_name": "Person One",
+        "reported_status": "no_show",
+    })
+    record = summarize_incident_for_history(sample, 100)["record"]
+    proposed = {item["membership_id"]: item for item in record["people"]}
+    assert proposed["11"]["api_reported_status"] == "ambiguous"
+    evidence = {row["role"]: row for row in record["role_api_observations"]}
+    assert evidence["Bevelvoerder"]["ambiguous_reported_status_count"] == 1
+    assert evidence["Bevelvoerder"]["reported_status_counts"] == {}
+
+
+def test_legacy_profile_retains_candidate_without_fabricated_person_outcome():
+    legacy = summarize_incident_for_history(analysis(), 100)["record"]
+    legacy["people"] = [
+        {key: value for key, value in person.items()
+         if key not in ("api_reported_status", "api_skill_assignment_recorded")}
+        for person in legacy["people"]
+    ]
+    recent = summarize_incident_for_history(analysis("12002"), 100)["record"]
+    preview = build_historical_role_preview([legacy, recent], 100)
+    by_role = {item["role"]: item["candidates"][0]
+               for item in preview["historical_roles"]}
+    commander = by_role["Bevelvoerder"]
+    assert commander["incidents_in_latest_proposal"] == 2
+    assert commander["incidents_with_person_api_comparison"] == 1
+    assert commander["api_reported_status_counts"] == {"unknown": 1}
+    assert commander["api_skill_assignment_recorded_incidents"] == 0
+    assert preview["person_api_comparison_status"] == (
+        "retrospective_api_records_not_verified_turnout"
+    )
