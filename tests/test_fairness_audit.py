@@ -126,3 +126,47 @@ def test_one_short_page_is_not_claimed_complete_at_limit():
     result = asyncio.run(analyze_incident_fairness(get, 123, max_pages=1))
     assert result["audit_complete"] is False
     assert "limit reached" in result["audit_pagination_warning"]
+
+
+def test_all_roles_are_analyzed_independently_including_commanders():
+    first = (
+        "Suggestion based on fairness\n"
+        "Person One                    Bevelvoerder\n"
+        "Person Two                    Chauffeur\n"
+        "Person Three                  Manschap\n"
+        "Person Four                   Aspirant Manschap"
+    )
+    second = (
+        "Suggestion based on fairness\n"
+        "Person Five                   Bevelvoerder\n"
+        "Person One                    Chauffeur\n"
+        "Person Three                  Manschap\n"
+        "Person Four                   Aspirant Manschap"
+    )
+
+    async def get(endpoint, params):
+        if endpoint.endswith("/data"):
+            if params.get("page", 1) > 1:
+                return []
+            return [
+                row("2026-10-19T12:00:02+02:00", "Incident", second),
+                row("2026-10-19T12:00:01+02:00", "Incident", first),
+            ]
+        return {"incident_responses": [], "incident_skill_assignments": []}
+
+    result = asyncio.run(analyze_incident_fairness(get, 1234))
+    roles = {item["role"]: item for item in result["fairness_by_role"]}
+    assert set(roles) == {
+        "Bevelvoerder", "Chauffeur", "Manschap", "Aspirant Manschap"
+    }
+    assert roles["Bevelvoerder"]["latest_proposed_people"] == ["Person Five"]
+    assert roles["Bevelvoerder"]["unique_proposed_people"] == 2
+    assert roles["Chauffeur"]["latest_proposed_people"] == ["Person One"]
+    assert roles["Manschap"]["proposed_seat_appearances"] == 2
+    assert roles["Manschap"]["people"] == [
+        {"name": "Person Three", "proposed_in_suggestions": 2}
+    ]
+    assert roles["Aspirant Manschap"]["unique_proposed_people"] == 1
+    # The same person can occupy different functions across proposals.
+    assert roles["Bevelvoerder"]["people"][0]["name"] == "Person One"
+    assert roles["Chauffeur"]["people"][0]["name"] == "Person One"
