@@ -39,6 +39,47 @@ def _parse_suggestion(changes: Any) -> list[dict[str, str]] | None:
     return members
 
 
+
+def _summarize_suggestions_by_role(
+    suggestions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group proposal appearances by exact role; these are not fairness scores.
+
+    A person may be proposed for more than one role across the incident.
+    In particular, 'Manschap' and 'Aspirant Manschap' stay separate.
+    """
+    roles: dict[str, dict[str, Any]] = {}
+    for suggestion in suggestions:
+        for member in suggestion["members"]:
+            role = member["role"].strip()
+            name = member["name"].strip()
+            if not role or not name:
+                continue
+            bucket = roles.setdefault(role, {"appearances": 0, "people": {}})
+            bucket["appearances"] += 1
+            people = bucket["people"]
+            people[name] = people.get(name, 0) + 1
+
+    latest_members = suggestions[-1]["members"] if suggestions else []
+    return [
+        {
+            "role": role,
+            "proposed_seat_appearances": entry["appearances"],
+            "unique_proposed_people": len(entry["people"]),
+            "latest_proposed_people": [
+                member["name"]
+                for member in latest_members
+                if member["role"] == role
+            ],
+            "people": [
+                {"name": name, "proposed_in_suggestions": count}
+                for name, count in sorted(entry["people"].items())
+            ],
+        }
+        for role, entry in sorted(roles.items())
+    ]
+
+
 def _api_snapshot(incident: Any) -> dict[str, Any]:
     """Expose only relevant structured REST fields, never the raw payload."""
     if not isinstance(incident, dict):
@@ -174,10 +215,12 @@ async def analyze_incident_fairness(
         "fairness_suggestion_count": len(suggestions),
         "latest_fairness_suggestion": suggestions[-1] if suggestions else None,
         "fairness_suggestions": suggestions,
+        "fairness_by_role": _summarize_suggestions_by_role(suggestions),
         "audit_turnout_status_changes": status_changes,
         "api_snapshot": _api_snapshot(incident),
         "caution": (
             "Fairness suggestions are automated proposals, not confirmed crew. "
+            "Role appearance counts are not fairness percentages. "
             "Reported turnout is not independent proof of actual attendance."
         ),
     }
