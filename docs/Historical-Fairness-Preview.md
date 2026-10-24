@@ -118,7 +118,8 @@ reported statuses are counted as ambiguous, never guessed.
 
 Literal API status `unknown` is recorded as `unknown`. A missing or blank
 reported status is recorded as `missing`. Earlier development revisions
-produced `unmapped:unknown`; refresh those records to normalize them.
+produced `unmapped:unknown`; previews now automatically display those
+previously cached values as `unknown` without an API refresh.
 Neither value is proof of physical attendance or nonattendance.
 Unknown machine-readable API status tokens now appear as
 `unmapped:<api_status_code>` (for example, `unmapped:not_dispatched` only
