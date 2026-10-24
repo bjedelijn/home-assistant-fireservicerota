@@ -26,6 +26,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
 from .historical_fairness import (
+    build_compact_history_evidence,
     build_historical_role_preview,
     select_retained_history_ids,
     summarize_incident_for_history,
@@ -49,6 +50,7 @@ from .const import (
     ATTR_IGNORE_SCHEDULE_WARNINGS,
     ATTR_LIMIT,
     ATTR_OFFSET,
+    ATTR_OVERVIEW_ONLY,
     ATTR_REFRESH,
     ATTR_MAX_PAGES,
     ATTR_STATION_STAFFING_MODES,
@@ -167,6 +169,14 @@ READ_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_ENTRY_ID): cv.string,
         vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    }
+)
+
+PREVIEW_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_OVERVIEW_ONLY, default=False): cv.boolean,
     }
 )
 
@@ -484,7 +494,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         station_id = call.data[ATTR_STATION_ID]
         _history_station(entry_data, station_id)
         rows = await _historical_cache(entry_data).async_list(station_id)
-        return build_historical_role_preview(rows, station_id)
+        preview = build_historical_role_preview(rows, station_id)
+        if call.data[ATTR_OVERVIEW_ONLY]:
+            return build_compact_history_evidence(preview)
+        return preview
 
     async def async_clear_fairness_history(call: ServiceCall) -> dict:
         """Erase the local cache for a station; never touch BrandweerRooster."""
@@ -564,7 +577,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
     if not hass.services.has_service(DOMAIN, SERVICE_PREVIEW_FAIRNESS_HISTORY):
         hass.services.async_register(
             DOMAIN, SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history,
-            schema=READ_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
+            schema=PREVIEW_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_CLEAR_FAIRNESS_HISTORY):
         hass.services.async_register(
