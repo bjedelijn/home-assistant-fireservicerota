@@ -413,3 +413,21 @@ def test_explicit_unknown_is_distinct_from_missing_api_status():
     counts = {row["role"]: row["reported_status_counts"] for row in rows}
     assert counts["Bevelvoerder"] == {"unknown": 1}
     assert counts["Chauffeur"] == {"missing": 1}
+
+
+def test_previous_unknown_label_is_read_compatibly_without_storage_mutation():
+    incident = summarize_incident_for_history(analysis(), 100)["record"]
+    incident["people"][0]["api_reported_status"] = "unmapped:unknown"
+    incident["role_api_observations"][1]["reported_status_counts"] = {
+        "unmapped:unknown": 1
+    }
+    preview = build_historical_role_preview([incident], 100)
+    by_role = {r["role"]: r for r in preview["historical_roles"]}
+    assert by_role["Bevelvoerder"]["candidates"][0]["api_reported_status_counts"] == {
+        "unknown": 1
+    }
+    evidence = preview["proposal_to_api_record_comparison"]["role_observations"]
+    assert next(r for r in evidence if r["role"] == "Bevelvoerder")[
+        "reported_status_counts"
+    ] == {"unknown": 1}
+    assert incident["people"][0]["api_reported_status"] == "unmapped:unknown"
