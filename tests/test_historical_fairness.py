@@ -5,6 +5,7 @@ import pytest
 
 from custom_components.fireservicerota.historical_fairness import (
     build_historical_role_preview,
+    select_retained_history_ids,
     summarize_incident_for_history,
 )
 from custom_components.fireservicerota import historical_fairness_store as storage_module
@@ -166,3 +167,31 @@ def test_private_storage_deduplicates_and_can_be_cleared(monkeypatch):
         assert fake.saved["records"] == []
 
     asyncio.run(exercise())
+
+
+def test_retained_history_batch_offset_uses_next_ids():
+    history = [{"id": idx} for idx in range(1, 26)]
+    first = select_retained_history_ids(history, offset=0, limit=10)
+    second = select_retained_history_ids(history, offset=10, limit=10)
+    last = select_retained_history_ids(history, offset=20, limit=10)
+    assert first["ids"] == [str(idx) for idx in range(1, 11)]
+    assert first["next_offset"] == 10
+    assert second["ids"] == [str(idx) for idx in range(11, 21)]
+    assert second["next_offset"] == 20
+    assert last["ids"] == [str(idx) for idx in range(21, 26)]
+    assert last["available_retained_incidents"] == 25
+    assert last["next_offset"] is None
+
+
+def test_retained_history_batch_can_be_empty_and_filters_bad_ids():
+    rows = [{"id": "1"}, {"id": None}, {"id": "invalid"}, {"id": "2"}]
+    result = select_retained_history_ids(rows, offset=2, limit=1)
+    assert result["ids"] == []
+    assert result["available_retained_incidents"] == 2
+    assert result["next_offset"] is None
+
+
+@pytest.mark.parametrize("offset,limit", [(-1, 10), (25, 10), (0, 0), (0, 11)])
+def test_retained_history_batch_rejects_out_of_bounds(offset, limit):
+    with pytest.raises(ValueError):
+        select_retained_history_ids([{"id": 1}], offset=offset, limit=limit)
