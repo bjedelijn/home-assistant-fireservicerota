@@ -4,6 +4,7 @@ import asyncio
 import pytest
 
 from custom_components.fireservicerota.historical_fairness import (
+    _reported_status_code,
     build_historical_role_preview,
     select_retained_history_ids,
     summarize_incident_for_history,
@@ -346,3 +347,49 @@ def test_legacy_profile_retains_candidate_without_fabricated_person_outcome():
     assert preview["person_api_comparison_status"] == (
         "retrospective_api_records_not_verified_turnout"
     )
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("dispatched", "dispatched"),
+    (" shown_up ", "shown_up"),
+    ("NOT_DISPATCHED", "unmapped:not_dispatched"),
+    ("not-dispatched", "unmapped:not-dispatched"),
+    ("standby", "unmapped:standby"),
+    (None, "unknown"),
+    ("", "unknown"),
+    ([], "other"),
+    ("not dispatched", "other"),
+    ("<sensitive data>", "other"),
+    ("X" * 100, "other"),
+])
+def test_unrecognized_api_status_enum_is_bounded_and_not_misinterpreted(
+    raw, expected
+):
+    assert _reported_status_code(raw) == expected
+
+
+def test_unrecognized_enum_is_preserved_per_member_and_role():
+    sample = analysis()
+    group = sample["staffing_by_group"]["groups"][0]
+    group["response_people"][0]["reported_status"] = "not_dispatched"
+    group["response_people"][1]["reported_status"] = "dispatched"
+    record = summarize_incident_for_history(sample, 100)["record"]
+    by_role = {person["role"]: person for person in record["people"]}
+    assert by_role["Bevelvoerder"]["api_reported_status"] == (
+        "unmapped:not_dispatched"
+    )
+    assert by_role["Chauffeur"]["api_reported_status"] == "dispatched"
+    comparison = build_historical_role_preview([record], 100)
+    roles = {
+        row["role"]: row
+        for row in comparison["proposal_to_api_record_comparison"][
+            "role_observations"
+        ]
+    }
+    assert roles["Bevelvoerder"]["reported_status_counts"] == {
+        "unmapped:not_dispatched": 1
+    }
+    assert roles["Chauffeur"]["reported_status_counts"] == {
+        "dispatched": 1
+    }
+    assert comparison["actual_vehicle_crew_verified"] is False
