@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any, Awaitable, Callable
 
+from .staffing_insights import build_staffing_by_group
+
 AUDIT_ENDPOINT = "reporting/general_report/audit_log/data"
 DEFAULT_MAX_PAGES = 5
 MAX_PAGES = 20
@@ -123,6 +125,7 @@ async def analyze_incident_fairness(
     api_get: ApiGet,
     incident_id: str | int,
     max_pages: int = DEFAULT_MAX_PAGES,
+    groups: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Read audit pages newest-first, then compare with API response snapshot.
 
@@ -218,6 +221,7 @@ async def analyze_incident_fairness(
         "fairness_by_role": _summarize_suggestions_by_role(suggestions),
         "audit_turnout_status_changes": status_changes,
         "api_snapshot": _api_snapshot(incident),
+        "staffing_by_group": build_staffing_by_group(incident, groups),
         "caution": (
             "Fairness suggestions are automated proposals, not confirmed crew. "
             "Role appearance counts are not fairness percentages. "
