@@ -51,6 +51,93 @@ def select_retained_history_ids(
     }
 
 
+# These are API-reported states at the time of a historical GET. They must
+# not be represented as independent confirmation of physical vehicle occupancy.
+_REPORTED_STATUS_LABELS = frozenset({
+    "dispatched", "shown_up", "no_show", "rejected", "expired",
+    "cancelled", "canceled", "acknowledged", "accepted",
+    "responding", "arrived", "at_station",
+})
+
+
+def _task_context(staffing: dict[str, Any]) -> dict[str, Any]:
+    """Record incident-level task IDs, without assigning the proposal to a task."""
+    task_ids = sorted(
+        {
+            value
+            for item in (staffing.get("incident_task_ids") or [])
+            if (value := _id(item)) is not None
+        },
+        key=int,
+    )
+    context = (
+        "single_incident_task"
+        if len(task_ids) == 1
+        else "multiple_incident_tasks" if task_ids else "no_task_ids"
+    )
+    return {"incident_task_ids": task_ids, "task_context": context}
+
+
+def _role_api_observations(
+    identified: list[dict[str, str | None]],
+    responding: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Count *recorded* API evidence for proposed people, grouped by role.
+
+    A membership must resolve to one reported status; conflicting responses are
+    counted as ambiguous. API skill assignments are joined only by an explicit
+    membership ID. This does not imply real attendance or a specific vehicle.
+    """
+    statuses: dict[str, set[str]] = {}
+    assignment_memberships: set[str] = set()
+    for group in responding:
+        for person in group.get("response_people") or []:
+            if not isinstance(person, dict):
+                continue
+            membership = _id(person.get("membership_id"))
+            if membership is None:
+                continue
+            raw_status = str(person.get("reported_status") or "").strip().lower()
+            status = (
+                raw_status if raw_status in _REPORTED_STATUS_LABELS
+                else "other" if raw_status else "unknown"
+            )
+            statuses.setdefault(membership, set()).add(status)
+        for assigned in group.get("skill_assignments") or []:
+            if not isinstance(assigned, dict):
+                continue
+            membership = _id(assigned.get("membership_id"))
+            if membership is not None:
+                assignment_memberships.add(membership)
+
+    roles: dict[str, dict[str, Any]] = {}
+    for person in identified:
+        membership = person["membership_id"]
+        role = _label(person["role"])
+        bucket = roles.setdefault(
+            role,
+            {
+                "role": role,
+                "proposed_member_appearances": 0,
+                "reported_status_counts": {},
+                "ambiguous_reported_status_count": 0,
+                "api_skill_assignment_member_appearances": 0,
+            },
+        )
+        bucket["proposed_member_appearances"] += 1
+        matching = statuses.get(membership, set())
+        if len(matching) > 1:
+            bucket["ambiguous_reported_status_count"] += 1
+        else:
+            status = next(iter(matching)) if matching else "unknown"
+            counts = bucket["reported_status_counts"]
+            counts[status] = counts.get(status, 0) + 1
+        if membership in assignment_memberships:
+            bucket["api_skill_assignment_member_appearances"] += 1
+
+    return [roles[role] for role in sorted(roles)]
+
+
 def summarize_incident_for_history(
     analysis: dict[str, Any], station_id: int | str,
 ) -> dict[str, Any]:
@@ -150,7 +237,9 @@ def summarize_incident_for_history(
             "station_id": requested,
             "latest_proposal_at": latest.get("at"),
             "proposal_snapshots_seen": analysis["fairness_suggestion_count"],
+            **_task_context(by_group),
             "people": identified,
+            "role_api_observations": _role_api_observations(identified, responding),
             "unmatched_proposal_seats": unmatched,
             "ambiguous_name_seats": ambiguous,
             "source": "complete_audit_latest_fairness_proposal",
@@ -180,7 +269,53 @@ def build_historical_role_preview(
     roles: dict[str, dict[str, dict]] = {}
     skipped_unmatched = 0
     skipped_ambiguous = 0
+    context_counts: dict[str, int] = {
+        "single_incident_task": 0,
+        "multiple_incident_tasks": 0,
+        "no_task_ids": 0,
+        "legacy_not_imported": 0,
+    }
+    role_evidence: dict[str, dict[str, Any]] = {}
+    role_evidence_incidents = 0
     for record in observed:
+        context = record.get("task_context")
+        context_counts[
+            context if context in context_counts else "legacy_not_imported"
+        ] += 1
+        observations = record.get("role_api_observations")
+        if isinstance(observations, list):
+            role_evidence_incidents += 1
+            for item in observations:
+                if not isinstance(item, dict):
+                    continue
+                role = _label(item.get("role"))
+                if not role:
+                    continue
+                bucket = role_evidence.setdefault(
+                    role,
+                    {
+                        "role": role,
+                        "incidents_with_observations": 0,
+                        "proposed_member_appearances": 0,
+                        "reported_status_counts": {},
+                        "ambiguous_reported_status_count": 0,
+                        "api_skill_assignment_member_appearances": 0,
+                    },
+                )
+                bucket["incidents_with_observations"] += 1
+                bucket["proposed_member_appearances"] += int(
+                    item.get("proposed_member_appearances") or 0
+                )
+                bucket["ambiguous_reported_status_count"] += int(
+                    item.get("ambiguous_reported_status_count") or 0
+                )
+                bucket["api_skill_assignment_member_appearances"] += int(
+                    item.get("api_skill_assignment_member_appearances") or 0
+                )
+                for status, count in (item.get("reported_status_counts") or {}).items():
+                    statuses = bucket["reported_status_counts"]
+                    statuses[status] = statuses.get(status, 0) + int(count)
+        
         skipped_unmatched += int(record.get("unmatched_proposal_seats") or 0)
         skipped_ambiguous += int(record.get("ambiguous_name_seats") or 0)
         incident_roles: set[tuple[str, str]] = set()
@@ -233,6 +368,20 @@ def build_historical_role_preview(
             }
             for role, candidates in sorted(roles.items())
         ],
+        "task_context_incident_counts": context_counts,
+        "proposal_to_api_record_comparison": {
+            "incidents_with_comparison_data": role_evidence_incidents,
+            "role_observations": [
+                role_evidence[role] for role in sorted(role_evidence)
+            ],
+            "interpretation": (
+                "These are on-demand API-recorded statuses/skill assignments "
+                "for members present in each latest historical fairness proposal. "
+                "API records do not verify physical crew or identify a vehicle. "
+                "Legacy cached incidents have no comparison data until explicitly "
+                "refreshed. Missing or conflicting API statuses are not inferred."
+            ),
+        },
         "historical_unmatched_proposal_seats": skipped_unmatched,
         "historical_ambiguous_name_seats": skipped_ambiguous,
         "prediction_status": "history_only_not_a_lineup_prediction",
