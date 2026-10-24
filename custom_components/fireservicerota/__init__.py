@@ -25,6 +25,11 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
+from .historical_fairness import (
+    build_historical_role_preview,
+    summarize_incident_for_history,
+)
+from .historical_fairness_store import HistoricalFairnessStorage
 
 from .const import (
     ATTR_ADDRESS,
@@ -32,6 +37,7 @@ from .const import (
     ATTR_CONFIRMATION,
     ATTR_ENTRY_ID,
     ATTR_INCIDENT_ID,
+    ATTR_INCIDENT_IDS,
     ATTR_MEMBERSHIP_ID,
     ATTR_STATION_ID,
     ATTR_AVAILABLE,
@@ -50,10 +56,14 @@ from .const import (
     DATA_CLIENT,
     DATA_COORDINATOR,
     DATA_INCIDENT_STORE,
+    DATA_HISTORICAL_FAIRNESS_STORE,
     DATA_P2000_MANAGER,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
+    SERVICE_IMPORT_FAIRNESS_HISTORY,
+    SERVICE_PREVIEW_FAIRNESS_HISTORY,
+    SERVICE_CLEAR_FAIRNESS_HISTORY,
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
@@ -122,6 +132,34 @@ ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
                 )
             }
         ),
+    }
+)
+
+
+# On-demand historical importing is intentionally bounded. Each incident may
+# require multiple API audit pages, which are fetched sequentially.
+IMPORT_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_INCIDENT_IDS): vol.All(
+            cv.ensure_list,
+            [vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$"))],
+            vol.Length(min=1, max=10),
+        ),
+        vol.Optional(ATTR_LIMIT, default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=10)
+        ),
+        vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=10)
+        ),
+    }
+)
+
+READ_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
     }
 )
 
@@ -207,6 +245,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SEND_PAGER_MESSAGE,
             SERVICE_BACKFILL_HISTORY_STAFFING,
             SERVICE_ANALYZE_INCIDENT_FAIRNESS,
+            SERVICE_IMPORT_FAIRNESS_HISTORY,
+            SERVICE_PREVIEW_FAIRNESS_HISTORY,
+            SERVICE_CLEAR_FAIRNESS_HISTORY,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
             SERVICE_SET_STATION_AVAILABILITY,
@@ -325,6 +366,113 @@ def _async_register_services(hass: HomeAssistant) -> None:
         except ValueError as err:
             raise HomeAssistantError(f"Could not analyze fairness audit: {err}") from err
 
+
+    def _historical_cache(entry_data: dict) -> HistoricalFairnessStorage:
+        cache = entry_data.get(DATA_HISTORICAL_FAIRNESS_STORE)
+        if cache is None:
+            client = entry_data[DATA_CLIENT]
+            cache = HistoricalFairnessStorage(hass, client.entry_id)
+            entry_data[DATA_HISTORICAL_FAIRNESS_STORE] = cache
+        return cache
+
+    def _history_station(entry_data: dict, station_id: int) -> None:
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower():
+            raise HomeAssistantError(
+                "Historical fairness import is only supported in the Netherlands"
+            )
+        allowed = {str(item.get("id")) for item in client.own_stations}
+        if str(station_id) not in allowed:
+            raise HomeAssistantError(
+                "Station is not an active station membership of this account"
+            )
+
+    async def async_import_fairness_history(call: ServiceCall) -> dict:
+        """Explicit, bounded, read-only audit import into private local storage."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        station_id = call.data[ATTR_STATION_ID]
+        _history_station(entry_data, station_id)
+        cache = _historical_cache(entry_data)
+        ids = call.data.get(ATTR_INCIDENT_IDS)
+        if ids is None:
+            incident_store = entry_data.get(DATA_INCIDENT_STORE)
+            if incident_store is None:
+                raise HomeAssistantError(
+                    "FireServiceRota incident history is not ready yet"
+                )
+            ids = [
+                str(snapshot["id"])
+                for snapshot in incident_store.history
+                if snapshot.get("id") is not None
+            ][:call.data[ATTR_LIMIT]]
+            source = "retained_closed_history"
+        else:
+            source = "explicit_incident_ids"
+
+        ids = list(dict.fromkeys(ids))
+        result = {
+            "station_id": str(station_id),
+            "source": source,
+            "requested": len(ids),
+            "imported": 0,
+            "replaced": 0,
+            "skipped": [],
+            "failed_incident_ids": [],
+            "notes": (
+                "Only one latest proposal per incident is counted; records "
+                "are kept in private HA .storage (up to 100), not in sensor "
+                "attributes. No crew or fairness probability is predicted."
+            ),
+        }
+        for incident_id in ids:
+            try:
+                audit = await analyze_incident_fairness(
+                    client.async_api_get,
+                    incident_id,
+                    max_pages=call.data[ATTR_MAX_PAGES],
+                    groups=client.groups,
+                )
+                converted = summarize_incident_for_history(audit, station_id)
+            except Exception as err:
+                _LOGGER.warning(
+                    "Historical fairness import failed for incident %s (%s)",
+                    incident_id, type(err).__name__,
+                )
+                result["failed_incident_ids"].append(incident_id)
+                continue
+
+            if converted["status"] == "skipped":
+                result["skipped"].append({
+                    "incident_id": incident_id,
+                    "reason": converted["reason"],
+                })
+                continue
+
+            outcome = await cache.async_upsert(converted["record"])
+            result["imported"] += 1
+            result["replaced"] += outcome["replaced"]
+
+        stored = await cache.async_list(station_id)
+        result["preview"] = build_historical_role_preview(stored, station_id)
+        return result
+
+    async def async_preview_fairness_history(call: ServiceCall) -> dict:
+        """Return small descriptive per-role history from private storage."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        _history_station(entry_data, station_id)
+        rows = await _historical_cache(entry_data).async_list(station_id)
+        return build_historical_role_preview(rows, station_id)
+
+    async def async_clear_fairness_history(call: ServiceCall) -> dict:
+        """Erase the local cache for a station; never touch BrandweerRooster."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        _history_station(entry_data, station_id)
+        deleted = await _historical_cache(entry_data).async_delete_station(station_id)
+        return {"station_id": str(station_id), "locally_deleted_incidents": deleted}
+
     async def async_backfill_history_staffing(call: ServiceCall) -> dict:
         """Re-fetch retained closed incidents that lack staffing data."""
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
@@ -386,6 +534,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS, async_analyze_incident_fairness,
             schema=ANALYZE_INCIDENT_FAIRNESS_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_IMPORT_FAIRNESS_HISTORY):
+        hass.services.async_register(
+            DOMAIN, SERVICE_IMPORT_FAIRNESS_HISTORY, async_import_fairness_history,
+            schema=IMPORT_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PREVIEW_FAIRNESS_HISTORY):
+        hass.services.async_register(
+            DOMAIN, SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history,
+            schema=READ_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_CLEAR_FAIRNESS_HISTORY):
+        hass.services.async_register(
+            DOMAIN, SERVICE_CLEAR_FAIRNESS_HISTORY, async_clear_fairness_history,
+            schema=READ_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_HISTORY_STAFFING):
         hass.services.async_register(
