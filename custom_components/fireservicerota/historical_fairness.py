@@ -29,6 +29,28 @@ def _name_key(value: Any) -> str:
     return _label(value).casefold()
 
 
+def select_retained_history_ids(
+    history: list[dict[str, Any]], *, offset: int, limit: int,
+) -> dict[str, Any]:
+    """Select one bounded chronological page of Home Assistant's closed history."""
+    if not isinstance(offset, int) or not 0 <= offset <= 24:
+        raise ValueError("offset must be between 0 and 24")
+    if not isinstance(limit, int) or not 1 <= limit <= 10:
+        raise ValueError("limit must be between 1 and 10")
+    ids = [
+        str(incident["id"])
+        for incident in history
+        if isinstance(incident, dict) and _id(incident.get("id")) is not None
+    ]
+    stop = offset + limit
+    return {
+        "ids": ids[offset:stop],
+        "offset": offset,
+        "available_retained_incidents": len(ids),
+        "next_offset": min(stop, len(ids)) if stop < len(ids) else None,
+    }
+
+
 def summarize_incident_for_history(
     analysis: dict[str, Any], station_id: int | str,
 ) -> dict[str, Any]:
