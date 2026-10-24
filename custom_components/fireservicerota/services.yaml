@@ -205,3 +205,77 @@ analyze_incident_fairness:
       description: "Optional station IDs mapped to enabled/disabled for this incident only. Not persisted and never sent to BrandweerRooster. Example: {'3853': disabled}. Absence of fairness suggestions is not evidence of disabled staffing."
       selector:
         object:
+
+import_fairness_history:
+  name: Import historical fairness proposals
+  description: "Opt in to read a small number of historical BrandweerRooster incident audits and store only uniquely linked, latest per-incident proposals in private Home Assistant storage. No external writes; no prediction of verified vehicle crew."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: The station must belong to your account. Only single-station, complete and uniquely matched audit evidence is imported.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_ids:
+      name: Historical incident IDs
+      description: "Optional explicit list of up to 10 IDs. Without IDs, inspect up to limit incidents from the latest 25 locally retained closed incidents."
+      example: ["1234567", "1234568"]
+      selector:
+        object:
+    limit:
+      name: Incident limit
+      description: "When incident_ids is omitted: maximum locally retained closed incidents to inspect, 1-10."
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    max_pages:
+      name: Maximum audit pages per incident
+      description: "1-10; incomplete audit logs are rejected rather than used for historical profiles."
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+
+preview_fairness_history:
+  name: Preview historical fairness profiles
+  description: "Read cached historical candidate appearances grouped by role, for one station. Descriptive only; this is not a next-crew prediction."
+  fields:
+    entry_id:
+      name: Config entry ID
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+clear_fairness_history:
+  name: Delete cached fairness history
+  description: "Delete locally cached historical fairness evidence for one station from Home Assistant private storage. Does not modify BrandweerRooster."
+  fields:
+    entry_id:
+      name: Config entry ID
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
