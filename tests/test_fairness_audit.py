@@ -174,3 +174,44 @@ def test_all_roles_are_analyzed_independently_including_commanders():
     assert {p["name"] for p in roles["Chauffeur"]["people"]} == {
         "Person One", "Person Two"
     }
+
+
+def test_action_audit_reports_incident_specific_staffing_evidence():
+    async def get(endpoint, params):
+        if endpoint.endswith("/data"):
+            if params.get("page", 1) > 1:
+                return []
+            return [row(
+                "2026-10-19T12:00:02+02:00", "Incident",
+                "Suggestion based on fairness\\n"
+                "Person Alpha                  Bevelvoerder",
+            )]
+        return {
+            "incident_responses": [
+                {"user_id": 1, "user_name": "Person Alpha",
+                 "membership_id": 10, "group_id": 100,
+                 "reported_status": "dispatched"}
+            ],
+            "incident_skill_assignments": [
+                {"user_id": 1, "membership_id": 10, "skill_ids": [7]}
+            ],
+        }
+
+    result = asyncio.run(analyze_incident_fairness(
+        get, 1234,
+        groups=[{"id": 100, "name": "Station Alpha", "type": "station"}],
+    ))
+    group = result["staffing_by_group"]["groups"][0]
+    assert group["station"]["station_id"] == 100
+    assert group["automatic_staffing"]["status"] == "enabled"
+    assert group["automatic_staffing"]["source"] == (
+        "fairness_proposal_observed_for_incident"
+    )
+    confirmed = asyncio.run(analyze_incident_fairness(
+        get, 1234,
+        groups=[{"id": 100, "name": "Station Alpha", "type": "station"}],
+        station_staffing_modes={"100": "disabled"},
+    ))
+    mode = confirmed["staffing_by_group"]["groups"][0]["automatic_staffing"]
+    assert mode["status"] == "disabled"
+    assert mode["warning"] is not None
