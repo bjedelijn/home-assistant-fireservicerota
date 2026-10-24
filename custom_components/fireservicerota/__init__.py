@@ -47,6 +47,7 @@ from .const import (
     ATTR_COMMENTS,
     ATTR_IGNORE_SCHEDULE_WARNINGS,
     ATTR_LIMIT,
+    ATTR_REFRESH,
     ATTR_MAX_PAGES,
     ATTR_STATION_STAFFING_MODES,
     ATTR_MESSAGE,
@@ -153,6 +154,7 @@ IMPORT_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
         vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=10)
         ),
+        vol.Optional(ATTR_REFRESH, default=False): cv.boolean,
     }
 )
 
@@ -411,10 +413,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             source = "explicit_incident_ids"
 
         ids = list(dict.fromkeys(ids))
+        already_cached = {
+            str(item["incident_id"]) for item in await cache.async_list(station_id)
+        }
         result = {
             "station_id": str(station_id),
             "source": source,
             "requested": len(ids),
+            "already_cached": [],
             "imported": 0,
             "replaced": 0,
             "skipped": [],
@@ -426,6 +432,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
             ),
         }
         for incident_id in ids:
+            if incident_id in already_cached and not call.data[ATTR_REFRESH]:
+                result["already_cached"].append(incident_id)
+                continue
             try:
                 audit = await analyze_incident_fairness(
                     client.async_api_get,
