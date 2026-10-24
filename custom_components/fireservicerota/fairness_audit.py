@@ -11,7 +11,6 @@ import re
 from typing import Any, Awaitable, Callable
 
 AUDIT_ENDPOINT = "reporting/general_report/audit_log/data"
-AUDIT_PAGE_SIZE = 100
 DEFAULT_MAX_PAGES = 5
 MAX_PAGES = 20
 
@@ -98,6 +97,7 @@ async def analyze_incident_fairness(
     records: list[dict] = []
     seen_pages: set[tuple[Any, Any, Any]] = set()
     complete = False
+    pagination_warning: str | None = None
     pages_fetched = 0
     for page in range(1, max_pages + 1):
         params: dict[str, Any] = {
@@ -128,13 +128,17 @@ async def analyze_incident_fairness(
             _value(first, "changes"),
         )
         if signature in seen_pages:
-            raise ValueError("Audit pagination repeated an earlier page")
+            pagination_warning = ("Audit API repeated an earlier page; "
+                                  "history may be incomplete")
+            break
         seen_pages.add(signature)
 
         records.extend(item for item in payload if isinstance(item, dict))
-        if len(payload) < AUDIT_PAGE_SIZE:
-            complete = True
-            break
+        # The report endpoint has returned page lengths below 100 even when
+        # other records existed. Only an empty page proves the end of history.
+
+    if not complete and pagination_warning is None:
+        pagination_warning = "Audit page limit reached; history may be incomplete"
 
     suggestions: list[dict[str, Any]] = []
     status_changes: list[dict[str, Any]] = []
@@ -166,6 +170,7 @@ async def analyze_incident_fairness(
         "audit_records": len(records),
         "audit_pages_fetched": pages_fetched,
         "audit_complete": complete,
+        "audit_pagination_warning": pagination_warning,
         "fairness_suggestion_count": len(suggestions),
         "latest_fairness_suggestion": suggestions[-1] if suggestions else None,
         "fairness_suggestions": suggestions,
