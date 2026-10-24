@@ -516,3 +516,20 @@ def build_historical_role_preview(
             "policy have not been validated, so no crew is predicted."
         ),
     }
+
+def build_compact_history_evidence(preview: dict[str, Any]) -> dict[str, Any]:
+    """Return only per-incident and aggregate analysis, not candidate rows."""
+    keys = (
+        "station_id",
+        "distinct_incidents_with_complete_matched_audit",
+        "task_context_incident_counts",
+        "incident_evidence_overview",
+        "proposal_to_api_record_comparison",
+        "historical_unmatched_proposal_seats",
+        "historical_ambiguous_name_seats",
+        "prediction_status",
+        "current_duty_or_availability_checked",
+        "actual_vehicle_crew_verified",
+        "fairness_percentage_calculated",
+    )
+    return {key: preview[key] for key in keys if key in preview}
