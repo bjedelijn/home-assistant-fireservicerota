@@ -39,6 +39,23 @@ data:
   max_pages: 5
 ```
 
+For the next pages of locally retained history, use `offset`:
+
+```yaml
+action: fireservicerota.import_fairness_history
+data:
+  station_id: 100
+  offset: 10
+  limit: 10
+  max_pages: 5
+```
+
+After that, use `offset: 20` and `limit: 5` (provided 25 incidents are
+actually retained). The result includes `available_retained_incidents`
+and `next_offset` to show whether another batch remains. Each request
+fetches at most ten incidents. `offset` cannot be combined with explicit
+`incident_ids`.
+
 For a targeted set of older incidents, specify up to 10 IDs per action call.
 The service fetches audit pages sequentially and uses only the *last observed*
 proposal per distinct incident. A short audit page is not treated as proof that
