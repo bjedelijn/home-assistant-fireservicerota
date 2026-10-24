@@ -183,7 +183,7 @@ def test_action_audit_reports_incident_specific_staffing_evidence():
                 return []
             return [row(
                 "2026-10-19T12:00:02+02:00", "Incident",
-                "Suggestion based on fairness\\n"
+                "Suggestion based on fairness\n"
                 "Person Alpha                  Bevelvoerder",
             )]
         return {
