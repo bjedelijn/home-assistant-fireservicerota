@@ -24,6 +24,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .fairness_audit import analyze_incident_fairness
+
 from .const import (
     ATTR_ADDRESS,
     ATTR_ADDRESSES,
@@ -39,6 +41,8 @@ from .const import (
     ATTR_COMMENTS,
     ATTR_IGNORE_SCHEDULE_WARNINGS,
     ATTR_LIMIT,
+    ATTR_MAX_PAGES,
+    ATTR_STATION_STAFFING_MODES,
     ATTR_MESSAGE,
     ATTR_SCOPE,
     ATTR_PAGER_ID,
@@ -49,6 +53,7 @@ from .const import (
     DATA_P2000_MANAGER,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
+    SERVICE_ANALYZE_INCIDENT_FAIRNESS,
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
@@ -104,6 +109,22 @@ SET_STATION_AVAILABILITY_SCHEMA = vol.Schema(
         vol.Optional(ATTR_IGNORE_SCHEDULE_WARNINGS, default=True): cv.boolean,
     }
 )
+
+ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_INCIDENT_ID): vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")),
+        vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=20)),
+        vol.Optional(ATTR_STATION_STAFFING_MODES): vol.Schema(
+            {
+                vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")): vol.In(
+                    {"enabled", "disabled"}
+                )
+            }
+        ),
+    }
+)
+
 
 BACKFILL_HISTORY_STAFFING_SCHEMA = vol.Schema(
     {
@@ -185,6 +206,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for service in (
             SERVICE_SEND_PAGER_MESSAGE,
             SERVICE_BACKFILL_HISTORY_STAFFING,
+            SERVICE_ANALYZE_INCIDENT_FAIRNESS,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
             SERVICE_SET_STATION_AVAILABILITY,
@@ -287,6 +309,22 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
         return result
 
+    async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
+        """Inspect one incident's audit log with the existing OAuth client."""
+        client = _service_client(hass, call.data.get(ATTR_ENTRY_ID))
+        if "brandweerrooster.nl" not in str(client._url).lower():
+            raise HomeAssistantError("Fairness audit is only available for BrandweerRooster Netherlands")
+        try:
+            return await analyze_incident_fairness(
+                client.async_api_get,
+                call.data[ATTR_INCIDENT_ID],
+                max_pages=call.data[ATTR_MAX_PAGES],
+                groups=client.groups,
+                station_staffing_modes=call.data.get(ATTR_STATION_STAFFING_MODES),
+            )
+        except ValueError as err:
+            raise HomeAssistantError(f"Could not analyze fairness audit: {err}") from err
+
     async def async_backfill_history_staffing(call: ServiceCall) -> dict:
         """Re-fetch retained closed incidents that lack staffing data."""
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
@@ -344,6 +382,11 @@ def _async_register_services(hass: HomeAssistant) -> None:
             supports_response=SupportsResponse.OPTIONAL,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS):
+        hass.services.async_register(
+            DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS, async_analyze_incident_fairness,
+            schema=ANALYZE_INCIDENT_FAIRNESS_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_HISTORY_STAFFING):
         hass.services.async_register(
             DOMAIN, SERVICE_BACKFILL_HISTORY_STAFFING, async_backfill_history_staffing,
