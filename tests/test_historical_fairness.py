@@ -342,7 +342,7 @@ def test_legacy_profile_retains_candidate_without_fabricated_person_outcome():
     commander = by_role["Bevelvoerder"]
     assert commander["incidents_in_latest_proposal"] == 2
     assert commander["incidents_with_person_api_comparison"] == 1
-    assert commander["api_reported_status_counts"] == {"unknown": 1}
+    assert commander["api_reported_status_counts"] == {"missing": 1}
     assert commander["api_skill_assignment_recorded_incidents"] == 0
     assert preview["person_api_comparison_status"] == (
         "retrospective_api_records_not_verified_turnout"
@@ -355,8 +355,11 @@ def test_legacy_profile_retains_candidate_without_fabricated_person_outcome():
     ("NOT_DISPATCHED", "unmapped:not_dispatched"),
     ("not-dispatched", "unmapped:not-dispatched"),
     ("standby", "unmapped:standby"),
-    (None, "unknown"),
-    ("", "unknown"),
+    ("unknown", "unknown"),
+    (" UNKNOWN ", "unknown"),
+    (None, "missing"),
+    ("", "missing"),
+    ("  ", "missing"),
     ([], "other"),
     ("not dispatched", "other"),
     ("<sensitive data>", "other"),
@@ -393,3 +396,20 @@ def test_unrecognized_enum_is_preserved_per_member_and_role():
         "dispatched": 1
     }
     assert comparison["actual_vehicle_crew_verified"] is False
+
+
+def test_explicit_unknown_is_distinct_from_missing_api_status():
+    sample = analysis()
+    group = sample["staffing_by_group"]["groups"][0]
+    group["response_people"][0]["reported_status"] = "unknown"
+    # Person Two has no reported_status key at all.
+    record = summarize_incident_for_history(sample, 100)["record"]
+    by_role = {p["role"]: p for p in record["people"]}
+    assert by_role["Bevelvoerder"]["api_reported_status"] == "unknown"
+    assert by_role["Chauffeur"]["api_reported_status"] == "missing"
+    rows = build_historical_role_preview([record], 100)[
+        "proposal_to_api_record_comparison"
+    ]["role_observations"]
+    counts = {row["role"]: row["reported_status_counts"] for row in rows}
+    assert counts["Bevelvoerder"] == {"unknown": 1}
+    assert counts["Chauffeur"] == {"missing": 1}
