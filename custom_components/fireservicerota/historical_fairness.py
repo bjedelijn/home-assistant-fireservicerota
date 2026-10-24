@@ -9,6 +9,7 @@ an estimate of the BrandweerRooster scheduling algorithm.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 MAX_HISTORY_RECORDS = 100
@@ -78,18 +79,18 @@ def _task_context(staffing: dict[str, Any]) -> dict[str, Any]:
     return {"incident_task_ids": task_ids, "task_context": context}
 
 
-def _role_api_observations(
+def _annotate_member_api_records(
     identified: list[dict[str, str | None]],
     responding: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Count *recorded* API evidence for proposed people, grouped by role.
+    """Attach retrospective API-recorded status to an exact membership.
 
-    A membership must resolve to one reported status; conflicting responses are
-    counted as ambiguous. API skill assignments are joined only by an explicit
-    membership ID. This does not imply real attendance or a specific vehicle.
+    The API incident snapshot is retrieved *now*, not necessarily at the
+    time of the historical fairness proposal. A skill-assignment record
+    does not prove the suggested role or actual vehicle occupancy.
     """
     statuses: dict[str, set[str]] = {}
-    assignment_memberships: set[str] = set()
+    assigned_memberships: set[str] = set()
     for group in responding:
         for person in group.get("response_people") or []:
             if not isinstance(person, dict):
@@ -98,21 +99,41 @@ def _role_api_observations(
             if membership is None:
                 continue
             raw_status = str(person.get("reported_status") or "").strip().lower()
-            status = (
+            normalized = (
                 raw_status if raw_status in _REPORTED_STATUS_LABELS
                 else "other" if raw_status else "unknown"
             )
-            statuses.setdefault(membership, set()).add(status)
-        for assigned in group.get("skill_assignments") or []:
-            if not isinstance(assigned, dict):
-                continue
-            membership = _id(assigned.get("membership_id"))
-            if membership is not None:
-                assignment_memberships.add(membership)
+            statuses.setdefault(membership, set()).add(normalized)
 
-    roles: dict[str, dict[str, Any]] = {}
+        for assignment in group.get("skill_assignments") or []:
+            if not isinstance(assignment, dict):
+                continue
+            membership = _id(assignment.get("membership_id"))
+            if membership is not None:
+                assigned_memberships.add(membership)
+
+    annotated: list[dict[str, Any]] = []
     for person in identified:
         membership = person["membership_id"]
+        possible = statuses.get(membership, set())
+        status = (
+            "ambiguous" if len(possible) > 1
+            else next(iter(possible)) if possible else "unknown"
+        )
+        annotated.append({
+            **person,
+            "api_reported_status": status,
+            "api_skill_assignment_recorded": membership in assigned_memberships,
+        })
+    return annotated
+
+
+def _role_api_observations(
+    annotated_people: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Aggregate per-role API records without counting verified attendance."""
+    roles: dict[str, dict[str, Any]] = {}
+    for person in annotated_people:
         role = _label(person["role"])
         bucket = roles.setdefault(
             role,
@@ -125,16 +146,14 @@ def _role_api_observations(
             },
         )
         bucket["proposed_member_appearances"] += 1
-        matching = statuses.get(membership, set())
-        if len(matching) > 1:
+        status = person["api_reported_status"]
+        if status == "ambiguous":
             bucket["ambiguous_reported_status_count"] += 1
         else:
-            status = next(iter(matching)) if matching else "unknown"
             counts = bucket["reported_status_counts"]
             counts[status] = counts.get(status, 0) + 1
-        if membership in assignment_memberships:
+        if person["api_skill_assignment_recorded"]:
             bucket["api_skill_assignment_member_appearances"] += 1
-
     return [roles[role] for role in sorted(roles)]
 
 
@@ -229,6 +248,8 @@ def summarize_incident_for_history(
     if not identified:
         return skip("no_unambiguous_membership_matches")
 
+    annotated_people = _annotate_member_api_records(identified, responding)
+
     return {
         "incident_id": incident_id,
         "status": "imported",
@@ -237,9 +258,10 @@ def summarize_incident_for_history(
             "station_id": requested,
             "latest_proposal_at": latest.get("at"),
             "proposal_snapshots_seen": analysis["fairness_suggestion_count"],
+            "api_record_checked_at": datetime.now(timezone.utc).isoformat(),
             **_task_context(by_group),
-            "people": identified,
-            "role_api_observations": _role_api_observations(identified, responding),
+            "people": annotated_people,
+            "role_api_observations": _role_api_observations(annotated_people),
             "unmatched_proposal_seats": unmatched,
             "ambiguous_name_seats": ambiguous,
             "source": "complete_audit_latest_fairness_proposal",
@@ -339,9 +361,20 @@ def build_historical_role_preview(
                     "name": _label(item.get("name")),
                     "incidents_in_latest_proposal": 0,
                     "last_observed_at": None,
+                    "incidents_with_person_api_comparison": 0,
+                    "api_reported_status_counts": {},
+                    "api_skill_assignment_recorded_incidents": 0,
                 },
             )
             candidate["incidents_in_latest_proposal"] += 1
+            # Legacy cached rows intentionally do not claim a status.
+            if "api_reported_status" in item:
+                candidate["incidents_with_person_api_comparison"] += 1
+                status = item["api_reported_status"]
+                counts = candidate["api_reported_status_counts"]
+                counts[status] = counts.get(status, 0) + 1
+                if item.get("api_skill_assignment_recorded") is True:
+                    candidate["api_skill_assignment_recorded_incidents"] += 1
             timestamp = record.get("latest_proposal_at")
             if timestamp and (
                 candidate["last_observed_at"] is None
@@ -369,6 +402,7 @@ def build_historical_role_preview(
             for role, candidates in sorted(roles.items())
         ],
         "task_context_incident_counts": context_counts,
+        "person_api_comparison_status": "retrospective_api_records_not_verified_turnout",
         "proposal_to_api_record_comparison": {
             "incidents_with_comparison_data": role_evidence_incidents,
             "role_observations": [
