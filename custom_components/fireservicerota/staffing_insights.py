@@ -40,6 +40,9 @@ def _resolve_station(group_id: Any, known_groups: dict[str, dict]) -> dict | Non
 def build_staffing_by_group(
     incident: Any,
     groups: list[dict] | None = None,
+    *,
+    suggestions: list[dict[str, Any]] | None = None,
+    station_staffing_modes: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Group recorded responses and assignments by membership/group ID.
 
@@ -171,14 +174,86 @@ def build_staffing_by_group(
             str(group.get("group_name") or group.get("group_id") or ""),
         ),
     )
+    # A response affiliation is not itself a permanent staffing-policy setting.
+    # In particular, no observed proposal is never evidence of 'disabled':
+    # the feature can be scoped to particular vehicles or incident types.
+    confirmed_modes = {
+        _identifier(station_id): mode
+        for station_id, mode in (station_staffing_modes or {}).items()
+    }
+    responding_stations = {
+        _identifier(bucket["station"]["station_id"])
+        for bucket in result_groups
+        if bucket["response_count"] > 0 and bucket["station"] is not None
+    }
+    has_unresolved_responders = any(
+        bucket["response_count"] > 0 and bucket["station"] is None
+        for bucket in result_groups
+    )
+    single_station = (
+        next(iter(responding_stations))
+        if len(responding_stations) == 1 and not has_unresolved_responders
+        else None
+    )
+    matched_confirmations: set[str] = set()
+    for bucket in result_groups:
+        station = bucket["station"]
+        station_id = _identifier(station["station_id"]) if station else None
+
+        # The audit proposal contains only names/roles. Attribute evidence to
+        # the sole resolved station in *this incident record*, never to a
+        # particular task/vehicle or one of multiple stations.
+        if suggestions is None:
+            proposal_evidence = "not_evaluated"
+        elif not suggestions:
+            proposal_evidence = "not_observed_in_retrieved_audit"
+        elif station_id is not None and station_id == single_station:
+            proposal_evidence = "observed_single_station_incident"
+        else:
+            proposal_evidence = "observed_but_station_unattributed"
+
+        confirmation = confirmed_modes.get(station_id)
+        if confirmation in ("enabled", "disabled"):
+            mode = confirmation
+            source = "user_confirmed_for_incident"
+            matched_confirmations.add(station_id)
+        elif proposal_evidence == "observed_single_station_incident":
+            mode = "enabled"
+            source = "fairness_proposal_observed_for_incident"
+        else:
+            mode = "unknown"
+            source = "insufficient_evidence"
+
+        conflicts = (
+            confirmation == "disabled"
+            and proposal_evidence == "observed_single_station_incident"
+        )
+        bucket["automatic_staffing"] = {
+            "status": mode,
+            "source": source,
+            "scope": "this_incident_only",
+            "fairness_proposal_evidence": proposal_evidence,
+            "skill_assignment_count": len(bucket["skill_assignments"]),
+            "warning": (
+                "User-confirmed disabled, but audit proposals were observed; "
+                "verify vehicle/task scope and incident configuration."
+                if conflicts else None
+            ),
+        }
+
     return {
         "available": True,
         "incident_task_ids": list(incident.get("task_ids") or []),
         "groups": result_groups,
         "unmatched_assignment_count": unmatched,
+        "unused_confirmed_station_ids": sorted(
+            key for key in confirmed_modes if key not in matched_confirmations
+        ),
         "interpretation": (
             "Groups are response affiliations, not necessarily vehicles. "
-            "A station is named only when the known hierarchy resolves it uniquely. "
+            "Automatic staffing status applies to this incident only: "
+            "no observed fairness proposals does not mean disabled. "
+            "User-confirmed modes are supplied per action, not stored. "
             "Skill assignments are API records, not independently verified seats."
         ),
     }
