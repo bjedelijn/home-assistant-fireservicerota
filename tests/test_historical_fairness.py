@@ -433,3 +433,60 @@ def test_previous_unknown_label_is_read_compatibly_without_storage_mutation():
         "reported_status_counts"
     ] == {"unknown": 1}
     assert incident["people"][0]["api_reported_status"] == "unmapped:unknown"
+
+
+def test_incident_evidence_overview_identifies_two_drivers_without_names():
+    sample = analysis(roles=[
+        {"name": "Person One", "role": "Chauffeur"},
+        {"name": "Person Two", "role": "Chauffeur"},
+    ])
+    sample["staffing_by_group"]["incident_task_ids"] = [70]
+    people = sample["staffing_by_group"]["groups"][0]["response_people"]
+    people[0]["reported_status"] = "dispatched"
+    people[1]["reported_status"] = "unknown"
+    summary = build_historical_role_preview(
+        [summarize_incident_for_history(sample, 100)["record"]], 100
+    )
+    row = summary["incident_evidence_overview"][0]
+    assert row["incident_id"] == "12001"
+    assert row["role_seats"] == [{"role": "Chauffeur", "proposed_seats": 2}]
+    assert row["incident_task_ids"] == ["70"]
+    assert row["total_proposed_role_seats"] == 2
+    assert row["distinct_proposed_memberships"] == 2
+    assert row["members_in_multiple_proposed_roles"] == 0
+    assert row["api_reported_status_counts"] == {
+        "dispatched": 1, "unknown": 1
+    }
+    assert "Person One" not in str(row)
+    assert "Person Two" not in str(row)
+    assert "membership_id" not in str(row)
+    assert "user_id" not in str(row)
+
+
+def test_incident_evidence_overview_catches_cross_role_same_member():
+    sample = analysis(roles=[
+        {"name": "Person One", "role": "Chauffeur"},
+        {"name": "Person One", "role": "Manschap"},
+    ])
+    record = summarize_incident_for_history(sample, 100)["record"]
+    summary = build_historical_role_preview([record], 100)
+    row = summary["incident_evidence_overview"][0]
+    assert row["total_proposed_role_seats"] == 2
+    assert row["distinct_proposed_memberships"] == 1
+    assert row["members_in_multiple_proposed_roles"] == 1
+
+
+def test_incident_evidence_legacy_reports_missing_comparison_not_unknown():
+    record = summarize_incident_for_history(analysis(), 100)["record"]
+    record.pop("task_context")
+    record.pop("incident_task_ids")
+    for person in record["people"]:
+        person.pop("api_reported_status")
+        person.pop("api_skill_assignment_recorded")
+    row = build_historical_role_preview(
+        [record], 100
+    )["incident_evidence_overview"][0]
+    assert row["task_context"] == "legacy_not_imported"
+    assert row["api_comparison_role_seats"] == 0
+    assert row["api_reported_status_counts"] == {}
+    assert row["total_proposed_role_seats"] == 2
