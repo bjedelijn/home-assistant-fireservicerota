@@ -141,9 +141,11 @@ which may differ from the recorded states at incident time. Regular calls
 - A maximum of **100 imported incident summaries per integration entry**,
   across stations; newer observations evict the oldest if necessary.
 - Each record stores only the incident ID, station ID, latest proposal timestamp,
-  proposal count, role, unique person label and membership/user IDs, and
-  unmatched/ambiguous counters. It does **not** store the full audit report,
-  raw incident responses, exact pager details, or OAuth tokens.
+  proposal count, incident task ID context, role, unique person label and
+  membership/user IDs, aggregate per-role API-reported status counts and
+  membership-linked skill-assignment counts, and unmatched/ambiguous counters.
+  It does **not** store the full audit report, individual response histories,
+  exact pager details, or OAuth tokens.
 - The feature runs **only when invoked**. It does not poll older incidents or
   automatically capture future alerts.
 - Clear any station's locally stored data:
@@ -166,8 +168,10 @@ data:
 2. Only 25 closed incidents are available in the existing HA incident sensor
    history. Older IDs must be provided explicitly; an authorized and
    documented incident-list API is not yet established.
-3. First-stage preview only describes fairness proposals and uniquely matched
-   membership IDs. It cannot verify actual vehicle occupation.
+3. The preview describes historical proposal candidates, incident-level task
+   context and aggregate per-role API-record comparisons. It cannot verify
+   actual vehicle occupation or attribute a proposal to a specific task when
+   multiple incident tasks are present.
 4. Future forecasting requires current staff availability, eligibility,
    task/vehicle requirements, overlapping roles, and the specific policy's
    historical real/virtual turnout accounting. **No exact lineup or
