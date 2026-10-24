@@ -116,6 +116,10 @@ independently verified turnout or confirmed seats. An API skill assignment
 might describe a *different skill* than the proposed role. Conflicting
 reported statuses are counted as ambiguous, never guessed.
 
+Literal API status `unknown` is recorded as `unknown`. A missing or blank
+reported status is recorded as `missing`. Earlier development revisions
+produced `unmapped:unknown`; refresh those records to normalize them.
+Neither value is proof of physical attendance or nonattendance.
 Unknown machine-readable API status tokens now appear as
 `unmapped:<api_status_code>` (for example, `unmapped:not_dispatched` only
 if the API actually returned that value) instead of all being grouped into
