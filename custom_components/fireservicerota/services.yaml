@@ -175,3 +175,28 @@ set_station_availability:
       default: true
       selector:
         boolean:
+
+
+analyze_incident_fairness:
+  name: Analyze incident fairness
+  description: Read the JSON audit history of one BrandweerRooster incident and return automated staffing suggestions and reported turnout. This experimental read-only action does not change incident data.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional when only one FireServiceRota integration is configured.
+      selector:
+        text:
+    incident_id:
+      name: Incident ID
+      required: true
+      selector:
+        text:
+    max_pages:
+      name: Maximum audit pages
+      description: Limit between 1 and 20, incomplete histories are flagged.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 20
+          mode: box
