@@ -311,6 +311,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 client.async_api_get,
                 call.data[ATTR_INCIDENT_ID],
                 max_pages=call.data[ATTR_MAX_PAGES],
+                groups=client.groups,
             )
         except ValueError as err:
             raise HomeAssistantError(f"Could not analyze fairness audit: {err}") from err
