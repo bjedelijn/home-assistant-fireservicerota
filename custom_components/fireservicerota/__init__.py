@@ -42,6 +42,7 @@ from .const import (
     ATTR_IGNORE_SCHEDULE_WARNINGS,
     ATTR_LIMIT,
     ATTR_MAX_PAGES,
+    ATTR_STATION_STAFFING_MODES,
     ATTR_MESSAGE,
     ATTR_SCOPE,
     ATTR_PAGER_ID,
@@ -114,6 +115,13 @@ ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
         vol.Optional(ATTR_ENTRY_ID): cv.string,
         vol.Required(ATTR_INCIDENT_ID): vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")),
         vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=20)),
+        vol.Optional(ATTR_STATION_STAFFING_MODES): vol.Schema(
+            {
+                vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")): vol.In(
+                    {"enabled", "disabled"}
+                )
+            }
+        ),
     }
 )
 
@@ -312,6 +320,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 call.data[ATTR_INCIDENT_ID],
                 max_pages=call.data[ATTR_MAX_PAGES],
                 groups=client.groups,
+                station_staffing_modes=call.data.get(ATTR_STATION_STAFFING_MODES),
             )
         except ValueError as err:
             raise HomeAssistantError(f"Could not analyze fairness audit: {err}") from err
