@@ -126,6 +126,7 @@ async def analyze_incident_fairness(
     incident_id: str | int,
     max_pages: int = DEFAULT_MAX_PAGES,
     groups: list[dict] | None = None,
+    station_staffing_modes: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Read audit pages newest-first, then compare with API response snapshot.
 
@@ -221,7 +222,12 @@ async def analyze_incident_fairness(
         "fairness_by_role": _summarize_suggestions_by_role(suggestions),
         "audit_turnout_status_changes": status_changes,
         "api_snapshot": _api_snapshot(incident),
-        "staffing_by_group": build_staffing_by_group(incident, groups),
+        "staffing_by_group": build_staffing_by_group(
+            incident,
+            groups,
+            suggestions=suggestions,
+            station_staffing_modes=station_staffing_modes,
+        ),
         "caution": (
             "Fairness suggestions are automated proposals, not confirmed crew. "
             "Role appearance counts are not fairness percentages. "
