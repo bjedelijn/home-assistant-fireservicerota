@@ -48,6 +48,19 @@ Incomplete or ambiguous mappings must be labelled as such.
   recorded incident status.
 - `staffing_by_group`: cross-group recorded responses and skills joined
   on membership ID, with station hierarchy resolved where possible.
+- `automatic_staffing` within each response group has one of `enabled`,
+  `disabled`, `unknown`, scoped to **this incident only**. Observed audit
+  fairness proposals can indicate `enabled` when the incident record
+  unambiguously contains one responding station. No proposals alone never
+  proves the feature was disabled.
+- Optional action data `station_staffing_modes` supplies an explicit
+  operator confirmation per station ID, e.g. `{'3853': disabled}`. This
+  confirmation is **not persisted**, does not configure BrandweerRooster,
+  and applies only to the currently examined incident. Conflicts between
+  a confirmation and observed proposals are surfaced as warnings. Actual
+  server-side policy flags cannot yet be verified from the API.
+  BrandweerRooster can enable proposals per vehicle/incident type, so
+  future configuration discovery must preserve that specificity.
 - Anonymized test fixtures: one group, two groups, shared user across
   memberships, unknown groups and ambiguous assignments.
 
