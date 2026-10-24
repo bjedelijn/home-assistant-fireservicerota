@@ -418,9 +418,11 @@ def test_explicit_unknown_is_distinct_from_missing_api_status():
 def test_previous_unknown_label_is_read_compatibly_without_storage_mutation():
     incident = summarize_incident_for_history(analysis(), 100)["record"]
     incident["people"][0]["api_reported_status"] = "unmapped:unknown"
-    incident["role_api_observations"][1]["reported_status_counts"] = {
-        "unmapped:unknown": 1
-    }
+    commander = next(
+        row for row in incident["role_api_observations"]
+        if row["role"] == "Bevelvoerder"
+    )
+    commander["reported_status_counts"] = {"unmapped:unknown": 1}
     preview = build_historical_role_preview([incident], 100)
     by_role = {r["role"]: r for r in preview["historical_roles"]}
     assert by_role["Bevelvoerder"]["candidates"][0]["api_reported_status_counts"] == {
