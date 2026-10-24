@@ -47,6 +47,7 @@ from .const import (
     ATTR_COMMENTS,
     ATTR_IGNORE_SCHEDULE_WARNINGS,
     ATTR_LIMIT,
+    ATTR_OFFSET,
     ATTR_REFRESH,
     ATTR_MAX_PAGES,
     ATTR_STATION_STAFFING_MODES,
@@ -150,6 +151,9 @@ IMPORT_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
         ),
         vol.Optional(ATTR_LIMIT, default=5): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=10)
+        ),
+        vol.Optional(ATTR_OFFSET, default=0): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=24)
         ),
         vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=10)
@@ -403,14 +407,30 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 raise HomeAssistantError(
                     "FireServiceRota incident history is not ready yet"
                 )
-            ids = [
+            all_ids = [
                 str(snapshot["id"])
                 for snapshot in incident_store.history
                 if snapshot.get("id") is not None
-            ][:call.data[ATTR_LIMIT]]
+            ]
+            offset = call.data[ATTR_OFFSET]
+            ids = all_ids[offset:offset + call.data[ATTR_LIMIT]]
             source = "retained_closed_history"
+            batch = {
+                "offset": offset,
+                "available_retained_incidents": len(all_ids),
+                "next_offset": (
+                    min(offset + call.data[ATTR_LIMIT], len(all_ids))
+                    if offset + call.data[ATTR_LIMIT] < len(all_ids)
+                    else None
+                ),
+            }
         else:
+            if call.data[ATTR_OFFSET]:
+                raise HomeAssistantError(
+                    "Use either explicit incident_ids or offset, not both"
+                )
             source = "explicit_incident_ids"
+            batch = {}
 
         ids = list(dict.fromkeys(ids))
         already_cached = {
@@ -419,6 +439,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         result = {
             "station_id": str(station_id),
             "source": source,
+            **batch,
             "requested": len(ids),
             "already_cached": [],
             "imported": 0,
