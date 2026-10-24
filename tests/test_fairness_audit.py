@@ -26,6 +26,8 @@ def test_suggestion_distinct_from_reported_turnout():
     async def get(endpoint, params):
         calls.append((endpoint, params))
         if endpoint.endswith("/data"):
+            if params.get("page", 1) > 1:
+                return []
             return [
                 row("2026-10-19T12:00:02+02:00", "Incident", suggestion),
                 row("2026-10-19T12:00:01+02:00", "Opkomstbevestiging Person Alpha",
@@ -70,8 +72,10 @@ def test_pagination_rejects_repeated_page():
                     for i in range(100)]
         return {}
 
-    with pytest.raises(ValueError, match="repeated"):
-        asyncio.run(analyze_incident_fairness(get, 123, max_pages=2))
+    result = asyncio.run(analyze_incident_fairness(get, 123, max_pages=2))
+    assert result["audit_complete"] is False
+    assert "repeated" in result["audit_pagination_warning"]
+    assert result["audit_records"] == 100
 
 
 def test_reject_invalid_incident_id_and_page_count():
@@ -90,3 +94,35 @@ def test_non_json_error_is_not_mistaken_for_no_history():
 
     with pytest.raises(ValueError, match="JSON list"):
         asyncio.run(analyze_incident_fairness(get, 1234))
+
+
+def test_short_page_does_not_imply_complete_history():
+    seen = []
+
+    async def get(endpoint, params):
+        if endpoint.endswith("/data"):
+            page = params.get("page", 1)
+            seen.append(page)
+            if page == 1:
+                return [row("2026-10-19T12:00:02+02:00", "Incident", "A")]
+            if page == 2:
+                return [row("2026-10-19T12:00:01+02:00", "Incident", "B")]
+            return []
+        return {}
+
+    result = asyncio.run(analyze_incident_fairness(get, 123))
+    assert seen == [1, 2, 3]
+    assert result["audit_records"] == 2
+    assert result["audit_complete"] is True
+    assert result["audit_pagination_warning"] is None
+
+
+def test_one_short_page_is_not_claimed_complete_at_limit():
+    async def get(endpoint, params):
+        if endpoint.endswith("/data"):
+            return [row("2026-10-19T12:00:02+02:00", "Incident", "")]
+        return {}
+
+    result = asyncio.run(analyze_incident_fairness(get, 123, max_pages=1))
+    assert result["audit_complete"] is False
+    assert "limit reached" in result["audit_pagination_warning"]
