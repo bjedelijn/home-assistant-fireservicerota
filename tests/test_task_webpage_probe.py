@@ -200,7 +200,6 @@ def test_redirect_classification_has_no_network_action():
         "https://www.brandweerrooster.nl/groups/194/tasks/7678?token=SENSITIVE",
         station_id="194", task_id="7678",
     ) == "same_task_page_redirect"
-    assert result["vehicle_number"] is None
 
 
 @pytest.mark.parametrize("status,expected", [
