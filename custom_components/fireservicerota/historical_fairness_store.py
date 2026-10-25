@@ -58,7 +58,19 @@ class HistoricalFairnessStorage:
             records = await self._load_unlocked()
             key = f"{record['station_id']}:{record['incident_id']}"
             replaced = int(key in records)
-            records[key] = record
+            existing = records.get(key)
+            updated = dict(record)
+            if isinstance(existing, dict):
+                saved = existing.get("saved_staffing_evidence")
+                if (
+                    isinstance(saved, dict)
+                    and {str(v) for v in saved.get("incident_task_ids") or []}
+                    == {str(v) for v in record.get("incident_task_ids") or []}
+                ):
+                    # A fairness-audit refresh must not silently discard a
+                    # separately opted-in, timestamped private API snapshot.
+                    updated["saved_staffing_evidence"] = saved
+            records[key] = updated
             count_before = len(records)
             newest = sorted(
                 records.items(),
@@ -71,6 +83,56 @@ class HistoricalFairnessStorage:
                 "replaced": replaced,
                 "evicted": count_before - len(self._records),
                 "total_retained": len(self._records),
+            }
+
+
+    async def async_save_staffing_evidence(
+        self,
+        station_id: int | str,
+        incident_id: int | str,
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Attach opt-in numeric staffing evidence to an existing record only.
+
+        The caller must first sanitize and validate the one-time GET evidence.
+        Never creates an incident, changes candidate profiles or fetches data.
+        """
+        if not isinstance(evidence, dict) or evidence.get("version") != 1:
+            raise ValueError("invalid private staffing evidence")
+        requirements = evidence.get("crew_requirement_evidence")
+        if not isinstance(requirements, list) or not requirements:
+            raise ValueError("refusing to persist empty skill evidence")
+        key = f"{station_id}:{incident_id}"
+        async with self._lock:
+            records = await self._load_unlocked()
+            existing = records.get(key)
+            if not isinstance(existing, dict) or not existing.get("people"):
+                raise ValueError("cached fairness incident does not exist")
+            original_tasks = {
+                str(v) for v in existing.get("incident_task_ids") or []
+            }
+            updated_tasks = {
+                str(v) for v in evidence.get("incident_task_ids") or []
+            }
+            if not original_tasks or original_tasks != updated_tasks:
+                raise ValueError("cached incident task IDs do not match")
+
+            updated = dict(existing)
+            replaced = isinstance(
+                existing.get("saved_staffing_evidence"), dict
+            )
+            updated["saved_staffing_evidence"] = evidence
+            self._records = {**records, key: updated}
+            await self._store.async_save({
+                "records": list(self._records.values())
+            })
+            return {
+                "saved": True,
+                "replaced_previous_evidence": replaced,
+                "incident_id": str(incident_id),
+                "station_id": str(station_id),
+                "stored_requirement_count": len(requirements),
+                "checked_at": evidence.get("checked_at"),
             }
 
     async def async_delete_station(self, station_id: int | str) -> int:
