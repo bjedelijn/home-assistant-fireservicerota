@@ -156,6 +156,16 @@ def test_single_candidate_api_format_has_no_private_schedule_or_status():
     assert outcome["probe_status"] == "readable_schedule_current_interval"
     assert outcome["schedule_interval_count"] == 1
     assert outcome["current_interval_present"] is True
+    assert outcome["current_interval_matches"] == 1
+    shape = outcome["current_interval_field_presence"]
+    assert shape["available_is_boolean"] is True
+    assert shape["active_is_boolean"] is False
+    assert shape["skill_ids_is_list"] is False
+    assert shape["assigned_function_ids_is_list"] is False
+    assert shape["detailed_availability_is_object"] is True
+    assert shape["detail_kinds_present"] == ["exception"]
+    assert shape["nested_skill_ids_is_list"] is True
+    assert shape["nested_assigned_function_ids_is_list"] is False
     assert outcome["current_candidate_available"] is None
     assert outcome["full_station_availability_verified"] is False
     assert outcome["remote_schedule_data_persisted"] is False
@@ -201,6 +211,7 @@ def test_interval_gap_is_not_proof_of_unavailability():
     assert gap["probe_status"] == "readable_schedule_but_no_current_interval"
     assert gap["current_interval_present"] is False
     assert gap["current_candidate_available"] is None
+    assert gap["current_interval_field_presence"] is None
 
 
 @pytest.mark.parametrize("station,task", [
@@ -212,3 +223,82 @@ def test_invalid_identifiers_are_rejected(station, task):
         choose_one_candidate_schedule_probe(
             [], [], {}, station, task
         )
+
+def test_multiple_current_intervals_do_not_merge_private_field_shapes():
+    _member, meta = choose_one_candidate_schedule_probe(
+        history(), groups(), task_index(), 194, 7674
+    )
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    summary = summarize_one_candidate_schedule_probe(
+        meta,
+        {
+            "intervals": [
+                {
+                    "start_time": "2026-10-25T10:00:00+00:00",
+                    "end_time": "2026-10-25T11:00:00+00:00",
+                    "available": True,
+                    "skill_ids": [7, 775],
+                    "private_name": "CONFIDENTIAL",
+                },
+                {
+                    "start_time": "2026-10-25T10:20:00+00:00",
+                    "end_time": "2026-10-25T10:40:00+00:00",
+                    "available": False,
+                    "assigned_function_ids": [8],
+                },
+            ]
+        },
+        now,
+    )
+    assert summary["current_interval_present"] is True
+    assert summary["current_interval_matches"] == 2
+    assert summary["current_interval_field_presence"] is None
+    assert summary["current_candidate_available"] is None
+    assert "CONFIDENTIAL" not in str(summary)
+    assert "775" not in str(summary)
+    assert "available': False" not in str(summary)
+
+
+def test_valid_interval_reports_only_presence_not_skill_values():
+    _member, meta = choose_one_candidate_schedule_probe(
+        history(), groups(), task_index(), 194, 7674
+    )
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    summary = summarize_one_candidate_schedule_probe(meta, {
+        "intervals": [{
+            "start_time": "2026-10-25T10:00:00+00:00",
+            "end_time": "2026-10-25T11:00:00+00:00",
+            "available": False,
+            "active": True,
+            "skill_ids": [99991],
+            "assigned_function_ids": [22223],
+            "detailed_availability": {
+                "standby_duty": {
+                    "skill_ids": [77778],
+                    "assigned_function_ids": [66667],
+                    "sensitive": "SECRET",
+                },
+                "unknown_provider_key": {
+                    "member_name": "DO NOT DISCLOSE",
+                },
+            },
+        }],
+    }, now)
+    shape = summary["current_interval_field_presence"]
+    assert shape == {
+        "available_is_boolean": True,
+        "active_is_boolean": True,
+        "skill_ids_is_list": True,
+        "assigned_function_ids_is_list": True,
+        "detailed_availability_is_object": True,
+        "detail_kinds_present": ["standby_duty"],
+        "nested_skill_ids_is_list": True,
+        "nested_assigned_function_ids_is_list": True,
+    }
+    for forbidden in (
+        "99991", "22223", "77778", "66667", "SECRET",
+        "DO NOT DISCLOSE", "unknown_provider_key",
+    ):
+        assert forbidden not in str(summary)
+    assert summary["current_candidate_available"] is None
+    assert summary["current_candidate_duty_type"] is None
