@@ -872,3 +872,115 @@ def enrich_compact_history_crew_coverage(
     )
     return result
 
+def build_one_time_incident_staffing_evidence(
+    *,
+    station_id: int | str,
+    cached_fairness_record: dict[str, Any],
+    api_incident: dict[str, Any] | None,
+    normalized_staffing: dict[str, Any] | None,
+    task_index: dict[Any, list[dict[str, Any]]],
+    retained_history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Safely inspect a cached fairness incident no longer retained by HA.
+
+    This uses exactly one explicitly requested incident API snapshot and the
+    existing dynamic staffing normalizer. It does NOT fetch the fairness audit,
+    persist data, restore old HA history, or expose personal information.
+    """
+    requested_station = _id(station_id)
+    incident_id = _id(cached_fairness_record.get("incident_id"))
+    if (
+        requested_station is None
+        or incident_id is None
+        or _id(cached_fairness_record.get("station_id")) != requested_station
+    ):
+        raise ValueError("Historical fairness record is not for this station")
+
+    expected_tasks = {
+        task_id
+        for value in cached_fairness_record.get("incident_task_ids") or []
+        if (task_id := _id(value)) is not None
+    }
+    base = {
+        "incident_id": incident_id,
+        "station_id": requested_station,
+        "request_scope": "single_cached_historical_incident",
+        "source": "one_time_authenticated_incident_api_get",
+        "historical_audit_refetched": False,
+        "fairness_cache_modified": False,
+        "local_incident_history_modified": False,
+        "api_record_checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if not expected_tasks:
+        return {
+            **base,
+            "crew_coverage_status": "cached_incident_task_ids_unavailable",
+            "crew_requirement_evidence": [],
+        }
+
+    if not isinstance(api_incident, dict) or _id(api_incident.get("id")) != incident_id:
+        return {
+            **base,
+            "crew_coverage_status": "api_incident_missing_or_id_mismatch",
+            "crew_requirement_evidence": [],
+        }
+
+    fetched_tasks = {
+        task_id
+        for value in api_incident.get("task_ids") or []
+        if (task_id := _id(value)) is not None
+    }
+    if fetched_tasks != expected_tasks:
+        return {
+            **base,
+            "crew_coverage_status": "api_task_ids_differ_from_cached_fairness",
+            "cached_task_ids": sorted(expected_tasks, key=int),
+            "api_task_ids": sorted(fetched_tasks, key=int),
+            "crew_requirement_evidence": [],
+        }
+
+    if not isinstance(normalized_staffing, dict) or not isinstance(
+        normalized_staffing.get("crew_requirements"), list
+    ):
+        return {
+            **base,
+            "crew_coverage_status": "api_staffing_requirements_unavailable",
+            "crew_requirement_evidence": [],
+        }
+
+    compact = enrich_compact_history_task_names(
+        {
+            "incident_evidence_overview": [{
+                "incident_id": incident_id,
+                "incident_task_ids": sorted(expected_tasks, key=int),
+            }],
+        },
+        task_index,
+        requested_station,
+    )
+
+    # Append the just-fetched staffing *last* so its ID takes precedence.
+    # The other locally retained snapshots are used only to resolve missing
+    # role short codes for this station, task and skill.
+    current = {
+        "id": incident_id,
+        "crew_requirements": normalized_staffing["crew_requirements"],
+        "crew_summary": normalized_staffing.get("crew_summary"),
+    }
+    preview = enrich_compact_history_crew_coverage(
+        compact, [*retained_history, current], requested_station
+    )
+    evidence = preview["incident_evidence_overview"][0]
+    return {
+        **base,
+        "incident_task_ids": sorted(expected_tasks, key=int),
+        "resolved_tasks": evidence.get("resolved_tasks", []),
+        "crew_coverage_status": evidence.get("crew_coverage_status"),
+        "crew_requirement_evidence": evidence.get("crew_requirement_evidence", []),
+        "interpretation": (
+            "On-demand retrospective API staffing evidence for this incident. "
+            "Not a snapshot at fairness proposal time or proof of physical "
+            "vehicle turnout. Function counts can overlap; supplemental "
+            "positions are evaluated separately where identifiable."
+        ),
+    }
