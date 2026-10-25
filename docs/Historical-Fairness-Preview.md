@@ -447,3 +447,51 @@ required skill. No live operational changes are permitted in this phase.
 
 Existing stable `extended`, CarPlay/Assist, station availability actions,
 and regular incident storage are not modified by this advisory preview.
+
+## Phase 1b: opt-in single-candidate availability API probe
+
+The authenticated integration already reads
+`memberships/{membership_id}/combined_schedule` for the logged-in member's
+per-station duty sensor. We have **not** established whether the API permits
+reading a different, historically proposed member's schedule. Never infer a
+whole-station eligible roster merely from the station's cached group membership
+rows or a successful read for the logged-in member.
+
+For a strictly bounded test of **one historical candidate** at an authorized
+station/task, use Developer Tools -> Actions:
+
+```yaml
+action: fireservicerota.probe_fairness_availability
+data:
+  station_id: 194
+  task_id: 7674
+```
+
+The service checks that the task is indexed for this station, intersects
+historically proposed memberships from complete single-task audit records with
+the active memberships of this station or its descendants in cached groups,
+then chooses one reproducible *sample* from the latest matching proposal.
+That selection is **not a fairness ranking or forecast**. If no match exists,
+it returns a reason without making a request.
+
+When a matching historical membership exists, the action makes **at most one
+read-only authenticated GET** to that member's `combined_schedule` for the
+current local calendar day, using the same day-window format as the existing
+per-membership duty sensor.
+
+Returned data is **anonymous**. The action reports only whether the
+endpoint returned the expected `intervals` list and whether a valid interval
+covers the current instant. It does **not** return the selected member's
+name, ID, actual available/unavailable state, duty type, detailed availability,
+schedule timestamps, skill list or the raw API response, and it does not
+store any schedule information. A failure is reported conservatively as
+`api_schedule_unavailable_or_permission_denied`; it does not claim a
+specific HTTP status or prove the person is unavailable.
+
+Even a successful probe validates only API readability for **one member**.
+It does not validate current task eligibility, coverage of all station members,
+an expected incident crew, or BrandweerRooster's selection policy. A full
+forecast would require explicitly authorized, scalable station-scoped reads,
+current eligibility/skill evidence and out-of-sample validation before use.
+The production `extended` branch and existing operational actions are
+unchanged.
