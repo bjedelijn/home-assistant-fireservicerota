@@ -30,6 +30,10 @@ from .fairness_availability_probe import (
     choose_one_candidate_schedule_probe,
     summarize_one_candidate_schedule_probe,
 )
+from .fairness_requirement_probe import (
+    choose_historical_task_requirement,
+    summarize_task_requirement_schedule,
+)
 from .historical_fairness import (
     build_compact_history_evidence,
     enrich_compact_history_task_names,
@@ -81,6 +85,7 @@ from .const import (
     SERVICE_PREVIEW_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_ADVISORY,
     SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+    SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_INSPECT_HISTORICAL_STAFFING,
     SERVICE_SAVE_HISTORICAL_STAFFING,
     SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -311,6 +316,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_PREVIEW_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_ADVISORY,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+            SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_INSPECT_HISTORICAL_STAFFING,
             SERVICE_SAVE_HISTORICAL_STAFFING,
             SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -640,6 +646,56 @@ def _async_register_services(hass: HomeAssistant) -> None:
             safe_selection, schedule, now
         )
 
+    async def async_probe_fairness_task_coverage(call: ServiceCall) -> dict:
+        """Inspect one known appliance requirement's current aggregate status.
+
+        The requirement ID must be uniquely supported by historical station
+        and single-task snapshots. One read-only GET, no member information,
+        no changes to HA storage, duty state or provider records.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        rows = await _historical_cache(entry_data).async_list(station_id)
+        historical = build_historical_role_preview(rows, station_id)
+        compact = enrich_compact_history_task_names(
+            build_compact_history_evidence(historical),
+            client.task_index,
+            station_id,
+        )
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        coverage = enrich_compact_history_crew_coverage(
+            compact,
+            incident_store.history if incident_store is not None else [],
+            station_id,
+            cached_fairness_records=rows,
+        )
+        requirement_id, selection = choose_historical_task_requirement(
+            coverage,
+            station_id,
+            task_id,
+            client.task_index,
+        )
+        if requirement_id is None:
+            return selection
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        try:
+            # Official appliance-status GET, day bounds aligned to 00:00.
+            # Do not expose/log response payloads or personal memberships.
+            schedule = await client.async_api_get(
+                f"availability_requirements/{requirement_id}/schedule",
+                client._schedule_window_params(),
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Single task-coverage probe failed (%s)",
+                type(err).__name__,
+            )
+            schedule = None
+        return summarize_task_requirement_schedule(selection, schedule, now)
+
     async def async_inspect_historical_staffing(call: ServiceCall) -> dict:
         """Read one cached historical incident's live API staffing once.
 
@@ -832,6 +888,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             DOMAIN,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             async_probe_fairness_availability,
+            schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_FAIRNESS_TASK_COVERAGE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
+            async_probe_fairness_task_coverage,
             schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
