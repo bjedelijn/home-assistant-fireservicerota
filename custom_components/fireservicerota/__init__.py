@@ -29,6 +29,7 @@ from .historical_fairness import (
     build_compact_history_evidence,
     enrich_compact_history_task_names,
     enrich_compact_history_crew_coverage,
+    build_one_time_incident_staffing_evidence,
     build_historical_role_preview,
     select_retained_history_ids,
     summarize_incident_for_history,
@@ -70,6 +71,7 @@ from .const import (
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
     SERVICE_IMPORT_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_HISTORY,
+    SERVICE_INSPECT_HISTORICAL_STAFFING,
     SERVICE_CLEAR_FAIRNESS_HISTORY,
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
@@ -183,6 +185,17 @@ PREVIEW_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
 )
 
 
+INSPECT_HISTORICAL_STAFFING_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_INCIDENT_ID): vol.All(
+            vol.Coerce(str), vol.Match(r"^[0-9]+$")
+        ),
+    }
+)
+
+
 BACKFILL_HISTORY_STAFFING_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -266,6 +279,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_ANALYZE_INCIDENT_FAIRNESS,
             SERVICE_IMPORT_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_HISTORY,
+            SERVICE_INSPECT_HISTORICAL_STAFFING,
             SERVICE_CLEAR_FAIRNESS_HISTORY,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
@@ -511,6 +525,60 @@ def _async_register_services(hass: HomeAssistant) -> None:
             )
         return preview
 
+    async def async_inspect_historical_staffing(call: ServiceCall) -> dict:
+        """Read one cached historical incident's live API staffing once.
+
+        This does not fetch audit pages, change any local cache, or restore the
+        incident to the bounded incident-history entity.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        incident_id = call.data[ATTR_INCIDENT_ID]
+        _history_station(entry_data, station_id)
+
+        records = await _historical_cache(entry_data).async_list(station_id)
+        cached = next(
+            (row for row in records if str(row.get("incident_id")) == incident_id),
+            None,
+        )
+        if cached is None:
+            raise HomeAssistantError(
+                "Incident is not in this station's private historical fairness cache"
+            )
+
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        if incident_store is None:
+            raise HomeAssistantError(
+                "FireServiceRota incident store is not ready yet"
+            )
+        client = entry_data[DATA_CLIENT]
+        try:
+            # One authorized API GET; no audit or write request.
+            incident = await client.async_api_get(f"incidents/{incident_id}", None)
+            staffing = (
+                incident_store._normalize_staffing(incident)
+                if isinstance(incident, dict)
+                else None
+            )
+        except Exception as err:
+            _LOGGER.warning(
+                "On-demand historical staffing read failed for incident %s (%s)",
+                incident_id,
+                type(err).__name__,
+            )
+            raise HomeAssistantError(
+                "Could not read historical incident staffing from BrandweerRooster"
+            ) from err
+
+        return build_one_time_incident_staffing_evidence(
+            station_id=station_id,
+            cached_fairness_record=cached,
+            api_incident=incident,
+            normalized_staffing=staffing,
+            task_index=client.task_index,
+            retained_history=incident_store.history,
+        )
+
     async def async_clear_fairness_history(call: ServiceCall) -> dict:
         """Erase the local cache for a station; never touch BrandweerRooster."""
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
@@ -590,6 +658,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history,
             schema=PREVIEW_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_INSPECT_HISTORICAL_STAFFING):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_INSPECT_HISTORICAL_STAFFING,
+            async_inspect_historical_staffing,
+            schema=INSPECT_HISTORICAL_STAFFING_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_CLEAR_FAIRNESS_HISTORY):
         hass.services.async_register(
