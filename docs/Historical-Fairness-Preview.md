@@ -235,3 +235,28 @@ data:
 
 This feature remains in a **draft PR** until tests pass and the user verifies
 real historical incidents. No automatic response or dispatch changes are made.
+
+## Retained incident skill coverage (compact preview only)
+
+The same `overview_only: true` action also performs a **local, read-only**
+join with retained Home Assistant incident snapshots. No audit re-import, new
+incident API call, or storage update is required.
+
+For unambiguously station- and task-scoped `crew_requirements`, the preview
+adds `crew_requirement_evidence` with `required`, recorded `assigned`,
+and `shortfall` per skill. For example, a WTS with two assigned drivers
+of two required, but two recorded manschap skill coverages of four required,
+has a **two-manschap skill-coverage shortfall**. This does not establish two
+missing unique personnel; overlapping role requirements are never summed.
+
+The `coverage_source` value `warning_statuses_available_memberships`
+indicates availability, not assigned crew; the preview deliberately returns
+`assigned: null`, `shortfall: null`, and potentially `sufficient: null`.
+If an incident snapshot or unambiguous task/station mapping is missing, a
+`crew_coverage_status` describes missing evidence rather than guessing.
+
+`crew_coverage_source` identifies this as a retained normalized incident
+snapshot, **not** a snapshot taken at the time of the fairness proposal.
+Neither assignments nor `dispatched` independently prove physical turnout.
+The diagnostic remains descriptive, without scores or crew predictions.
+
