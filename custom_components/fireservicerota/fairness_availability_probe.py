@@ -18,7 +18,7 @@ def _station_group_memberships(
 ) -> tuple[set[str], dict[str, int | None]]:
     """Find only cached station/descendant group memberships marked active."""
     matching: set[str] = set()
-    ids_to_users: dict[str, int | None] = {}
+    user_ids_per_membership: dict[str, set[str | None]] = {}
     for group in groups if isinstance(groups, list) else []:
         if not isinstance(group, dict):
             continue
@@ -44,7 +44,16 @@ def _station_group_memberships(
                 continue
             matching.add(membership_id)
             user_id = _id(member.get("user_id"))
-            ids_to_users[membership_id] = int(user_id) if user_id else None
+            # A conflicting or missing user link must never be treated as
+            # proof that this is a *different* person than the caller.
+            user_ids_per_membership.setdefault(membership_id, set()).add(
+                user_id
+            )
+    ids_to_users = {
+        member: int(next(iter(values)))
+        if len(values) == 1 and None not in values else None
+        for member, values in user_ids_per_membership.items()
+    }
     return matching, ids_to_users
 
 
@@ -54,6 +63,9 @@ def choose_one_candidate_schedule_probe(
     task_index: dict[Any, Any],
     station_id: int | str,
     task_id: int | str,
+    *,
+    authenticated_user_id: int | str | None = None,
+    require_other_user: bool = False,
 ) -> tuple[int | None, dict[str, Any]]:
     """Select one previously proposed membership in this station/task only.
 
@@ -65,6 +77,9 @@ def choose_one_candidate_schedule_probe(
     task = _id(task_id)
     if station is None or task is None:
         raise ValueError("station_id and task_id must be numeric")
+    if not isinstance(require_other_user, bool):
+        raise ValueError("require_other_user must be boolean")
+    authenticated = _id(authenticated_user_id)
 
     indexed = any(
         _id(key) == task
@@ -91,6 +106,8 @@ def choose_one_candidate_schedule_probe(
         "current_station_crew_eligibility_verified": False,
         "full_station_availability_verified": False,
         "selected_candidate_represents_predicted_lineup": False,
+        "require_other_user": require_other_user,
+        "selected_candidate_relation_to_authenticated_user": "not_verified",
     }
     if not indexed:
         return None, {
@@ -147,24 +164,98 @@ def choose_one_candidate_schedule_probe(
             "probe_status": "no_history_member_match_in_active_cached_groups",
         }
 
+    if require_other_user and authenticated is None:
+        return None, {
+            **base,
+            "probe_status": "authenticated_user_identity_unavailable",
+        }
+    eligible_matches = matched
+    if require_other_user:
+        eligible_matches = {
+            membership
+            for membership in matched
+            if users.get(membership) is not None
+            and str(users[membership]) != authenticated
+        }
+        if not eligible_matches:
+            return None, {
+                **base,
+                "probe_status": "no_confirmed_other_user_in_cached_candidates",
+            }
+
     # Latest proposal merely provides a reproducible sample. No rank, role
     # preference or probability is inferred. Sort numeric IDs, not names.
     for _at, _incident, memberships in sorted(
         recent_records, key=lambda row: (row[0], row[1]), reverse=True
     ):
-        choices = matched.intersection(memberships)
+        choices = eligible_matches.intersection(memberships)
         if choices:
             selected = min(choices, key=int)
+            selected_user = users.get(selected)
+            relation = (
+                "confirmed_different_user"
+                if authenticated is not None
+                and selected_user is not None
+                and str(selected_user) != authenticated
+                else "same_authenticated_user"
+                if authenticated is not None
+                and selected_user is not None
+                and str(selected_user) == authenticated
+                else "not_verified"
+            )
             return int(selected), {
                 **base,
                 "probe_status": "ready_for_single_read_only_GET",
-                "sampling_rule": "first_numeric_member_in_latest_matching_proposal",
+                "sampling_rule": (
+                    "first_numeric_confirmed_other_user_in_latest_matching_proposal"
+                    if require_other_user
+                    else "first_numeric_member_in_latest_matching_proposal"
+                ),
+                "selected_candidate_relation_to_authenticated_user": relation,
                 "membership_selection_is_a_forecast": False,
             }
 
     return None, {
         **base,
         "probe_status": "no_history_member_match_in_active_cached_groups",
+    }
+
+
+def _current_interval_field_presence(
+    interval: dict[str, Any],
+) -> dict[str, Any]:
+    """Inspect a narrow allowlist of field *types*, never the values."""
+    details = interval.get("detailed_availability")
+    kinds = (
+        ("standby_duty", "standby_duty"),
+        ("exception", "exception"),
+        ("recurring", "recurring"),
+    )
+    nested = [
+        details.get(key)
+        for key, _label in kinds
+        if isinstance(details, dict)
+        and isinstance(details.get(key), dict)
+    ]
+    return {
+        "available_is_boolean": isinstance(interval.get("available"), bool),
+        "active_is_boolean": isinstance(interval.get("active"), bool),
+        "skill_ids_is_list": isinstance(interval.get("skill_ids"), list),
+        "assigned_function_ids_is_list": isinstance(
+            interval.get("assigned_function_ids"), list
+        ),
+        "detailed_availability_is_object": isinstance(details, dict),
+        "detail_kinds_present": [
+            label for key, label in kinds
+            if isinstance(details, dict) and key in details
+        ],
+        "nested_skill_ids_is_list": any(
+            isinstance(obj.get("skill_ids"), list) for obj in nested
+        ),
+        "nested_assigned_function_ids_is_list": any(
+            isinstance(obj.get("assigned_function_ids"), list)
+            for obj in nested
+        ),
     }
 
 
@@ -204,7 +295,7 @@ def summarize_one_candidate_schedule_probe(
             "current_interval_present": None,
         }
 
-    current_interval = False
+    current_intervals: list[dict[str, Any]] = []
     valid_interval_count = 0
     for interval in intervals[:500]:
         if not isinstance(interval, dict):
@@ -222,23 +313,35 @@ def summarize_one_candidate_schedule_probe(
                 continue
             valid_interval_count += 1
             if start <= checked_at < end:
-                current_interval = True
+                current_intervals.append(interval)
         except (TypeError, ValueError):
             continue
 
+    # Ambiguous overlapping current intervals are never merged or guessed.
+    # Only a *unique* matching interval is eligible for field-shape testing.
+    field_presence = (
+        _current_interval_field_presence(current_intervals[0])
+        if len(current_intervals) == 1 else None
+    )
     return {
         **base,
-        "probe_status": "readable_schedule_current_interval" if current_interval
-        else "readable_schedule_but_no_current_interval",
+        "probe_status": (
+            "readable_schedule_current_interval"
+            if current_intervals
+            else "readable_schedule_but_no_current_interval"
+        ),
         "schedule_response_structure_readable": True,
         "schedule_interval_count": len(intervals),
         "valid_timestamped_interval_count": valid_interval_count,
-        "current_interval_present": current_interval,
+        "current_interval_present": bool(current_intervals),
+        "current_interval_matches": len(current_intervals),
+        "current_interval_field_presence": field_presence,
         "interpretation": (
             "The API response format was inspected for one historically "
-            "proposed membership only. No candidate availability, individual "
-            "schedule times, names, IDs, duty types or predictions are "
-            "returned. Permission/readability for one membership cannot "
-            "prove access to the complete current station roster."
+            "proposed membership only. Field presence checks report schema "
+            "types, not the person's available/unavailable status, role or "
+            "skill IDs. No individual schedule times, names, IDs, duty types "
+            "or predictions are returned. A confirmed different-user match "
+            "validates only that one API GET, not full station roster access."
         ),
     }
