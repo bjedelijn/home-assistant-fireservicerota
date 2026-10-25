@@ -18,7 +18,7 @@ def _station_group_memberships(
 ) -> tuple[set[str], dict[str, int | None]]:
     """Find only cached station/descendant group memberships marked active."""
     matching: set[str] = set()
-    ids_to_users: dict[str, int | None] = {}
+    user_links: dict[str, set[str | None]] = {}
     for group in groups if isinstance(groups, list) else []:
         if not isinstance(group, dict):
             continue
@@ -43,8 +43,16 @@ def _station_group_memberships(
             if membership_id is None:
                 continue
             matching.add(membership_id)
-            user_id = _id(member.get("user_id"))
-            ids_to_users[membership_id] = int(user_id) if user_id else None
+            # A missing or conflicting member/user link must remain unknown.
+            # Never let a later group silently override an earlier identity.
+            user_links.setdefault(membership_id, set()).add(
+                _id(member.get("user_id"))
+            )
+    ids_to_users = {
+        membership_id: int(next(iter(links)))
+        if len(links) == 1 and None not in links else None
+        for membership_id, links in user_links.items()
+    }
     return matching, ids_to_users
 
 
@@ -54,6 +62,8 @@ def choose_one_candidate_schedule_probe(
     task_index: dict[Any, Any],
     station_id: int | str,
     task_id: int | str,
+    *,
+    authenticated_user_id: int | str | None = None,
 ) -> tuple[int | None, dict[str, Any]]:
     """Select one previously proposed membership in this station/task only.
 
@@ -65,6 +75,7 @@ def choose_one_candidate_schedule_probe(
     task = _id(task_id)
     if station is None or task is None:
         raise ValueError("station_id and task_id must be numeric")
+    authenticated = _id(authenticated_user_id)
 
     indexed = any(
         _id(key) == task
@@ -91,6 +102,7 @@ def choose_one_candidate_schedule_probe(
         "current_station_crew_eligibility_verified": False,
         "full_station_availability_verified": False,
         "selected_candidate_represents_predicted_lineup": False,
+        "selected_candidate_relation_to_authenticated_user": "not_verified",
     }
     if not indexed:
         return None, {
@@ -155,10 +167,19 @@ def choose_one_candidate_schedule_probe(
         choices = matched.intersection(memberships)
         if choices:
             selected = min(choices, key=int)
+            selected_user = users.get(selected)
+            relation = (
+                "not_verified"
+                if authenticated is None or selected_user is None
+                else "same_authenticated_user"
+                if str(selected_user) == authenticated
+                else "different_authenticated_user"
+            )
             return int(selected), {
                 **base,
                 "probe_status": "ready_for_single_read_only_GET",
                 "sampling_rule": "first_numeric_member_in_latest_matching_proposal",
+                "selected_candidate_relation_to_authenticated_user": relation,
                 "membership_selection_is_a_forecast": False,
             }
 
