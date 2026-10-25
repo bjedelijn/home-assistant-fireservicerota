@@ -325,3 +325,53 @@ This is initially **inspection only**: the main compact fairness preview will
 continue to show `no_retained_staffing_snapshot` for the older incident.
 A separate, reviewed opt-in persistence step would be needed to save that
 minimal staffing evidence in the local private fairness cache.
+
+## Save inspected staffing evidence locally (explicit opt-in)
+
+After confirming that an evicted incident's one-time API inspection returns
+`crew_coverage_status: recorded_skill_requirements_found`, the operator may
+**explicitly** save that evidence to Home Assistant private storage:
+
+```yaml
+action: fireservicerota.save_historical_staffing
+data:
+  station_id: 194
+  incident_id: "3076036"
+```
+
+This makes **one new read-only GET** for that incident. The response is
+validated against the matching historical fairness cache entry and its task IDs.
+Only a whitelisted, identity-free subset of the skill requirements, assigned
+counts, individually assigned counts, regular/supplemental position status,
+source, and GET timestamp is written to the *existing* private historical
+fairness record. It preserves fairness candidate histories and their audit
+timestamps. It does not store full API payloads, staff names, memberships,
+individual responses, audit lines, or credentials.
+
+If the API returns no usable staffing, mismatched tasks, or ambiguous evidence,
+nothing is saved. This action never reimports the fairness audit, sends API
+writes, modifies `sensor.incidenthistorie`, or raises the 25-incident history
+retention limit. It does not run automatically.
+
+After successful saving, rerun:
+
+```yaml
+action: fireservicerota.preview_fairness_history
+data:
+  station_id: 194
+  overview_only: true
+```
+
+The evicted incident's existing fairness overview can then show the stored
+`crew_requirement_evidence`, `regular_crew_sufficient`, and any separate
+supplemental coverage. The row identifies
+`crew_coverage_evidence_source:
+explicitly_saved_single_incident_api_snapshot` and its
+`crew_coverage_checked_at` time. Fresh HA retained incident snapshots take
+precedence over separately saved evidence, if an incident is retained again.
+
+The saved counts are **retrospective API evidence** and may differ from both
+the state at the fairness proposal time and the physical crew that traveled.
+Any later explicit fairness audit re-import of this same incident retains
+opted-in staffing evidence as long as the incident task IDs still match.
+The 100-record private storage limit still applies.
