@@ -8,6 +8,7 @@ from custom_components.fireservicerota.historical_fairness import (
     build_compact_history_evidence,
     build_historical_role_preview,
     enrich_compact_history_task_names,
+    enrich_compact_history_crew_coverage,
     select_retained_history_ids,
     summarize_incident_for_history,
 )
@@ -562,3 +563,95 @@ def test_conflicting_station_task_names_remain_unresolved():
         compact, index, 100
     )["incident_evidence_overview"][0]["resolved_tasks"]
     assert tasks == [{"id": "7001", "resolution": "conflicting_current_task_names"}]
+
+def test_retained_wts_shortfall_is_skill_coverage_not_unique_crew():
+    sample = analysis(roles=[
+        {"name": "Person One", "role": "Chauffeur"},
+        {"name": "Person Two", "role": "Chauffeur"},
+    ])
+    sample["staffing_by_group"]["incident_task_ids"] = [7001]
+    record = summarize_incident_for_history(sample, 100)["record"]
+    compact = build_compact_history_evidence(
+        build_historical_role_preview([record], 100)
+    )
+    retained = [{
+        "id": 12001,
+        "crew_summary": {"individual_assignments_available": True},
+        "crew_requirements": [{
+            "availability_requirement_id": 9,
+            "station_ids": [100], "task_ids": [7001],
+            "skills": [
+                {"skill_id": 7, "short_code": "Bev", "required": 1,
+                 "assigned": 1, "coverage_source": "warning_statuses"},
+                {"skill_id": 1168, "short_code": "Ch", "required": 2,
+                 "assigned": 2, "coverage_source": "warning_statuses"},
+                {"skill_id": 775, "short_code": "Ms", "required": 4,
+                 "assigned": 2, "coverage_source": "warning_statuses"},
+            ],
+        }],
+    }]
+    row = enrich_compact_history_crew_coverage(
+        compact, retained, 100
+    )["incident_evidence_overview"][0]
+    assert row["crew_coverage_status"] == "recorded_skill_requirements_found"
+    req = row["crew_requirement_evidence"][0]
+    assert req["sufficient"] is False
+    assert [(v["short_code"], v["shortfall"]) for v in req["skills"]] == [
+        ("Bev", 0), ("Ch", 0), ("Ms", 2)
+    ]
+    assert "required_positions" not in str(row)
+    assert "membership_id" not in str(row)
+
+
+def test_coverage_is_unknown_without_retained_snapshot():
+    record = summarize_incident_for_history(analysis(), 100)["record"]
+    compact = build_compact_history_evidence(
+        build_historical_role_preview([record], 100)
+    )
+    row = enrich_compact_history_crew_coverage(
+        compact, [], 100
+    )["incident_evidence_overview"][0]
+    assert row["crew_coverage_status"] == "no_retained_staffing_snapshot"
+    assert row["crew_requirement_evidence"] == []
+
+
+def test_available_memberships_are_not_assigned_coverage():
+    sample = analysis()
+    sample["staffing_by_group"]["incident_task_ids"] = [7001]
+    record = summarize_incident_for_history(sample, 100)["record"]
+    compact = build_compact_history_evidence(
+        build_historical_role_preview([record], 100)
+    )
+    retained = [{"id": "12001", "crew_requirements": [{
+        "station_ids": [100], "task_ids": [7001],
+        "skills": [{"skill_id": 775, "required": 4, "assigned": 8,
+                    "coverage_source": "warning_statuses_available_memberships"}],
+    }]}]
+    row = enrich_compact_history_crew_coverage(
+        compact, retained, 100
+    )["incident_evidence_overview"][0]
+    assert row["crew_requirement_evidence"][0]["skills"][0]["assigned"] is None
+    assert row["crew_requirement_evidence"][0]["skills"][0]["shortfall"] is None
+    assert row["crew_requirement_evidence"][0]["sufficient"] is None
+
+
+def test_other_station_or_task_requirements_are_not_joined():
+    sample = analysis()
+    sample["staffing_by_group"]["incident_task_ids"] = [7001]
+    record = summarize_incident_for_history(sample, 100)["record"]
+    compact = build_compact_history_evidence(
+        build_historical_role_preview([record], 100)
+    )
+    retained = [{"id": 12001, "crew_requirements": [
+        {"station_ids": [200], "task_ids": [7001], "skills": [
+            {"skill_id": 775, "required": 4, "assigned": 2,
+             "coverage_source": "warning_statuses"}]},
+        {"station_ids": [100], "task_ids": [9999], "skills": [
+            {"skill_id": 775, "required": 4, "assigned": 2,
+             "coverage_source": "warning_statuses"}]},
+    ]}]
+    row = enrich_compact_history_crew_coverage(
+        compact, retained, 100
+    )["incident_evidence_overview"][0]
+    assert row["crew_coverage_status"] == "no_unambiguous_station_task_requirements"
+    assert row["crew_requirement_evidence"] == []
