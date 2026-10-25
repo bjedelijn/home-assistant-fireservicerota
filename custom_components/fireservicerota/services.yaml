@@ -318,6 +318,45 @@ preview_fairness_advisory:
       selector:
         boolean:
 
+probe_task_p2000_audit:
+  name: Inspect historical P2000 task filter changes
+  description: >-
+    Experimental one-page read-only audit search on one authorized task
+    (object_type=task). Inspect only numeric P2000 terms from relevant
+    task-filter change records. Never return audit text, authors, membership
+    data or credentials. Historical terms are not current vehicle mappings.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Active authorized station for the task.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: The task to inspect, e.g. 7678 (Hardenberg TS-BT).
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    page:
+      name: Audit page
+      description: One page only (1-5); page 1 is newest, page 2 contains older changes.
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: box
+
 probe_task_p2000_mapping:
   name: Inspect P2000 vehicle term for one task
   description: >-
