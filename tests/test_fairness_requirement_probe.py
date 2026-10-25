@@ -98,6 +98,16 @@ def chosen():
     )
 
 
+def shared_ts_task_index():
+    return {
+        **task_index(),
+        7678: [{
+            "id": 7678, "name": "TS-BT", "station_id": 194,
+            "private_member_name": "NEVER RETURN",
+        }],
+    }
+
+
 def sample_schedule():
     return {
         "available_memberships": [
@@ -355,3 +365,121 @@ def test_empty_current_task_ids_fail_closed_even_with_known_requirement():
     assert result["probe_status"] == "api_task_ids_missing"
     assert result["current_api_task_mapping_status"] == "task_ids_missing"
     assert result["current_aggregate_skill_coverage_checked"] is False
+
+def test_verified_shared_ts_and_ts_bt_exposes_requirement_level_only():
+    _, selection = chosen()
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    response = sample_schedule()
+    response["availability_requirement"]["task_ids"] = [7674, 7678]
+    response["availability_requirement"]["user_name"] = "SENSITIVE CURRENT"
+    response["intervals"][0]["available_memberships"] = [
+        {"user_name": "CONFIDENTIAL", "id": 17441},
+    ]
+    output = summarize_task_requirement_schedule(
+        selection, response, now, task_index=shared_ts_task_index()
+    )
+    assert output["probe_status"] == (
+        "readable_current_shared_requirement_skill_statuses"
+    )
+    assert output["current_api_requirement_id_matches"] is True
+    assert output["current_api_task_ids_match"] is False
+    assert output["current_api_requested_task_included"] is True
+    assert output["api_reported_task_ids"] == ["7674", "7678"]
+    assert output["current_api_task_mapping_status"] == (
+        "shared_same_station_tasks_verified"
+    )
+    assert output["shared_task_station_scope_verified"] is True
+    assert output["current_aggregate_scope"] == (
+        "shared_requirement_same_station_not_task_specific"
+    )
+    assert output["resolved_requirement_tasks"] == [
+        {"id": "7674", "name": "TS"},
+        {"id": "7678", "name": "TS-BT"},
+    ]
+    assert output["current_aggregate_service_level"] == "in_service"
+    assert output["current_aggregate_warning_level"] == "on_required"
+    assert output["current_configuration_matches_historical_skill_ids"] is True
+    assert len(output["current_aggregate_skills"]) == 4
+    assert output["current_aggregate_skill_coverage_checked"] is True
+    assert output["actual_vehicle_crew_verified"] is False
+    assert output["current_personnel_eligibility_verified"] is False
+    assert output["predicted_lineup"] is None
+    assert "NOT a separate vehicle count" in output["interpretation"]
+    for private in (
+        "SENSITIVE CURRENT", "CONFIDENTIAL", "NEVER RETURN", "17441",
+        "available_memberships", "private_member_name", "user_name",
+    ):
+        assert private not in str(output)
+
+
+@pytest.mark.parametrize("problem", [
+    "missing_ts_bt",
+    "other_station",
+    "ambiguous_name",
+    "other_station_duplicate",
+    "malformed_label",
+    "bad_task_id",
+])
+def test_shared_requirement_fails_closed_on_task_index_ambiguity(problem):
+    _, selection = chosen()
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    response = sample_schedule()
+    response["availability_requirement"]["task_ids"] = [7674, 7678]
+    mapping = shared_ts_task_index()
+    if problem == "missing_ts_bt":
+        mapping.pop(7678)
+    elif problem == "other_station":
+        mapping[7678][0]["station_id"] = 200
+    elif problem == "ambiguous_name":
+        mapping[7678][0]["name"] = ""
+    elif problem == "other_station_duplicate":
+        mapping[7678].append({
+            "id": 7678, "name": "TS-BT", "station_id": 200,
+        })
+    elif problem == "malformed_label":
+        mapping[7678][0]["name"] = "<unsafe title>"
+    elif problem == "bad_task_id":
+        mapping[7678][0]["id"] = 8888
+
+    result = summarize_task_requirement_schedule(
+        selection, response, now, task_index=mapping
+    )
+    assert result["probe_status"] == "api_requirement_shared_across_tasks"
+    assert result["current_api_task_mapping_status"] == "shared_across_tasks"
+    assert result["shared_task_station_scope_verified"] is False
+    assert result["resolved_requirement_tasks"] == []
+    assert result["current_aggregate_scope"] == "not_verified"
+    assert result["current_aggregate_skills"] == []
+    assert result["current_requirement_configuration"] == []
+    assert result["current_aggregate_service_level"] is None
+    assert result["current_aggregate_warning_level"] is None
+    assert result["current_aggregate_skill_coverage_checked"] is False
+
+
+def test_shared_requirement_no_current_interval_keeps_crew_unknown():
+    _, selection = chosen()
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    response = sample_schedule()
+    response["availability_requirement"]["task_ids"] = [7674, 7678]
+    response["intervals"] = []
+    result = summarize_task_requirement_schedule(
+        selection, response, now, task_index=shared_ts_task_index()
+    )
+    assert result["shared_task_station_scope_verified"] is True
+    assert result["probe_status"] == "no_current_interval"
+    assert result["current_aggregate_skill_coverage_checked"] is False
+    assert result["current_aggregate_skills"] == []
+    assert result["actual_vehicle_crew_verified"] is False
+
+
+def test_shared_requirement_cannot_read_other_station_or_task_exclusively():
+    _, selection = chosen()
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    response = sample_schedule()
+    response["availability_requirement"]["task_ids"] = [7678]
+    output = summarize_task_requirement_schedule(
+        selection, response, now, task_index=shared_ts_task_index()
+    )
+    assert output["probe_status"] == "api_task_ids_do_not_match"
+    assert output["current_aggregate_scope"] == "not_verified"
+    assert output["current_aggregate_skills"] == []
