@@ -160,7 +160,7 @@ def test_audit_limits_records_and_never_returns_raw_user_content():
 def test_large_or_invalid_change_text_is_not_exposed_or_parsed():
     records = [
         {"changes": "required p2000 term 042340 " * 3000},
-        {"changes": {"value": {"person": "SECRET", "id": 042340}}},
+        {"changes": {"value": {"person": "SECRET", "id": "042340"}}},
         {"changes": 123},
     ]
     result = summarize_task_audit_probe(selection(), records)
