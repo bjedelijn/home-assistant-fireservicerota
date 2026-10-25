@@ -474,6 +474,19 @@ then chooses one reproducible *sample* from the latest matching proposal.
 That selection is **not a fairness ranking or forecast**. If no match exists,
 it returns a reason without making a request.
 
+The response now also contains
+`selected_candidate_relation_to_authenticated_user` with one of:
+`same_authenticated_user`, `different_authenticated_user`, or
+`not_verified`. It compares the cached active membership's `user_id`
+with the already authenticated account's ID, **without returning either ID**.
+When any ID is absent or conflicting across cached group entries, the relation
+is `not_verified`. This does not change which historical candidate was
+sampled and introduces **no additional GET requests**. A readable response
+for a different user demonstrates that this particular GET was accepted by
+the API; it still does not prove access to the entire station's current roster,
+the person's operational availability or an authorization policy beyond this
+request.
+
 When a matching historical membership exists, the action makes **at most one
 read-only authenticated GET** to that member's `combined_schedule` for the
 current local calendar day, using the same day-window format as the existing
