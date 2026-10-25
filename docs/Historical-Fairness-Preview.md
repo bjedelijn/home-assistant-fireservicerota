@@ -947,3 +947,40 @@ station-wide correlation remains a retrospective co-occurrence diagnostic,
 not an API-verified configuration, and current task-index station scope
 is not a historical record of which tasks existed at the incident date.
 The script does not modify staffing fairness evidence or station readiness.
+
+### Validated Hardenberg station-wide result (25 October 2026)
+
+The user ran `fireservicerota.preview_station_task_p2000_history` with
+`station_id: 194`, the 25 retained closed incidents and five explicitly
+requested historic incidents (`3012389`, `2992516`, `2969366`,
+`2864999`, `2805609`). All five extra `GET incidents/<id>` calls
+succeeded. The analyzer resolved all **31 current station tasks**,
+reported **2 strong candidates, 1 tentative candidate**, **0 candidate
+conflicts**, and omitted no indexed tasks. These are *test observations*,
+not an independently confirmed API config map.
+
+| Task name | Task ID | Historical P2000 candidate | Evidence |
+| --- | --- | --- | --- |
+| TS | `7674` | `042330` | strong: 16/16 task incidents contain term; 14 single-task, 10 single-task/single-term |
+| TS-BT | `7678` | `042340` | strong: 5/5 task incidents contain term; 2 single-task, 1 single-task/single-term |
+| RV | `7689` | `042350` | tentative: 2/2 task incidents contain term; 2 single-task, 1 single-task/single-term |
+| WTS | `7001` | none proposed (`042381` observed) | insufficient: 1 single-task/single-term incident |
+| TW-G | `7684` | none proposed | only 2 multi-task incidents; `042241`, `042360`, `052441` all appear in both |
+| 26 other indexed tasks | — | none proposed | no usable task-specific incident records in this sample |
+
+The previous user-supplied **authenticated task website HTML** confirms
+`TS-BT (7678) -> required P2000 message term 042340` as a *current
+configuration field*. For TS, RV, WTS and TW-G, the station-wide analysis
+does **not** verify the current provider settings. The action explicitly
+reported `current_task_configuration_verified: false` and
+`operational_vehicle_dispatch_verified: false` throughout. The
+`100`/`92` evidence scores are uncalibrated heuristic indices,
+**not probabilities**.
+
+Suggested next data collection for RV, WTS and TW-G: retrieve additional
+numeric historic incident IDs from their authorized task "Incidenten"
+pages, then explicitly provide those IDs to either the one-task or
+station-wide action. Keep comparisons task-scoped, and leave any
+multi-task-only or single-observation result unassigned until further
+independent evidence is available. No change to `extended`, vehicle
+mappings or local fairness scoring follows from this observation.
