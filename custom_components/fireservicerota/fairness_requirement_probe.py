@@ -229,6 +229,10 @@ def summarize_task_requirement_schedule(
         "api_checked_at": checked_at.isoformat(),
         "current_api_requirement_id_matches": None,
         "current_api_task_ids_match": None,
+        "api_reported_task_ids": [],
+        "api_reported_task_ids_count": None,
+        "current_api_requested_task_included": None,
+        "current_api_task_mapping_status": "unverified",
         "current_aggregate_service_level": None,
         "current_aggregate_warning_level": None,
         "current_aggregate_skills": [],
@@ -258,17 +262,46 @@ def summarize_task_requirement_schedule(
             "probe_status": "api_requirement_id_mismatch",
         }
     base["current_api_requirement_id_matches"] = True
-    response_tasks = {
-        parsed
-        for raw in meta.get("task_ids") or []
-        if (parsed := _id(raw)) is not None
-    }
-    if response_tasks:
-        base["current_api_task_ids_match"] = response_tasks == {task}
-        if response_tasks != {task}:
-            return {**base, "probe_status": "api_task_ids_do_not_match"}
-    # An ID match alone does not prove the requirement is still configured for
-    # the same task; the API may omit the task_ids field.
+
+    # The official appliance endpoint can list multiple task IDs for one
+    # availability requirement. Inspect only tightly bounded numeric task IDs;
+    # NEVER treat membership IDs, names or raw API objects as safe diagnostics.
+    raw_task_ids = meta.get("task_ids")
+    if raw_task_ids is None or raw_task_ids == []:
+        base["current_api_task_mapping_status"] = "task_ids_missing"
+        return {**base, "probe_status": "api_task_ids_missing"}
+    if (
+        not isinstance(raw_task_ids, list)
+        or len(raw_task_ids) > 50
+        or any(
+            (value := _id(item)) is None
+            or len(value) > 18
+            or int(value) < 1
+            for item in raw_task_ids
+        )
+    ):
+        base["current_api_task_mapping_status"] = "task_ids_invalid"
+        return {**base, "probe_status": "api_task_ids_invalid"}
+
+    response_tasks = {str(int(_id(item))) for item in raw_task_ids}
+    if len(response_tasks) != len(raw_task_ids):
+        base["current_api_task_mapping_status"] = "task_ids_invalid"
+        return {**base, "probe_status": "api_task_ids_invalid"}
+
+    ordered_tasks = sorted(response_tasks, key=int)
+    base["api_reported_task_ids"] = ordered_tasks
+    base["api_reported_task_ids_count"] = len(ordered_tasks)
+    base["current_api_requested_task_included"] = task in response_tasks
+    base["current_api_task_ids_match"] = response_tasks == {task}
+
+    if task not in response_tasks:
+        base["current_api_task_mapping_status"] = "different_tasks"
+        return {**base, "probe_status": "api_task_ids_do_not_match"}
+    if len(response_tasks) != 1:
+        base["current_api_task_mapping_status"] = "shared_across_tasks"
+        return {**base, "probe_status": "api_requirement_shared_across_tasks"}
+
+    base["current_api_task_mapping_status"] = "single_requested_task"
     current_config = _skill_config(
         meta.get("single_skill_availability_requirements")
     )
