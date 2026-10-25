@@ -55,6 +55,39 @@ def official_task_web_origin(raw_base_url: Any) -> str | None:
     return "https://" + _OFFICIAL_HOST
 
 
+def classify_web_redirect(
+    location: Any, *, station_id: str, task_id: str,
+) -> str:
+    """Classify a Location header without ever exposing its URL or query.
+
+    This is intentionally a diagnostic only. Redirects are NEVER followed.
+    In particular, Location may contain sensitive OAuth state or session data.
+    """
+    if not isinstance(location, str) or not location or len(location) > 2048:
+        return "location_missing_or_unusable"
+    try:
+        target = urlsplit(location)
+        if target.netloc and (
+            target.scheme != "https"
+            or target.hostname != _OFFICIAL_HOST
+            or target.username is not None
+            or target.password is not None
+            or target.port not in (None, 443)
+        ):
+            return "external_or_untrusted_redirect"
+    except ValueError:
+        return "location_missing_or_unusable"
+
+    path = target.path.rstrip("/")
+    if path == f"/groups/{station_id}/tasks/{task_id}":
+        return "same_task_page_redirect"
+    if path in ("/users/sign_in", "/sign_in", "/login", "/sessions/new"):
+        return "sign_in_redirect"
+    if path.startswith(("/users/sign_in/", "/oauth/", "/auth/")):
+        return "authentication_redirect"
+    return "other_redirect"
+
+
 def _numeric_required_terms(value: str | None) -> list[str]:
     """Only accept whole six-digit required terms, not numbers found in prose."""
     if not isinstance(value, str) or len(value) > 160:
@@ -221,6 +254,7 @@ async def async_probe_task_webpage(
         "probe_status": "not_attempted",
         "api_get_attempted": False,
         "http_status": None,
+        "redirect_destination_type": None,
         "authentication_method": "existing_oauth_bearer_only",
         "source": "one_authenticated_server_rendered_task_webpage_GET",
         "required_p2000_terms": [],
@@ -263,6 +297,11 @@ async def async_probe_task_webpage(
         ) as response:
             base["http_status"] = int(response.status)
             if 300 <= response.status <= 399:
+                base["redirect_destination_type"] = classify_web_redirect(
+                    response.headers.get("Location"),
+                    station_id=station_id,
+                    task_id=task_id,
+                )
                 return {**base, "probe_status": "redirect_to_web_session_or_other_page"}
             if response.status in (401, 403):
                 return {**base, "probe_status": "oauth_not_authorized_for_webpage"}
