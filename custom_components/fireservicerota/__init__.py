@@ -25,6 +25,7 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
+from .fairness_advisory import build_task_fairness_advisory
 from .historical_fairness import (
     build_compact_history_evidence,
     enrich_compact_history_task_names,
@@ -46,6 +47,8 @@ from .const import (
     ATTR_INCIDENT_IDS,
     ATTR_MEMBERSHIP_ID,
     ATTR_STATION_ID,
+    ATTR_TASK_ID,
+    ATTR_INCLUDE_PEOPLE,
     ATTR_AVAILABLE,
     ATTR_MODE,
     ATTR_START_TIME,
@@ -72,6 +75,7 @@ from .const import (
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
     SERVICE_IMPORT_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_HISTORY,
+    SERVICE_PREVIEW_FAIRNESS_ADVISORY,
     SERVICE_INSPECT_HISTORICAL_STAFFING,
     SERVICE_SAVE_HISTORICAL_STAFFING,
     SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -187,6 +191,16 @@ PREVIEW_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
 )
 
 
+PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_INCLUDE_PEOPLE, default=False): cv.boolean,
+    }
+)
+
+
 INSPECT_HISTORICAL_STAFFING_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -281,6 +295,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_ANALYZE_INCIDENT_FAIRNESS,
             SERVICE_IMPORT_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_HISTORY,
+            SERVICE_PREVIEW_FAIRNESS_ADVISORY,
             SERVICE_INSPECT_HISTORICAL_STAFFING,
             SERVICE_SAVE_HISTORICAL_STAFFING,
             SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -529,6 +544,42 @@ def _async_register_services(hass: HomeAssistant) -> None:
             )
         return preview
 
+    async def async_preview_fairness_advisory(call: ServiceCall) -> dict:
+        """Read-only, task-scoped historical evidence and readiness diagnostic.
+
+        Candidate names are omitted unless explicitly requested. Discovery
+        metadata is already cached and cannot establish live availability.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        records = await _historical_cache(entry_data).async_list(station_id)
+
+        preview = build_historical_role_preview(records, station_id)
+        compact = enrich_compact_history_task_names(
+            build_compact_history_evidence(preview),
+            client.task_index,
+            station_id,
+        )
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        coverage = enrich_compact_history_crew_coverage(
+            compact,
+            incident_store.history if incident_store is not None else [],
+            station_id,
+            cached_fairness_records=records,
+        )
+        return build_task_fairness_advisory(
+            records,
+            station_id,
+            task_id,
+            task_index=client.task_index,
+            groups=client.groups,
+            crew_overview=coverage,
+            include_people=call.data[ATTR_INCLUDE_PEOPLE],
+        )
+
     async def async_inspect_historical_staffing(call: ServiceCall) -> dict:
         """Read one cached historical incident's live API staffing once.
 
@@ -707,6 +758,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history,
             schema=PREVIEW_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PREVIEW_FAIRNESS_ADVISORY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+            async_preview_fairness_advisory,
+            schema=PREVIEW_FAIRNESS_ADVISORY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_INSPECT_HISTORICAL_STAFFING):
         hass.services.async_register(
