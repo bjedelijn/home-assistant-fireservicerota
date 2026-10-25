@@ -375,3 +375,75 @@ the state at the fairness proposal time and the physical crew that traveled.
 Any later explicit fairness audit re-import of this same incident retains
 opted-in staffing evidence as long as the incident task IDs still match.
 The 100-record private storage limit still applies.
+
+## Phase 1: task-scoped, read-only fairness advisory (NOT a lineup forecast)
+
+This opt-in action is a preliminary diagnostic for an active station membership.
+It requires a **task ID**, not a vehicle name or an assumed generic crew size.
+For example, the previously observed Hardenberg task IDs are `7674` (TS),
+`7689` (RV), and `7001` (WTS). Do not assume IDs are globally valid.
+
+In Developer Tools -> Actions:
+
+```yaml
+action: fireservicerota.preview_fairness_advisory
+data:
+  station_id: 194
+  task_id: 7674
+```
+
+The response is anonymous by default and contains:
+
+- `historical_sample`: number of distinct full-audit incidents matching **only
+  this single task at this station**, how many contained complete person/role
+  matches, and how many multi-task / partial matches were excluded.
+- `historical_roles`: exact recorded role labels and distinct candidate
+  counts, repeated proposal appearances, and min/max observed proposed-role
+  counts. These are **proposals**, not a count of actually staffed seats.
+- `historical_crew_requirement_evidence`: explicitly observed per-skill
+  required counts and regular coverage from historical incident snapshots,
+  including separately saved post-retention snapshots. This is **not** a
+  live task configuration. TS `Aspirant Manschap` is supplemental only
+  when task metadata unambiguously confirms a TS.
+- `current_station_roster_shape`: anonymous counts and safe field names from
+  already cached BrandweerRooster group discovery. This is deliberately not
+  treated as a live duty roster or validated task qualification.
+- `prediction_status: historical_task_evidence_only_not_ready_for_lineup`
+  and `predicted_lineup: null`; no percentages, selection probabilities,
+  dispatches or staffing plans are calculated.
+
+For a *private local* view of which historical memberships were proposed, set
+`include_people: true`:
+
+```yaml
+action: fireservicerota.preview_fairness_advisory
+data:
+  station_id: 194
+  task_id: 7674
+  include_people: true
+```
+
+This adds the **already cached** name, membership ID, incident proposal count,
+last proposal time and retrospective API statuses for each person per role.
+People are listed alphabetically, **not** ranked by likelihood or fairness.
+Never paste an identifiable output into a public issue or commit it to GitHub.
+Neither the default nor this opt-in mode writes new data or contacts
+BrandweerRooster; all inputs come from the existing private cache, locally
+retained incident evidence and group discovery already held by Home Assistant.
+
+### What is still needed for a real advisory prediction?
+
+Before any ranking, staffing simulation or expected lineup can responsibly
+be produced, obtain and test a properly **current**, station-scoped eligible
+candidate pool, availability/on-duty evidence, actual task skill and
+qualification requirements, and a reproducible **held-out historical backtest**.
+A person's absence from a historical fairness proposal must not count as a
+negative outcome, since we do not know whether they were eligible or on duty.
+An API `dispatched` record is not physical confirmation that a person boarded
+a vehicle. Different tasks (including WTS and RV) must remain separate.
+A supplemental aspirant must never be used to make an otherwise complete
+regular TS crew look deficient, nor automatically substitute for a regular
+required skill. No live operational changes are permitted in this phase.
+
+Existing stable `extended`, CarPlay/Assist, station availability actions,
+and regular incident storage are not modified by this advisory preview.
