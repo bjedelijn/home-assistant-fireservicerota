@@ -787,7 +787,20 @@ Relevant response fields: `probe_status`, `http_status`,
 `vehicle_mapping_status`. A single configured required term is a
 **candidate matching term**, not independently verified appliance attendance.
 
-If OAuth cannot read the task website, investigate a documented, authorized
-JSON resource or request the matching metadata through the provider's
-official API. Do not collect web session cookies or scrape authenticated
-browser state as part of the integration.
+**Observed result (25 October 2026):** The user ran the opt-in diagnostic
+for station 194, task 7678. The server returned HTTP `302` and the
+safely categorized Location was `sign_in_redirect`. This conclusively
+distinguishes the observed response from a same-task canonical URL redirect:
+the existing API OAuth bearer token cannot read this web page. Do **not**
+retry with cookies, login credentials or forced redirects. The HTML
+`042340` proof is user-supplied from an authenticated browser and not
+readable by our current OAuth API client.
+
+The official public documentation confirms that tasks can have required/
+excluded P2000 message terms and GMS filters, but we have **not**
+verified an authorized JSON endpoint that exposes these settings. Do not
+speculate about its path or treat the bare task endpoint as the full settings
+model. Request the appropriate read-only endpoint/fields from the provider,
+or use a separate explicit, user-maintained task-to-P2000 mapping if
+automated access cannot be provided. This diagnostic never populates
+a mapping or affects historical fairness accounting.
