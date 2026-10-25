@@ -615,3 +615,68 @@ This first probe remains diagnostic. Official operations and vehicle dispatch
 procedures take precedence; a true person-level advisory would require
 explicit authorization and evidence for live individual eligibility plus
 a held-out prediction backtest.
+
+## Phase 1d: read-only task P2000 vehicle filter probe
+
+The BrandweerRooster task settings UI shows a task's GMS station/team
+filters and the required/excluded terms in a P2000 incident message. For
+Hardenberg TS-BT, task `7678`, a user screenshot confirms:
+`GMS station=HARDBG`, `GMS team=b-ts`, **required P2000 term
+`042340`**, excluded term `Intrekken`. This is a **task matching rule**,
+not proof of which vehicle physically attended an incident.
+
+The existing `GET /groups` cached task discovery is already available at
+integration setup, but the current `task_index` deliberately contains only
+task ID, name, station and group associations. Before changing or creating
+a persistent vehicle map, a narrowly scoped API probe checks whether
+the official `GET /tasks/{id}` returns the matching fields:
+
+```yaml
+action: fireservicerota.probe_task_p2000_mapping
+data:
+  station_id: 194
+  task_id: 7678
+```
+
+The service refuses to query a task unless it is uniquely indexed for the
+authenticated user's station. It inspects only related cached raw task
+records and makes **at most one** read-only authenticated task GET. The
+response is deliberately restricted to safely named, bounded field keys
+and exact six-digit numerical values from *recognized required-message
+term keys*. Excluded terms, capcodes, incident bodies, credential fields,
+names, users, memberships, coordinates, arbitrary strings and all raw
+responses are omitted. Returned terms are not saved to HA storage or sent
+anywhere else.
+
+Important response fields:
+
+- `api_task_id_matches` and `api_task_station_scope_matches`: confirm that
+  available current API identity/scope metadata agrees with the request.
+- `cached_task_field_names` and `api_task_field_names`: safe schema
+  diagnostics to identify a provider-specific P2000 filter key not yet
+  supported by the narrow parser.
+- `cached_required_p2000_vehicle_terms` and
+  `api_required_p2000_vehicle_terms`: recognized numbers with explicit
+  source distinction, and accompanying `*_required_term_paths`.
+- `vehicle_number`, `vehicle_mapping_source`, `vehicle_mapping_status`:
+  a candidate number is shown **only** when exactly one exact numeric
+  required message term was recognized. A cached-only value can be stale,
+  even if the live task API is readable.
+- `operational_vehicle_dispatch_verified: false` always: an alarm filter
+  does not independently verify vehicle arrival or assignment.
+
+A task's separate **Audit Log** endpoint can expose historical changes:
+
+`GET /api/v2/reporting/general_report/audit_log/data?object_ids=7678&object_type=task&order=desc&debug=false&cols=&page=2`
+
+The `object_type=task` parameter selects *task-change history*, not a
+current task snapshot. `page=2` is its second page. Because reports may
+contain personal names and arbitrary change descriptions, this experiment
+does **not** automatically read or echo task audit records. It can later be
+used to verify when the required P2000 term changed (e.g. from a temporary
+reserve-vehicle number) if the relevant records are available.
+
+The screenshot and independent P2000 record for incident `3012389` support
+the historical relationship between TS-BT and `042340`. A future general
+task-to-vehicle map should be derived only from verified, current
+per-task message filters and should not hardcode Hardenberg task IDs.
