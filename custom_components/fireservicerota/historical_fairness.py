@@ -533,3 +533,61 @@ def build_compact_history_evidence(preview: dict[str, Any]) -> dict[str, Any]:
         "fairness_percentage_calculated",
     )
     return {key: preview[key] for key in keys if key in preview}
+
+
+def enrich_compact_history_task_names(
+    compact: dict[str, Any],
+    task_index: dict[Any, list[dict[str, Any]]],
+    station_id: int | str,
+) -> dict[str, Any]:
+    """Resolve task names from current authorized station metadata.
+
+    The incident's historical task IDs are not enough to establish its vehicle
+    name. This does a station-scoped read-only join to the integration's
+    already-discovered task index, never assuming names from numeric IDs.
+    """
+    requested_station = _id(station_id)
+    result = dict(compact)
+    result["task_name_source"] = (
+        "current_station_task_index_not_historical_task_snapshot"
+    )
+    resolved_rows = []
+    for row in compact.get("incident_evidence_overview") or []:
+        if not isinstance(row, dict):
+            continue
+        enriched = dict(row)
+        tasks = []
+        for raw_id in row.get("incident_task_ids") or []:
+            task_id = _id(raw_id)
+            if task_id is None:
+                continue
+            candidates = []
+            if isinstance(task_index, dict):
+                for key in (int(task_id), task_id):
+                    for candidate in task_index.get(key, []) or []:
+                        if not isinstance(candidate, dict):
+                            continue
+                        if (
+                            _id(candidate.get("id")) != task_id
+                            or _id(candidate.get("station_id")) != requested_station
+                        ):
+                            continue
+                        candidates.append(candidate)
+            names = {
+                _label(candidate.get("name"))
+                for candidate in candidates
+                if _label(candidate.get("name"))
+            }
+            entry: dict[str, Any] = {"id": task_id}
+            if len(names) == 1:
+                entry["name"] = next(iter(names))
+                entry["resolution"] = "current_station_task_index"
+            elif len(names) > 1:
+                entry["resolution"] = "conflicting_current_task_names"
+            else:
+                entry["resolution"] = "name_not_available_in_current_station_index"
+            tasks.append(entry)
+        enriched["resolved_tasks"] = tasks
+        resolved_rows.append(enriched)
+    result["incident_evidence_overview"] = resolved_rows
+    return result
