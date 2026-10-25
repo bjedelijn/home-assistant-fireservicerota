@@ -694,7 +694,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 type(err).__name__,
             )
             schedule = None
-        return summarize_task_requirement_schedule(selection, schedule, now)
+        return summarize_task_requirement_schedule(
+            selection, schedule, now, task_index=client.task_index
+        )
 
     async def async_inspect_historical_staffing(call: ServiceCall) -> dict:
         """Read one cached historical incident's live API staffing once.
