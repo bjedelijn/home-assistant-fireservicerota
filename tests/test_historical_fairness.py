@@ -8,6 +8,7 @@ from custom_components.fireservicerota.historical_fairness import (
     build_compact_history_evidence,
     build_historical_role_preview,
     build_one_time_incident_staffing_evidence,
+    prepare_private_staffing_evidence,
     enrich_compact_history_task_names,
     enrich_compact_history_crew_coverage,
     select_retained_history_ids,
@@ -950,4 +951,181 @@ def test_one_time_api_staffing_rejects_different_api_incident():
     )
     assert response["crew_coverage_status"] == "api_incident_missing_or_id_mismatch"
     assert response["crew_requirement_evidence"] == []
+
+def sample_inspection_with_counts():
+    """Anonymized, one-time API evidence ready for explicit opt-in storage."""
+    return {
+        "source": "one_time_authenticated_incident_api_get",
+        "incident_id": "12001",
+        "station_id": "100",
+        "incident_task_ids": ["7674"],
+        "crew_coverage_status": "recorded_skill_requirements_found",
+        "api_record_checked_at": "2026-10-25T10:00:00+00:00",
+        "crew_requirement_evidence": [{
+            "availability_requirement_id": "3690",
+            "task_ids": ["7674"],
+            "skills": [
+                {"skill_id": "7", "short_code": "Bev",
+                 "short_code_source": "retained_incident_requirement",
+                 "required": 1, "assigned": 3,
+                 "individual_assignment_count": 1,
+                 "coverage_source": "warning_statuses",
+                 "position_type": "regular"},
+                {"skill_id": "1168", "short_code": "Ch",
+                 "short_code_source": "retained_incident_requirement",
+                 "required": 1, "assigned": 1,
+                 "individual_assignment_count": 1,
+                 "coverage_source": "warning_statuses",
+                 "position_type": "regular"},
+                {"skill_id": "775", "short_code": "Ms",
+                 "short_code_source": "retained_incident_requirement",
+                 "required": 4, "assigned": 4,
+                 "individual_assignment_count": 4,
+                 "coverage_source": "warning_statuses",
+                 "position_type": "regular"},
+                {"skill_id": "165", "short_code": "Asp",
+                 "short_code_source": "retained_incident_requirement",
+                 "required": 1, "assigned": 1,
+                 "individual_assignment_count": 1,
+                 "coverage_source": "warning_statuses",
+                 "position_type": "supplemental"},
+            ],
+            "sufficient": True,
+            "regular_crew_sufficient": True,
+            "supplemental_positions_sufficient": True,
+            "regular_coverage_source": (
+                "individual_incident_skill_assignment_records"
+            ),
+        }],
+        "api_raw_sensitive_data": {
+            "user_name": "SENSITIVE PERSON",
+            "membership_id": 12345,
+            "token": "DO NOT STORE",
+        },
+    }
+
+
+def test_private_staffing_evidence_has_only_whitelisted_count_fields():
+    sample = sample_inspection_with_counts()
+    saved = prepare_private_staffing_evidence(sample)
+    assert saved["version"] == 1
+    assert saved["source"] == "opt_in_one_time_authenticated_incident_api_get"
+    assert saved["checked_at"] == "2026-10-25T10:00:00+00:00"
+    assert len(saved["crew_requirement_evidence"][0]["skills"]) == 4
+    assert saved["crew_requirement_evidence"][0][
+        "supplemental_positions_sufficient"
+    ] is True
+    assert saved["crew_requirement_evidence"][0]["skills"][0][
+        "individual_assignment_count"
+    ] == 1
+    assert "SENSITIVE PERSON" not in str(saved)
+    assert "membership_id" not in str(saved)
+    assert "user_name" not in str(saved)
+    assert "token" not in str(saved)
+    assert "api_raw_sensitive_data" not in str(saved)
+
+
+def test_opt_in_historical_staffing_saved_to_existing_record_only(monkeypatch):
+    fake = FakeStorage()
+    monkeypatch.setattr(storage_module, "Store", lambda *args: fake)
+
+    async def exercise():
+        cache = storage_module.HistoricalFairnessStorage(object(), "test")
+        row = summarize_incident_for_history(analysis(), 100)["record"]
+        row["incident_task_ids"] = ["7674"]
+        await cache.async_upsert(row)
+        original = (await cache.async_list(100))[0]
+        saved = prepare_private_staffing_evidence(
+            sample_inspection_with_counts()
+        )
+        output = await cache.async_save_staffing_evidence(
+            100, "12001", saved
+        )
+        assert output["saved"] is True
+        assert output["replaced_previous_evidence"] is False
+        cached = (await cache.async_list(100))[0]
+        assert len(cached["people"]) == len(original["people"])
+        assert cached["latest_proposal_at"] == original["latest_proposal_at"]
+        assert cached["saved_staffing_evidence"] == saved
+        assert len(fake.saved["records"]) == 1
+        assert "SENSITIVE PERSON" not in str(fake.saved)
+
+        compact = build_compact_history_evidence(
+            build_historical_role_preview([cached], 100)
+        )
+        preview = enrich_compact_history_crew_coverage(
+            compact, [], 100, cached_fairness_records=[cached]
+        )
+        item = preview["incident_evidence_overview"][0]
+        assert item["crew_coverage_status"] == (
+            "recorded_skill_requirements_found"
+        )
+        assert item["crew_coverage_evidence_source"] == (
+            "explicitly_saved_single_incident_api_snapshot"
+        )
+        assert item["crew_coverage_checked_at"] == (
+            "2026-10-25T10:00:00+00:00"
+        )
+        assert item["crew_requirement_evidence"][0][
+            "regular_crew_sufficient"
+        ] is True
+        assert item["crew_requirement_evidence"][0][
+            "supplemental_positions_sufficient"
+        ] is True
+        assert preview["crew_coverage_source"] == (
+            "retained_ha_history_plus_opt_in_saved_api_snapshots"
+        )
+        assert "membership_id" not in str(preview)
+
+        await cache.async_upsert(row)
+        refreshed = (await cache.async_list(100))[0]
+        assert refreshed["saved_staffing_evidence"] == saved
+        changed = dict(row, incident_task_ids=["9999"])
+        await cache.async_upsert(changed)
+        after_task_change = (await cache.async_list(100))[0]
+        assert "saved_staffing_evidence" not in after_task_change
+
+    asyncio.run(exercise())
+
+
+def test_saved_staffing_never_creates_unknown_incident(monkeypatch):
+    fake = FakeStorage()
+    monkeypatch.setattr(storage_module, "Store", lambda *args: fake)
+
+    async def exercise():
+        cache = storage_module.HistoricalFairnessStorage(object(), "test")
+        payload = prepare_private_staffing_evidence(
+            sample_inspection_with_counts()
+        )
+        with pytest.raises(ValueError, match="does not exist"):
+            await cache.async_save_staffing_evidence(100, "12001", payload)
+
+        row = summarize_incident_for_history(analysis(), 100)["record"]
+        row["incident_task_ids"] = ["7674"]
+        await cache.async_upsert(row)
+        with pytest.raises(ValueError, match="does not exist"):
+            await cache.async_save_staffing_evidence(200, "12001", payload)
+        with pytest.raises(ValueError, match="do not match"):
+            await cache.async_save_staffing_evidence(
+                100, "12001", {**payload, "incident_task_ids": ["9999"]}
+            )
+        assert len(fake.saved["records"]) == 1
+
+    asyncio.run(exercise())
+
+
+def test_bad_or_unresolved_inspection_cannot_be_saved():
+    sample = sample_inspection_with_counts()
+    sample["crew_coverage_status"] = "api_staffing_requirements_unavailable"
+    with pytest.raises(ValueError, match="no verified"):
+        prepare_private_staffing_evidence(sample)
+
+    sample = sample_inspection_with_counts()
+    sample["crew_requirement_evidence"][0]["skills"][0]["short_code"] = (
+        "Person Name <secret value>"
+    )
+    cleaned = prepare_private_staffing_evidence(sample)
+    assert cleaned["crew_requirement_evidence"][0]["skills"][0][
+        "short_code"
+    ] is None
 
