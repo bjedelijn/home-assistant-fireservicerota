@@ -194,6 +194,9 @@ def test_live_current_task_coverage_sanitizes_all_member_details():
     assert summary["current_interval_matches"] == 1
     assert summary["current_api_requirement_id_matches"] is True
     assert summary["current_api_task_ids_match"] is True
+    assert summary["api_reported_task_ids"] == ["7674"]
+    assert summary["current_api_requested_task_included"] is True
+    assert summary["current_api_task_mapping_status"] == "single_requested_task"
     assert summary["current_configuration_matches_historical_skill_ids"] is True
     assert summary["current_aggregate_service_level"] == "in_service"
     assert summary["current_aggregate_warning_level"] == "on_required"
@@ -232,6 +235,9 @@ def test_current_id_and_task_mismatch_never_return_coverage_counts():
     assert result["probe_status"] == "api_task_ids_do_not_match"
     assert result["current_aggregate_skills"] == []
     assert result["current_api_task_ids_match"] is False
+    assert result["current_api_requested_task_included"] is False
+    assert result["api_reported_task_ids"] == ["7689"]
+    assert result["current_api_task_mapping_status"] == "different_tasks"
 
 
 def test_missing_task_metadata_is_explicitly_unverified_not_silently_joined():
@@ -242,7 +248,11 @@ def test_missing_task_metadata_is_explicitly_unverified_not_silently_joined():
     result = summarize_task_requirement_schedule(selection, response, now)
     assert result["current_api_requirement_id_matches"] is True
     assert result["current_api_task_ids_match"] is None
-    assert result["current_aggregate_skill_coverage_checked"] is True
+    assert result["current_api_requested_task_included"] is None
+    assert result["current_api_task_mapping_status"] == "task_ids_missing"
+    assert result["probe_status"] == "api_task_ids_missing"
+    assert result["current_aggregate_skill_coverage_checked"] is False
+    assert result["current_aggregate_skills"] == []
     assert result["current_personnel_eligibility_verified"] is False
 
 
@@ -283,3 +293,65 @@ def test_missing_live_skill_status_is_unknown_not_sufficient():
     assert result["current_aggregate_skill_coverage_checked"] is False
     assert result["current_aggregate_service_level"] == "in_service"
     assert result["predicted_lineup"] is None
+
+def test_shared_current_requirement_reports_all_numeric_tasks_without_crew():
+    _, selection = chosen()
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    response = sample_schedule()
+    response["availability_requirement"]["task_ids"] = [7689, 7674]
+    response["availability_requirement"]["user_name"] = "PRIVATE"
+    response["intervals"][0]["available_memberships"] = [
+        {"user_name": "DO NOT EXPOSE"}]
+    result = summarize_task_requirement_schedule(selection, response, now)
+    assert result["probe_status"] == "api_requirement_shared_across_tasks"
+    assert result["current_api_requirement_id_matches"] is True
+    assert result["current_api_task_ids_match"] is False
+    assert result["current_api_requested_task_included"] is True
+    assert result["api_reported_task_ids"] == ["7674", "7689"]
+    assert result["api_reported_task_ids_count"] == 2
+    assert result["current_api_task_mapping_status"] == "shared_across_tasks"
+    assert result["current_aggregate_skills"] == []
+    assert result["current_requirement_configuration"] == []
+    assert result["current_aggregate_service_level"] is None
+    assert result["current_aggregate_warning_level"] is None
+    assert result["current_aggregate_skill_coverage_checked"] is False
+    assert "PRIVATE" not in str(result)
+    assert "DO NOT EXPOSE" not in str(result)
+    assert "user_name" not in str(result)
+
+
+@pytest.mark.parametrize("task_ids", [
+    "7674",
+    {"task": 7674},
+    [None],
+    [False],
+    [7674, 7674],
+    [0],
+    [-2],
+    ["not an id"],
+    ["9" * 40],
+    list(range(1, 60)),
+])
+def test_malformed_current_task_ids_never_return_aggregate(task_ids):
+    _, selection = chosen()
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    response = sample_schedule()
+    response["availability_requirement"]["task_ids"] = task_ids
+    result = summarize_task_requirement_schedule(selection, response, now)
+    assert result["probe_status"] == "api_task_ids_invalid"
+    assert result["current_api_task_mapping_status"] == "task_ids_invalid"
+    assert result["api_reported_task_ids"] == []
+    assert result["current_api_requested_task_included"] is None
+    assert result["current_aggregate_skill_coverage_checked"] is False
+    assert result["predicted_lineup"] is None
+
+
+def test_empty_current_task_ids_fail_closed_even_with_known_requirement():
+    _, selection = chosen()
+    now = datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    response = sample_schedule()
+    response["availability_requirement"]["task_ids"] = []
+    result = summarize_task_requirement_schedule(selection, response, now)
+    assert result["probe_status"] == "api_task_ids_missing"
+    assert result["current_api_task_mapping_status"] == "task_ids_missing"
+    assert result["current_aggregate_skill_coverage_checked"] is False
