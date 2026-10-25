@@ -211,7 +211,7 @@ def _skill_statuses(raw: Any, expected_ids: set[str]) -> tuple[
     return sorted(result, key=lambda item: int(item["skill_id"])), unknown
 
 
-_SAFE_TASK_NAME = re.compile(r"[A-Za-z][A-Za-z0-9 ._()/\\-]{0,39}\\Z")
+_SAFE_TASK_NAME = re.compile(r"[A-Za-z][A-Za-z0-9 ._()/-]{0,39}")
 
 
 def _resolve_shared_task_station_scope(
