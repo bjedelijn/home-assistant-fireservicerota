@@ -25,6 +25,37 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
+from .fairness_advisory import build_task_fairness_advisory
+from .fairness_availability_probe import (
+    choose_one_candidate_schedule_probe,
+    summarize_one_candidate_schedule_probe,
+)
+from .fairness_requirement_probe import (
+    choose_historical_task_requirement,
+    summarize_task_requirement_schedule,
+)
+from .task_p2000_probe import (
+    choose_task_p2000_probe,
+    summarize_task_p2000_probe,
+)
+from .task_p2000_audit_probe import (
+    choose_task_audit_probe,
+    summarize_task_audit_probe,
+)
+from .task_webpage_probe import async_probe_task_webpage
+from .task_p2000_history import analyze_task_p2000_history
+from .station_task_p2000_history import preview_station_task_p2000_history
+from .historical_fairness import (
+    build_compact_history_evidence,
+    enrich_compact_history_task_names,
+    enrich_compact_history_crew_coverage,
+    build_one_time_incident_staffing_evidence,
+    prepare_private_staffing_evidence,
+    build_historical_role_preview,
+    select_retained_history_ids,
+    summarize_incident_for_history,
+)
+from .historical_fairness_store import HistoricalFairnessStorage
 
 from .const import (
     ATTR_ADDRESS,
@@ -32,8 +63,11 @@ from .const import (
     ATTR_CONFIRMATION,
     ATTR_ENTRY_ID,
     ATTR_INCIDENT_ID,
+    ATTR_INCIDENT_IDS,
     ATTR_MEMBERSHIP_ID,
     ATTR_STATION_ID,
+    ATTR_TASK_ID,
+    ATTR_INCLUDE_PEOPLE,
     ATTR_AVAILABLE,
     ATTR_MODE,
     ATTR_START_TIME,
@@ -41,6 +75,10 @@ from .const import (
     ATTR_COMMENTS,
     ATTR_IGNORE_SCHEDULE_WARNINGS,
     ATTR_LIMIT,
+    ATTR_OFFSET,
+    ATTR_PAGE,
+    ATTR_OVERVIEW_ONLY,
+    ATTR_REFRESH,
     ATTR_MAX_PAGES,
     ATTR_STATION_STAFFING_MODES,
     ATTR_MESSAGE,
@@ -50,10 +88,24 @@ from .const import (
     DATA_CLIENT,
     DATA_COORDINATOR,
     DATA_INCIDENT_STORE,
+    DATA_HISTORICAL_FAIRNESS_STORE,
     DATA_P2000_MANAGER,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
+    SERVICE_IMPORT_FAIRNESS_HISTORY,
+    SERVICE_PREVIEW_FAIRNESS_HISTORY,
+    SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+    SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+    SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
+    SERVICE_PROBE_TASK_P2000_MAPPING,
+    SERVICE_PROBE_TASK_P2000_AUDIT,
+    SERVICE_PROBE_TASK_WEBPAGE_P2000,
+    SERVICE_ANALYZE_TASK_P2000_HISTORY,
+    SERVICE_PREVIEW_STATION_TASK_P2000_HISTORY,
+    SERVICE_INSPECT_HISTORICAL_STAFFING,
+    SERVICE_SAVE_HISTORICAL_STAFFING,
+    SERVICE_CLEAR_FAIRNESS_HISTORY,
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
@@ -121,6 +173,121 @@ ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
                     {"enabled", "disabled"}
                 )
             }
+        ),
+    }
+)
+
+
+# On-demand historical importing is intentionally bounded. Each incident may
+# require multiple API audit pages, which are fetched sequentially.
+IMPORT_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_INCIDENT_IDS): vol.All(
+            cv.ensure_list,
+            [vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$"))],
+            vol.Length(min=1, max=10),
+        ),
+        vol.Optional(ATTR_LIMIT, default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=10)
+        ),
+        vol.Optional(ATTR_OFFSET, default=0): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=24)
+        ),
+        vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=10)
+        ),
+        vol.Optional(ATTR_REFRESH, default=False): cv.boolean,
+    }
+)
+
+READ_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    }
+)
+
+PREVIEW_FAIRNESS_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_OVERVIEW_ONLY, default=False): cv.boolean,
+    }
+)
+
+
+PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_INCLUDE_PEOPLE, default=False): cv.boolean,
+    }
+)
+
+
+PROBE_FAIRNESS_AVAILABILITY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    }
+)
+
+
+PREVIEW_STATION_TASK_P2000_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_LIMIT, default=25): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=25)
+        ),
+        vol.Optional(ATTR_INCIDENT_IDS): vol.All(
+            cv.ensure_list,
+            [vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$"))],
+            vol.Length(min=1, max=10),
+        ),
+    }
+)
+
+
+ANALYZE_TASK_P2000_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_LIMIT, default=25): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=25)
+        ),
+        vol.Optional(ATTR_INCIDENT_IDS): vol.All(
+            cv.ensure_list,
+            [vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$"))],
+            vol.Length(min=1, max=10),
+        ),
+    }
+)
+
+
+PROBE_TASK_P2000_AUDIT_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_PAGE, default=1): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=5)
+        ),
+    }
+)
+
+
+INSPECT_HISTORICAL_STAFFING_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_INCIDENT_ID): vol.All(
+            vol.Coerce(str), vol.Match(r"^[0-9]+$")
         ),
     }
 )
@@ -207,6 +374,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SEND_PAGER_MESSAGE,
             SERVICE_BACKFILL_HISTORY_STAFFING,
             SERVICE_ANALYZE_INCIDENT_FAIRNESS,
+            SERVICE_IMPORT_FAIRNESS_HISTORY,
+            SERVICE_PREVIEW_FAIRNESS_HISTORY,
+            SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+            SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+            SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
+            SERVICE_PROBE_TASK_P2000_MAPPING,
+            SERVICE_PROBE_TASK_P2000_AUDIT,
+            SERVICE_PROBE_TASK_WEBPAGE_P2000,
+            SERVICE_ANALYZE_TASK_P2000_HISTORY,
+            SERVICE_PREVIEW_STATION_TASK_P2000_HISTORY,
+            SERVICE_INSPECT_HISTORICAL_STAFFING,
+            SERVICE_SAVE_HISTORICAL_STAFFING,
+            SERVICE_CLEAR_FAIRNESS_HISTORY,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
             SERVICE_SET_STATION_AVAILABILITY,
@@ -325,6 +505,605 @@ def _async_register_services(hass: HomeAssistant) -> None:
         except ValueError as err:
             raise HomeAssistantError(f"Could not analyze fairness audit: {err}") from err
 
+
+    def _historical_cache(entry_data: dict) -> HistoricalFairnessStorage:
+        cache = entry_data.get(DATA_HISTORICAL_FAIRNESS_STORE)
+        if cache is None:
+            client = entry_data[DATA_CLIENT]
+            cache = HistoricalFairnessStorage(hass, client.entry_id)
+            entry_data[DATA_HISTORICAL_FAIRNESS_STORE] = cache
+        return cache
+
+    def _history_station(entry_data: dict, station_id: int) -> None:
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower():
+            raise HomeAssistantError(
+                "Historical fairness import is only supported in the Netherlands"
+            )
+        allowed = {str(item.get("id")) for item in client.own_stations}
+        if str(station_id) not in allowed:
+            raise HomeAssistantError(
+                "Station is not an active station membership of this account"
+            )
+
+    async def async_import_fairness_history(call: ServiceCall) -> dict:
+        """Explicit, bounded, read-only audit import into private local storage."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        station_id = call.data[ATTR_STATION_ID]
+        _history_station(entry_data, station_id)
+        cache = _historical_cache(entry_data)
+        ids = call.data.get(ATTR_INCIDENT_IDS)
+        if ids is None:
+            incident_store = entry_data.get(DATA_INCIDENT_STORE)
+            if incident_store is None:
+                raise HomeAssistantError(
+                    "FireServiceRota incident history is not ready yet"
+                )
+            batch = select_retained_history_ids(
+                incident_store.history,
+                offset=call.data[ATTR_OFFSET],
+                limit=call.data[ATTR_LIMIT],
+            )
+            ids = batch.pop("ids")
+            source = "retained_closed_history"
+        else:
+            if call.data[ATTR_OFFSET]:
+                raise HomeAssistantError(
+                    "Use either explicit incident_ids or offset, not both"
+                )
+            source = "explicit_incident_ids"
+            batch = {}
+
+        ids = list(dict.fromkeys(ids))
+        already_cached = {
+            str(item["incident_id"]) for item in await cache.async_list(station_id)
+        }
+        result = {
+            "station_id": str(station_id),
+            "source": source,
+            **batch,
+            "requested": len(ids),
+            "already_cached": [],
+            "imported": 0,
+            "replaced": 0,
+            "skipped": [],
+            "failed_incident_ids": [],
+            "notes": (
+                "Only one latest proposal per incident is counted; records "
+                "are kept in private HA .storage (up to 100), not in sensor "
+                "attributes. No crew or fairness probability is predicted."
+            ),
+        }
+        for incident_id in ids:
+            if incident_id in already_cached and not call.data[ATTR_REFRESH]:
+                result["already_cached"].append(incident_id)
+                continue
+            try:
+                audit = await analyze_incident_fairness(
+                    client.async_api_get,
+                    incident_id,
+                    max_pages=call.data[ATTR_MAX_PAGES],
+                    groups=client.groups,
+                )
+                converted = summarize_incident_for_history(audit, station_id)
+            except Exception as err:
+                _LOGGER.warning(
+                    "Historical fairness import failed for incident %s (%s)",
+                    incident_id, type(err).__name__,
+                )
+                result["failed_incident_ids"].append(incident_id)
+                continue
+
+            if converted["status"] == "skipped":
+                result["skipped"].append({
+                    "incident_id": incident_id,
+                    "reason": converted["reason"],
+                })
+                continue
+
+            outcome = await cache.async_upsert(converted["record"])
+            result["imported"] += 1
+            result["replaced"] += outcome["replaced"]
+
+        stored = await cache.async_list(station_id)
+        result["preview"] = build_historical_role_preview(stored, station_id)
+        return result
+
+    async def async_preview_fairness_history(call: ServiceCall) -> dict:
+        """Return small descriptive per-role history from private storage."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        _history_station(entry_data, station_id)
+        rows = await _historical_cache(entry_data).async_list(station_id)
+        preview = build_historical_role_preview(rows, station_id)
+        if call.data[ATTR_OVERVIEW_ONLY]:
+            compact = build_compact_history_evidence(preview)
+            client = entry_data[DATA_CLIENT]
+            compact = enrich_compact_history_task_names(
+                compact, client.task_index, station_id
+            )
+            incident_store = entry_data.get(DATA_INCIDENT_STORE)
+            return enrich_compact_history_crew_coverage(
+                compact,
+                incident_store.history if incident_store is not None else [],
+                station_id,
+                cached_fairness_records=rows,
+            )
+        return preview
+
+    async def async_preview_fairness_advisory(call: ServiceCall) -> dict:
+        """Read-only, task-scoped historical evidence and readiness diagnostic.
+
+        Candidate names are omitted unless explicitly requested. Discovery
+        metadata is already cached and cannot establish live availability.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        records = await _historical_cache(entry_data).async_list(station_id)
+
+        preview = build_historical_role_preview(records, station_id)
+        compact = enrich_compact_history_task_names(
+            build_compact_history_evidence(preview),
+            client.task_index,
+            station_id,
+        )
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        coverage = enrich_compact_history_crew_coverage(
+            compact,
+            incident_store.history if incident_store is not None else [],
+            station_id,
+            cached_fairness_records=records,
+        )
+        return build_task_fairness_advisory(
+            records,
+            station_id,
+            task_id,
+            task_index=client.task_index,
+            groups=client.groups,
+            crew_overview=coverage,
+            include_people=call.data[ATTR_INCLUDE_PEOPLE],
+        )
+
+    async def async_probe_fairness_availability(call: ServiceCall) -> dict:
+        """Check a single cached historical candidate's schedule API access.
+
+        No names/IDs, availability booleans, private intervals or schedule
+        content are returned. Only one authorized API GET is attempted.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        records = await _historical_cache(entry_data).async_list(station_id)
+        membership_id, safe_selection = choose_one_candidate_schedule_probe(
+            records,
+            client.groups,
+            client.task_index,
+            station_id,
+            task_id,
+            authenticated_user_id=(
+                client.user_data.get("id")
+                if isinstance(client.user_data, dict) else None
+            ),
+        )
+        if membership_id is None:
+            return safe_selection
+
+        # Exactly one GET, using the same day window format as existing
+        # per-membership duty sensors. Do not expose or log returned content.
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        try:
+            schedule = await client.async_api_get(
+                f"memberships/{membership_id}/combined_schedule",
+                client._schedule_window_params(),
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Single historical candidate schedule probe failed (%s)",
+                type(err).__name__,
+            )
+            schedule = None
+
+        return summarize_one_candidate_schedule_probe(
+            safe_selection, schedule, now
+        )
+
+    async def async_probe_task_p2000_audit(call: ServiceCall) -> dict:
+        """Inspect one page of a task's P2000-related audit changes.
+
+        Unlike live task detail, audit records are historical. Never return
+        raw record content, modifier names, person identifiers or credentials.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        page = call.data[ATTR_PAGE]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        selection = choose_task_audit_probe(
+            station_id, task_id, client.task_index, page
+        )
+        if selection["probe_status"] != "ready_for_one_audit_page_GET":
+            return selection
+        try:
+            raw_records = await client.async_api_get(
+                "reporting/general_report/audit_log/data",
+                {
+                    "object_ids": str(task_id),
+                    "object_type": "task",
+                    "order": "desc",
+                    "debug": "false",
+                    "cols": "",
+                    "page": page,
+                },
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Single task audit probe unavailable (%s)",
+                type(err).__name__,
+            )
+            raw_records = None
+        return summarize_task_audit_probe(selection, raw_records)
+
+    async def async_preview_station_task_p2000_history(
+        call: ServiceCall,
+    ) -> dict:
+        """Preview historic P2000 associations across all current station tasks.
+
+        Locally retained closed incidents are read only. Optionally GET up to
+        ten explicitly selected incident IDs from the existing OAuth JSON API.
+        No mappings, incident bodies, people or other private data are stored.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        history = (
+            incident_store.history if incident_store is not None else []
+        )
+        incident_rows = list(history[:call.data[ATTR_LIMIT]])
+        requested_ids = list(dict.fromkeys(
+            call.data.get(ATTR_INCIDENT_IDS) or []
+        ))
+        api_ids_read = []
+        api_ids_failed = []
+        for incident_id in requested_ids:
+            try:
+                fetched = await client.async_api_get(
+                    f"incidents/{incident_id}", None
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Station P2000 history detail GET failed for %s (%s)",
+                    incident_id, type(err).__name__,
+                )
+                api_ids_failed.append(incident_id)
+                continue
+            if (
+                not isinstance(fetched, dict)
+                or str(fetched.get("id")) != incident_id
+            ):
+                api_ids_failed.append(incident_id)
+                continue
+            api_ids_read.append(incident_id)
+            incident_rows.append(fetched)
+        return preview_station_task_p2000_history(
+            station_id,
+            client.task_index,
+            incident_rows,
+            retained_count=len(history),
+            explicitly_requested_ids=requested_ids,
+            api_ids_read=api_ids_read,
+            api_ids_failed=api_ids_failed,
+        )
+
+    async def async_analyze_task_p2000_history(call: ServiceCall) -> dict:
+        """Correlate one station task with message terms across incident history.
+
+        Default reads only the locally retained closed incident snapshots.
+        Optional explicit numeric incident IDs authorize at most ten separate
+        official detail GETs; no bulk history request and no data persistence.
+        Keep all incident bodies and responder identities out of the response.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        selection = choose_task_p2000_probe(
+            station_id, task_id, client.task_index, []
+        )
+        if (
+            selection["probe_status"] != "ready_for_single_task_GET"
+            or not selection["task_name"]
+        ):
+            return analyze_task_p2000_history(
+                station_id, task_id, client.task_index, [],
+                retained_count=0,
+            )
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        history = (
+            incident_store.history if incident_store is not None else []
+        )
+        retained_limit = call.data[ATTR_LIMIT]
+        selected_history = history[:retained_limit]
+        incident_rows = list(selected_history)
+
+        requested_ids = list(dict.fromkeys(
+            call.data.get(ATTR_INCIDENT_IDS) or []
+        ))
+        api_ids_read = []
+        api_ids_failed = []
+        for incident_id in requested_ids:
+            try:
+                fetched = await client.async_api_get(
+                    f"incidents/{incident_id}", None
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Historical task P2000 evidence GET failed for %s (%s)",
+                    incident_id, type(err).__name__,
+                )
+                api_ids_failed.append(incident_id)
+                continue
+            if (
+                not isinstance(fetched, dict)
+                or str(fetched.get("id")) != incident_id
+            ):
+                api_ids_failed.append(incident_id)
+                continue
+            api_ids_read.append(incident_id)
+            # No merging or mutation of IncidentStore. The analyzer
+            # will de-duplicate these explicitly fetched details by ID.
+            incident_rows.append(fetched)
+
+        return analyze_task_p2000_history(
+            station_id,
+            task_id,
+            client.task_index,
+            incident_rows,
+            retained_count=len(history),
+            explicitly_requested_ids=requested_ids,
+            api_ids_read=api_ids_read,
+            api_ids_failed=api_ids_failed,
+        )
+
+    async def async_probe_task_webpage_p2000(call: ServiceCall) -> dict:
+        """Test exactly one OAuth-only GET of an authorized task web page.
+
+        Reject non-BWR hosts and cross-station tasks; do not follow redirects,
+        use browser cookies, store task mappings or return HTML/person data.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        selection = choose_task_p2000_probe(
+            station_id, task_id, client.task_index, []
+        )
+        if (
+            selection["probe_status"] != "ready_for_single_task_GET"
+            or not selection["task_name"]
+        ):
+            return {
+                "station_id": str(station_id),
+                "task_id": str(task_id),
+                "probe_status": "task_not_uniquely_indexed_for_station",
+                "api_get_attempted": False,
+                "personal_data_returned": False,
+                "local_storage_modified": False,
+                "brandweerrooster_modified": False,
+            }
+
+        token_info = getattr(client.fsr, "_token_info", None)
+        access_token = (
+            token_info.get("access_token")
+            if isinstance(token_info, dict) else None
+        )
+        return await async_probe_task_webpage(
+            async_get_clientsession(hass),
+            base_url=str(client._url),
+            access_token=access_token,
+            station_id=str(station_id),
+            task_id=str(task_id),
+            task_name=selection["task_name"],
+        )
+
+    async def async_probe_task_p2000_mapping(call: ServiceCall) -> dict:
+        """Read one authorized task's P2000 match terms, without storing data.
+
+        A task's UI filters can be absent from embedded group/task discovery.
+        Inspect cached raw task fields first, then make one authenticated GET
+        tasks/<id>. Only safe field names and exact P2000 vehicle terms leave
+        the helper; never the task API JSON or membership/pager information.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        selection = choose_task_p2000_probe(
+            station_id, task_id, client.task_index, client.groups
+        )
+        if selection["probe_status"] != "ready_for_single_task_GET":
+            return selection
+
+        try:
+            raw_task = await client.async_api_get(f"tasks/{task_id}", None)
+        except Exception as err:
+            _LOGGER.debug(
+                "Single task configuration probe unavailable (%s)",
+                type(err).__name__,
+            )
+            raw_task = None
+        return summarize_task_p2000_probe(selection, raw_task)
+
+    async def async_probe_fairness_task_coverage(call: ServiceCall) -> dict:
+        """Inspect one known appliance requirement's current aggregate status.
+
+        The requirement ID must be uniquely supported by historical station
+        and single-task snapshots. One read-only GET, no member information,
+        no changes to HA storage, duty state or provider records.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        rows = await _historical_cache(entry_data).async_list(station_id)
+        historical = build_historical_role_preview(rows, station_id)
+        compact = enrich_compact_history_task_names(
+            build_compact_history_evidence(historical),
+            client.task_index,
+            station_id,
+        )
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        coverage = enrich_compact_history_crew_coverage(
+            compact,
+            incident_store.history if incident_store is not None else [],
+            station_id,
+            cached_fairness_records=rows,
+        )
+        requirement_id, selection = choose_historical_task_requirement(
+            coverage,
+            station_id,
+            task_id,
+            client.task_index,
+        )
+        if requirement_id is None:
+            return selection
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        try:
+            # Official appliance-status GET, day bounds aligned to 00:00.
+            # Do not expose/log response payloads or personal memberships.
+            schedule = await client.async_api_get(
+                f"availability_requirements/{requirement_id}/schedule",
+                client._schedule_window_params(),
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Single task-coverage probe failed (%s)",
+                type(err).__name__,
+            )
+            schedule = None
+        return summarize_task_requirement_schedule(
+            selection, schedule, now, task_index=client.task_index
+        )
+
+    async def async_inspect_historical_staffing(call: ServiceCall) -> dict:
+        """Read one cached historical incident's live API staffing once.
+
+        This does not fetch audit pages, change any local cache, or restore the
+        incident to the bounded incident-history entity.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        incident_id = call.data[ATTR_INCIDENT_ID]
+        _history_station(entry_data, station_id)
+
+        records = await _historical_cache(entry_data).async_list(station_id)
+        cached = next(
+            (row for row in records if str(row.get("incident_id")) == incident_id),
+            None,
+        )
+        if cached is None:
+            raise HomeAssistantError(
+                "Incident is not in this station's private historical fairness cache"
+            )
+
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        if incident_store is None:
+            raise HomeAssistantError(
+                "FireServiceRota incident store is not ready yet"
+            )
+        client = entry_data[DATA_CLIENT]
+        try:
+            # One authorized API GET; no audit or write request.
+            incident = await client.async_api_get(f"incidents/{incident_id}", None)
+            staffing = (
+                incident_store._normalize_staffing(incident)
+                if isinstance(incident, dict)
+                else None
+            )
+        except Exception as err:
+            _LOGGER.warning(
+                "On-demand historical staffing read failed for incident %s (%s)",
+                incident_id,
+                type(err).__name__,
+            )
+            raise HomeAssistantError(
+                "Could not read historical incident staffing from BrandweerRooster"
+            ) from err
+
+        return build_one_time_incident_staffing_evidence(
+            station_id=station_id,
+            cached_fairness_record=cached,
+            api_incident=incident,
+            normalized_staffing=staffing,
+            task_index=client.task_index,
+            retained_history=incident_store.history,
+        )
+
+    async def async_save_historical_staffing(call: ServiceCall) -> dict:
+        """Explicitly save minimal one-time GET staffing data in HA .storage.
+
+        This calls the same read-only inspector, then persists only whitelisted
+        role counts. No BrandweerRooster writes, audit fetch or HA history edits.
+        """
+        inspection = await async_inspect_historical_staffing(call)
+        if (
+            inspection.get("crew_coverage_status")
+            != "recorded_skill_requirements_found"
+        ):
+            return {
+                "saved": False,
+                "incident_id": inspection.get("incident_id"),
+                "station_id": inspection.get("station_id"),
+                "reason": inspection.get("crew_coverage_status"),
+                "historical_audit_refetched": False,
+                "local_incident_history_modified": False,
+            }
+        try:
+            minimal = prepare_private_staffing_evidence(inspection)
+            entry_data = _service_entry_data(
+                hass, call.data.get(ATTR_ENTRY_ID)
+            )
+            stored = await _historical_cache(
+                entry_data
+            ).async_save_staffing_evidence(
+                call.data[ATTR_STATION_ID],
+                call.data[ATTR_INCIDENT_ID],
+                minimal,
+            )
+        except ValueError as err:
+            raise HomeAssistantError(
+                "Could not safely save historical staffing evidence: "
+                f"{err}"
+            ) from err
+
+        return {
+            **stored,
+            "storage_scope": "private_historical_fairness_cache_only",
+            "historical_audit_refetched": False,
+            "local_incident_history_modified": False,
+            "brandweerrooster_modified": False,
+        }
+
+    async def async_clear_fairness_history(call: ServiceCall) -> dict:
+        """Erase the local cache for a station; never touch BrandweerRooster."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        _history_station(entry_data, station_id)
+        deleted = await _historical_cache(entry_data).async_delete_station(station_id)
+        return {"station_id": str(station_id), "locally_deleted_incidents": deleted}
+
     async def async_backfill_history_staffing(call: ServiceCall) -> dict:
         """Re-fetch retained closed incidents that lack staffing data."""
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
@@ -386,6 +1165,103 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS, async_analyze_incident_fairness,
             schema=ANALYZE_INCIDENT_FAIRNESS_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_IMPORT_FAIRNESS_HISTORY):
+        hass.services.async_register(
+            DOMAIN, SERVICE_IMPORT_FAIRNESS_HISTORY, async_import_fairness_history,
+            schema=IMPORT_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PREVIEW_FAIRNESS_HISTORY):
+        hass.services.async_register(
+            DOMAIN, SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history,
+            schema=PREVIEW_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PREVIEW_FAIRNESS_ADVISORY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+            async_preview_fairness_advisory,
+            schema=PREVIEW_FAIRNESS_ADVISORY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_FAIRNESS_AVAILABILITY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+            async_probe_fairness_availability,
+            schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_P2000_AUDIT):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_TASK_P2000_AUDIT,
+            async_probe_task_p2000_audit,
+            schema=PROBE_TASK_P2000_AUDIT_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(
+        DOMAIN, SERVICE_PREVIEW_STATION_TASK_P2000_HISTORY
+    ):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PREVIEW_STATION_TASK_P2000_HISTORY,
+            async_preview_station_task_p2000_history,
+            schema=PREVIEW_STATION_TASK_P2000_HISTORY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_ANALYZE_TASK_P2000_HISTORY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ANALYZE_TASK_P2000_HISTORY,
+            async_analyze_task_p2000_history,
+            schema=ANALYZE_TASK_P2000_HISTORY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_WEBPAGE_P2000):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_TASK_WEBPAGE_P2000,
+            async_probe_task_webpage_p2000,
+            schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_P2000_MAPPING):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_TASK_P2000_MAPPING,
+            async_probe_task_p2000_mapping,
+            schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_FAIRNESS_TASK_COVERAGE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
+            async_probe_fairness_task_coverage,
+            schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_INSPECT_HISTORICAL_STAFFING):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_INSPECT_HISTORICAL_STAFFING,
+            async_inspect_historical_staffing,
+            schema=INSPECT_HISTORICAL_STAFFING_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_SAVE_HISTORICAL_STAFFING):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SAVE_HISTORICAL_STAFFING,
+            async_save_historical_staffing,
+            schema=INSPECT_HISTORICAL_STAFFING_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_CLEAR_FAIRNESS_HISTORY):
+        hass.services.async_register(
+            DOMAIN, SERVICE_CLEAR_FAIRNESS_HISTORY, async_clear_fairness_history,
+            schema=READ_FAIRNESS_HISTORY_SCHEMA, supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_HISTORY_STAFFING):
         hass.services.async_register(

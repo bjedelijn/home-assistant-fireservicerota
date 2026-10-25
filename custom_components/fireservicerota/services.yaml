@@ -205,3 +205,430 @@ analyze_incident_fairness:
       description: "Optional station IDs mapped to enabled/disabled for this incident only. Not persisted and never sent to BrandweerRooster. Example: {'3853': disabled}. Absence of fairness suggestions is not evidence of disabled staffing."
       selector:
         object:
+
+import_fairness_history:
+  name: Import historical fairness proposals
+  description: "Opt in to read a small number of historical BrandweerRooster incident audits and store only uniquely linked, latest per-incident proposals in private Home Assistant storage. No external writes; no prediction of verified vehicle crew."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: The station must belong to your account. Only single-station, complete and uniquely matched audit evidence is imported.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_ids:
+      name: Historical incident IDs
+      description: "Optional explicit list of up to 10 IDs. Without IDs, inspect up to limit incidents from the latest 25 locally retained closed incidents."
+      example: ["1234567", "1234568"]
+      selector:
+        object:
+    limit:
+      name: Incident limit
+      description: "When incident_ids is omitted: maximum locally retained closed incidents to inspect, 1-10."
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    offset:
+      name: Start at retained incident number
+      description: "Skip the newest N locally retained closed incidents to import the next batch (0-24). Use offset 0, 10, 20 for up to 25 records. Not allowed with explicit incident_ids."
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 24
+          mode: box
+    max_pages:
+      name: Maximum audit pages per incident
+      description: "1-10; incomplete audit logs are rejected rather than used for historical profiles."
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    refresh:
+      name: Refresh previously imported incident IDs
+      description: "Normally already imported incidents are skipped without contacting BrandweerRooster. Enable this to deliberately re-fetch them."
+      default: false
+      selector:
+        boolean:
+
+preview_fairness_history:
+  name: Preview historical fairness profiles
+  description: "Read cached historical candidate appearances grouped by role, for one station. Use overview_only for a compact incident-by-incident diagnostic without personnel names or IDs."
+  fields:
+    entry_id:
+      name: Config entry ID
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    overview_only:
+      name: Compact incident comparison only
+      description: "Exclude full candidate and membership lists; return only per-incident role counts, reported API statuses and task context. No roster prediction."
+      default: false
+      selector:
+        boolean:
+
+
+preview_fairness_advisory:
+  name: Preview task-scoped historical fairness advisory
+  description: "Read-only first-stage staffing advisory for exactly one station task (e.g. TS, RV, WTS). Reports historical proposal roles, anonymous candidate exposure counts, and missing live availability/eligibility inputs. No probabilities, inferred vehicle lineup, API requests or changes to BrandweerRooster. Optional include_people reveals stored historic candidate names/IDs locally in the service response."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: The user must have an active station membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: Specific task for this station, such as 7674 (TS), 7689 (RV) or 7001 (WTS) in Hardenberg. The task must match the historical incident task ID.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    include_people:
+      name: Include private candidate details
+      description: "Default false: show safe aggregate counts only. Enable only to display cached historical member names/IDs and individual proposal observations in your local Home Assistant response. Neither mode ranks, predicts or validates their present availability."
+      default: false
+      selector:
+        boolean:
+
+probe_task_p2000_audit:
+  name: Inspect historical P2000 task filter changes
+  description: >-
+    Experimental one-page read-only audit search on one authorized task
+    (object_type=task). Inspect only numeric P2000 terms from relevant
+    task-filter change records. Never return audit text, authors, membership
+    data or credentials. Historical terms are not current vehicle mappings.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Active authorized station for the task.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: The task to inspect, e.g. 7678 (Hardenberg TS-BT).
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    page:
+      name: Audit page
+      description: One page only (1-5); page 1 is newest, page 2 contains older changes.
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: box
+
+preview_station_task_p2000_history:
+  name: Preview historical P2000 associations for all station tasks
+  description: >-
+    Experimental one-station read-only overview. Runs the same conservative
+    single-task incident/P2000 analysis for up to 40 currently indexed tasks,
+    showing the strongest numeric candidate (if unambiguous) and cross-task
+    candidate conflicts. A candidate is historical co-occurrence, not a
+    verified configured term or actual vehicle turnout. Uses at most 25
+    locally retained closed incidents and optionally makes one read-only
+    JSON GET for each of up to ten explicit historical incident IDs.
+    No member data, incident text, addresses, private history changes,
+    session tokens or persistent task-to-vehicle mappings.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Station where the account has active membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    limit:
+      name: Closed incidents to include
+      description: Number of locally retained closed incidents (1-25).
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 25
+          mode: box
+    incident_ids:
+      name: Additional historical incident IDs
+      description: >-
+        Optional numeric IDs to fetch individually from the official JSON
+        API, at most ten. No automatic history pagination or persistence.
+      selector:
+        object:
+
+analyze_task_p2000_history:
+  name: Analyze historic task-to-P2000 associations
+  description: >-
+    Experimental read-only evidence analysis for one known station task.
+    Correlates required-shaped six-digit P2000 terms in retained incident
+    message bodies with the incident task list, carefully separating
+    single-task vs multi-task evidence. By default no API calls; optional
+    explicit incident IDs trigger at most ten authenticated incident GETs.
+    Returns numeric candidate terms, counts and an uncalibrated evidence
+    score, never a verified current vehicle mapping. No incident text,
+    addresses, responders, credentials, provider writes or local persistence.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: A post for which the account has active membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: The one station task to analyze (for example 7678).
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    limit:
+      name: Retained history limit
+      description: Include at most this many locally retained closed incidents (1-25).
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 25
+          mode: box
+    incident_ids:
+      name: Additional historical incident IDs
+      description: >-
+        Optional explicit numeric incident IDs not necessarily in retained
+        history, at most ten. Each ID triggers one official read-only
+        incidents/<id> detail GET; no automatic pagination or persistence.
+      selector:
+        object:
+
+probe_task_webpage_p2000:
+  name: Probe one task webpage P2000 filter
+  description: >-
+    Experimental opt-in read-only test: request exactly one official
+    BrandweerRooster task page using the Home Assistant OAuth bearer token.
+    No browser cookies, redirects, raw HTML, personnel data, storage,
+    operational dispatch assumptions or provider writes. Returns only
+    recognized P2000 required terms/GMS filters or a safe failure status.
+    A login redirect means the web page does not accept this authentication
+    method; the integration will not try to bypass it.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are configured.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: One station to which the authenticated account belongs.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: For example 7678 for Hardenberg TS-BT.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+probe_task_p2000_mapping:
+  name: Inspect P2000 vehicle term for one task
+  description: >-
+    Experimental read-only task configuration probe. For one authorized
+    station and task, inspects only cached field names and performs at most
+    one authenticated GET tasks/<id>. Returns numeric P2000 required-terms
+    (candidate roepnummers) only when explicitly recognized. No bulk scans,
+    no user data, no cached changes and no operational vehicle prediction.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: One station for which the account has an active membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: "For example 7678 (TS-BT of station 194)."
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+probe_fairness_task_coverage:
+  name: Probe current aggregate vehicle task coverage
+  description: "Experimental read-only lookup of one historically identified availability requirement for a station/task. Makes at most one official availability_requirements/<id>/schedule GET for the current day. Displays aggregated per-skill counts and appliance warning/service levels only. Never returns member identities, individual availability, full API payloads or a proposed crew. Historical task/requirement must resolve unambiguously."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Must be one of this account's active stations.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: Explicit task at this station, such as 7674 for Hardenberg TS. No specific appliance status is assumed until verified.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+probe_fairness_availability:
+  name: Probe historical candidate availability API access
+  description: "Experimental read-only diagnostic. For one authorized station/task, find ONE historical candidate who still appears as an active membership in cached station/related groups and send at most ONE GET to their combined_schedule. Return only whether that endpoint responds with timestamped intervals, never the person's identity, actual availability, or schedule times. Does not validate complete staffing or predict a vehicle crew."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Authorized station with stored fairness history.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: A single task indexed to this station. For Hardenberg TS use 7674.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+inspect_historical_staffing:
+  name: Inspect a cached historical incident's staffing
+  description: "Explicitly retrieve exactly one BrandweerRooster incident via read-only API GET to inspect staffing evidence missing from the locally retained 25 incidents. Only works for an incident already in this station's private historical fairness cache. No audit import, writes, or cache changes."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Must be an active authorized station membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_id:
+      name: Historical incident ID
+      description: A previously imported fairness incident for this station. Only this incident will be queried once.
+      required: true
+      example: "3076036"
+      selector:
+        text:
+
+save_historical_staffing:
+  name: Save historical staffing evidence locally
+  description: "Explicitly re-read one previously cached historical incident with a single BrandweerRooster API GET and save only sanitized per-skill coverage counts to the private Home Assistant historical fairness cache. Does NOT refresh audit logs, alter live incident history, or modify BrandweerRooster. The compact fairness preview can then use these saved numbers when the incident was evicted from the last 25."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Must be an active authorized station membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_id:
+      name: Historical incident ID
+      description: An incident already imported in this station's private fairness cache. One API GET will be performed before saving.
+      required: true
+      example: "3076036"
+      selector:
+        text:
+
+clear_fairness_history:
+  name: Delete cached fairness history
+  description: "Delete locally cached historical fairness evidence for one station from Home Assistant private storage. Does not modify BrandweerRooster."
+  fields:
+    entry_id:
+      name: Config entry ID
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
