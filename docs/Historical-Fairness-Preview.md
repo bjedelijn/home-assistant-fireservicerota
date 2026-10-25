@@ -804,3 +804,93 @@ model. Request the appropriate read-only endpoint/fields from the provider,
 or use a separate explicit, user-maintained task-to-P2000 mapping if
 automated access cannot be provided. This diagnostic never populates
 a mapping or affects historical fairness accounting.
+
+## Phase 1f: bounded incident/P2000 task association (read only)
+
+To work around missing current per-task P2000 required-filter data in the
+JSON API, this experimental action correlates a single authorized station
+task with six-digit `0xxxxx` terms observed in *historical incident bodies*.
+This is a retrospective **association only**: the same message may mention
+multiple units and stations. A correlation does **not** prove a task's
+configured filter, which vehicle responded, whether a particular unit was
+on scene, or which people crewed it.
+
+The default action reads up to 25 closed incidents from the local
+`IncidentStore.history` sensor snapshots (no API calls or persistence):
+
+```yaml
+action: fireservicerota.analyze_task_p2000_history
+data:
+  station_id: 194
+  task_id: 7678
+  limit: 25
+```
+
+Older incidents may no longer be retained because `HISTORY_LIMIT=25`.
+For the **five incident IDs previously shown in the user's TS-BT task
+website**, the same service also accepts a bounded explicit list:
+
+```yaml
+action: fireservicerota.analyze_task_p2000_history
+data:
+  station_id: 194
+  task_id: 7678
+  limit: 25
+  incident_ids:
+    - "3012389"
+    - "2992516"
+    - "2969366"
+    - "2864999"
+    - "2805609"
+```
+
+Each requested ID causes at most **one** authenticated
+`GET /api/v2/incidents/<id>`; at most ten explicit IDs per invocation.
+The service verifies that each response matches the requested incident ID,
+deduplicates incident IDs across local and fetched history, and performs
+no auditing, pagination, writes, background scans or cache updates.
+A failed/unavailable ID is listed only by its numeric ID, never with
+the private API response.
+
+### Evidence grading
+
+The action counts each six-digit term **once per distinct incident**.
+It separately counts:
+
+- **Single-task incidents**: one task ID in the incident; useful but still
+  not definitive, because the P2000 message can mention several vehicles.
+- **Single-task, single-term incidents**: one task and only one six-digit
+  P2000 term in the incident body; stronger direct association.
+- **Multi-task incidents**: shared incident-level evidence only.
+  These NEVER independently establish a per-task mapping.
+- Other incident examples for another currently indexed task in that
+  station: useful *comparison*, not proof of missing task filters.
+
+`candidate_terms` provides the top numeric terms, their unique incident
+counts, single-task counts, up to eight supporting incident IDs and a
+**heuristic evidence index**, not a statistically calibrated probability.
+A `strong_historical_candidate_not_verified` requires at least three
+supporting incidents, at least two single-task incidents, one single-task
+single-term incident, at least 80% coverage of this task's usable incidents,
+and a distinct top term. A `tentative_historical_candidate_not_verified`
+only identifies a weaker, still unique association. Ambiguous ties, one
+observation or exclusively multi-task evidence result in no proposed
+`candidate_p2000_term`. No rule hardcodes `7678`, `042340`, a post
+name or a vehicle type.
+
+**Privacy and stability:** Only task ID/name, numeric terms, counts and
+numeric incident IDs are returned. The action never includes raw
+messages, addresses, names, members or responses, and never persists a
+task-to-vehicle mapping. It does not modify historical fairness
+profiles, forecast crews, or feed current operational decisions.
+Current `task_index` is used only to validate station/task membership:
+it is **not** proof of the task configuration at the incident date.
+
+**Interpretation for the earlier TS-BT example:** in the five website
+incident examples, `042340` appears five times; two of those incidents
+list only TS-BT as a task, and one of those messages has just `042340`
+as its six-digit term. This is compelling *historical co-occurrence*
+compatible with the separately observed current website filter, but
+still is **not** evidence of physical vehicle attendance or a general
+API-backed config map. Verify using the HA action output before relying
+on the local history or additional authenticated incident GETs.
