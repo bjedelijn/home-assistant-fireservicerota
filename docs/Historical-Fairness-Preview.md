@@ -894,3 +894,56 @@ compatible with the separately observed current website filter, but
 still is **not** evidence of physical vehicle attendance or a general
 API-backed config map. Verify using the HA action output before relying
 on the local history or additional authenticated incident GETs.
+
+## Phase 1g: post-wide P2000 candidate overview (read-only)
+
+The one-task API experiment for Hardenberg TS-BT succeeded. In the user's
+actual Home Assistant result, all five explicitly requested JSON API
+incidents were readable, and the five TS-BT task incidents all contain
+`042340`. Two incidents have only task `7678`, one incident has only
+that single six-digit term, and the correlator therefore returned
+`strong_historical_candidate_not_verified` with score `100`.
+This score is **not a probability** and this step still does not prove an
+appliance was on scene. The separately observed authenticated BWR website
+form does prove that the task currently uses required term `042340`.
+
+To generalize this without hardcoding station/task/vehicle mappings, a new
+preview runs the same conservative single-task test for every currently
+indexed task for one authorized station, capped at 40 tasks:
+
+```yaml
+action: fireservicerota.preview_station_task_p2000_history
+data:
+  station_id: 194
+  limit: 25
+  incident_ids:
+    - "3012389"
+    - "2992516"
+    - "2969366"
+    - "2864999"
+    - "2805609"
+```
+
+Leave off `incident_ids` for a local-only analysis with **zero** provider
+API calls. When supplied, the list is capped at ten explicit numeric IDs;
+each ID permits exactly one existing OAuth JSON incident detail GET.
+The action deduplicates observations by incident ID and returns a
+bounded `task_results` list of task names/IDs, candidate terms,
+single-vs-multi-task evidence counts and the top three code candidates.
+No raw incident messages, location or personnel data leave the helper.
+The output includes `tasks_omitted_due_to_limit` if more than 40 station
+tasks are indexed.
+
+**Cross-task conflicts are surfaced, not resolved by guessing:** if two
+station tasks both obtain the same non-empty candidate code, both rows show
+`candidate_conflict: true`,
+`review_status: candidate_shared_by_multiple_station_tasks` and the
+other relevant numeric task IDs. A distinct strong candidate is labeled
+`strong_candidate_for_manual_verification`; none are persisted or
+used to make operational assignment decisions.
+
+Caveats: provider task JSON omits actual configured P2000 filters. A
+station-wide correlation remains a retrospective co-occurrence diagnostic,
+not an API-verified configuration, and current task-index station scope
+is not a historical record of which tasks existed at the incident date.
+The script does not modify staffing fairness evidence or station readiness.
