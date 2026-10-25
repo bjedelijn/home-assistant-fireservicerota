@@ -652,6 +652,35 @@ def _async_register_services(hass: HomeAssistant) -> None:
             safe_selection, schedule, now
         )
 
+    async def async_probe_task_p2000_mapping(call: ServiceCall) -> dict:
+        """Read one authorized task's P2000 match terms, without storing data.
+
+        A task's UI filters can be absent from embedded group/task discovery.
+        Inspect cached raw task fields first, then make one authenticated GET
+        tasks/<id>. Only safe field names and exact P2000 vehicle terms leave
+        the helper; never the task API JSON or membership/pager information.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        selection = choose_task_p2000_probe(
+            station_id, task_id, client.task_index, client.groups
+        )
+        if selection["probe_status"] != "ready_for_single_task_GET":
+            return selection
+
+        try:
+            raw_task = await client.async_api_get(f"tasks/{task_id}", None)
+        except Exception as err:
+            _LOGGER.debug(
+                "Single task configuration probe unavailable (%s)",
+                type(err).__name__,
+            )
+            raw_task = None
+        return summarize_task_p2000_probe(selection, raw_task)
+
     async def async_probe_fairness_task_coverage(call: ServiceCall) -> dict:
         """Inspect one known appliance requirement's current aggregate status.
 
@@ -896,6 +925,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             DOMAIN,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             async_probe_fairness_availability,
+            schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_P2000_MAPPING):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_TASK_P2000_MAPPING,
+            async_probe_task_p2000_mapping,
             schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
