@@ -95,10 +95,14 @@ def task_index():
 
 def test_one_member_selected_only_from_exact_station_task_and_current_group():
     member, meta = choose_one_candidate_schedule_probe(
-        history(), groups(), task_index(), 194, 7674
+        history(), groups(), task_index(), 194, 7674,
+        authenticated_user_id=1001,
     )
     assert member == 11
     assert meta["probe_status"] == "ready_for_single_read_only_GET"
+    assert meta["selected_candidate_relation_to_authenticated_user"] == (
+        "same_authenticated_user"
+    )
     assert meta["historical_proposal_candidate_count"] == 2
     assert meta["active_related_group_membership_match_count"] == 2
     assert meta["active_related_group_distinct_user_ids"] == 3
@@ -111,6 +115,55 @@ def test_one_member_selected_only_from_exact_station_task_and_current_group():
     assert "membership_id" not in meta
     assert "user_id" not in meta
 
+
+
+
+def test_relation_to_current_user_is_not_a_person_identifier():
+    member, other = choose_one_candidate_schedule_probe(
+        history(), groups(), task_index(), 194, 7674,
+        authenticated_user_id=1005,
+    )
+    assert member == 11
+    assert other["selected_candidate_relation_to_authenticated_user"] == (
+        "different_authenticated_user"
+    )
+    assert "1005" not in str(other)
+    assert "1001" not in str(other)
+    assert "PRIVATE" not in str(other)
+
+    _member, missing_user = choose_one_candidate_schedule_probe(
+        history(), groups(), task_index(), 194, 7674
+    )
+    assert missing_user["selected_candidate_relation_to_authenticated_user"] == (
+        "not_verified"
+    )
+
+    ambiguous_groups = groups()
+    ambiguous_groups[1]["memberships"].append({
+        "id": 11, "user_id": 9090, "status": "active",
+    })
+    _member, ambiguous = choose_one_candidate_schedule_probe(
+        history(), ambiguous_groups, task_index(), 194, 7674,
+        authenticated_user_id=1001,
+    )
+    assert ambiguous["selected_candidate_relation_to_authenticated_user"] == (
+        "not_verified"
+    )
+    assert "9090" not in str(ambiguous)
+
+
+def test_missing_group_user_id_never_becomes_different_authenticated_user():
+    unlinked_groups = groups()
+    del unlinked_groups[0]["memberships"][0]["user_id"]
+    member, output = choose_one_candidate_schedule_probe(
+        history(), unlinked_groups, task_index(), 194, 7674,
+        authenticated_user_id=1001,
+    )
+    assert member == 11
+    assert output["selected_candidate_relation_to_authenticated_user"] == (
+        "not_verified"
+    )
+    assert output["candidate_identifiers_returned"] is False
 
 def test_ineligible_context_and_missing_group_do_not_attempt_a_get():
     bad_task, meta = choose_one_candidate_schedule_probe(
