@@ -131,7 +131,7 @@ def test_task_scoped_counts_do_not_mix_task_or_station_and_omit_people():
     assert profiles["Aspirant Manschap"]["role_position_interpretation"] == (
         "supplemental_ts_asp"
     )
-    assert "historical_candidates" not in str(result)
+    assert all("historical_candidates" not in role for role in profiles.values())
     assert "membership_id" not in str(result)
     assert "SENSITIVE" not in str(result)
     assert "Alpha" not in str(result)
