@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .fairness_audit import analyze_incident_fairness
 from .historical_fairness import (
     build_compact_history_evidence,
+    enrich_compact_history_task_names,
     build_historical_role_preview,
     select_retained_history_ids,
     summarize_incident_for_history,
@@ -496,7 +497,11 @@ def _async_register_services(hass: HomeAssistant) -> None:
         rows = await _historical_cache(entry_data).async_list(station_id)
         preview = build_historical_role_preview(rows, station_id)
         if call.data[ATTR_OVERVIEW_ONLY]:
-            return build_compact_history_evidence(preview)
+            compact = build_compact_history_evidence(preview)
+            client = entry_data[DATA_CLIENT]
+            return enrich_compact_history_task_names(
+                compact, client.task_index, station_id
+            )
         return preview
 
     async def async_clear_fairness_history(call: ServiceCall) -> dict:
