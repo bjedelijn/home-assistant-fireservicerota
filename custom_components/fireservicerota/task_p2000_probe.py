@@ -149,6 +149,7 @@ def choose_task_p2000_probe(
         "api_get_attempted": False,
         "api_endpoint": "tasks/<selected>",
         "api_task_id_matches": None,
+        "api_task_station_scope_matches": None,
         "cached_task_records_found": 0,
         "cached_task_field_names": [],
         "cached_required_p2000_vehicle_terms": [],
@@ -184,18 +185,35 @@ def choose_task_p2000_probe(
     ):
         base["task_name"] = name
 
-    raw_tasks = [
-        item
-        for group in (groups or [])[:100]
-        if isinstance(group, dict)
-        for item in (group.get("tasks") or [])[:_MAX_TASKS]
-        if isinstance(item, dict)
-        and _id(item.get("id")) == task
-        and (
-            not isinstance(item.get("station_ids"), list)
-            or any(_id(s) == station for s in item["station_ids"])
+    # Only inspect cached records related to this station. A task ID alone
+    # in another station/group is not sufficient evidence for its P2000 term.
+    raw_tasks = []
+    for group in (groups or [])[:100]:
+        if not isinstance(group, dict):
+            continue
+        records = group.get("tasks")
+        if not isinstance(records, list):
+            continue
+        group_related = any(
+            _id(value) == station
+            for value in [
+                group.get("id"),
+                group.get("parent_group_id"),
+                *(group.get("ancestor_ids") or []),
+            ]
         )
-    ]
+        for item in records[:_MAX_TASKS]:
+            if not isinstance(item, dict) or _id(item.get("id")) != task:
+                continue
+            explicit = item.get("station_ids")
+            if explicit is not None and not isinstance(explicit, list):
+                continue
+            if explicit is not None:
+                if not any(_id(value) == station for value in explicit):
+                    continue
+            elif not group_related:
+                continue
+            raw_tasks.append(item)
     base["cached_task_records_found"] = len(raw_tasks)
     if raw_tasks:
         scans = [inspect_task_fields(item) for item in raw_tasks[:_MAX_TASKS]]
@@ -224,6 +242,7 @@ def summarize_task_p2000_probe(
         "api_required_p2000_vehicle_terms": [],
         "api_required_term_paths": [],
         "api_task_id_matches": None,
+        "api_task_station_scope_matches": None,
     }
     if not isinstance(api_response, dict):
         base["probe_status"] = "task_api_unavailable_or_permission_denied"
@@ -238,6 +257,30 @@ def summarize_task_p2000_probe(
         base["probe_status"] = "api_task_id_mismatch"
         return base
     base["api_task_id_matches"] = True
+
+    # Task endpoints may include station IDs. If present, they must not
+    # contradict the station of the authenticated cached task index.
+    expected_station = selection.get("station_id")
+    raw_stations = task.get("station_ids")
+    raw_single_station = task.get("station_id")
+    if raw_stations is not None:
+        if not isinstance(raw_stations, list) or len(raw_stations) > 40:
+            base["api_task_station_scope_matches"] = False
+            base["probe_status"] = "api_task_station_scope_invalid"
+            return base
+        parsed_stations = {_id(value) for value in raw_stations}
+        if expected_station not in parsed_stations:
+            base["api_task_station_scope_matches"] = False
+            base["probe_status"] = "api_task_station_mismatch"
+            return base
+        base["api_task_station_scope_matches"] = True
+    if raw_single_station is not None:
+        if _id(raw_single_station) != expected_station:
+            base["api_task_station_scope_matches"] = False
+            base["probe_status"] = "api_task_station_mismatch"
+            return base
+        base["api_task_station_scope_matches"] = True
+
     api_fields = inspect_task_fields(task)
     base["api_task_field_names"] = api_fields["field_names"]
     base["api_required_p2000_vehicle_terms"] = (
@@ -272,6 +315,7 @@ def summarize_task_p2000_probe(
         "filter, not proof that this appliance actually attended every incident. "
         "Only safely recognized required terms are included. Other fields, "
         "personal data, raw API responses and excluded terms are omitted. "
+        "Cached discovery may be stale if the live API omits term fields. "
         "This experiment makes one read-only GET and does not persist mappings."
     )
     return base
