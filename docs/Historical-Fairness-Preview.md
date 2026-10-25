@@ -109,6 +109,17 @@ labels with proposed seat counts, number of distinct proposed memberships,
 members who appear in several distinct roles in one proposal, and
 retrospective API-reported status and skill-assignment counts.
 
+When a task ID is still present in the authenticated station's **current**
+`groups[].tasks` metadata, the compact preview now additionally includes
+`resolved_tasks` entries with the actual `name` from BrandweerRooster
+(e.g. a WTS task), station-scoped by both ID and membership. The output also
+contains `task_name_source:
+current_station_task_index_not_historical_task_snapshot`.
+A task absent from that current index or appearing with conflicting names
+remains unresolved; the integration will not invent a vehicle type or assume
+today's name proves the historical configuration. It uses the existing in-memory
+discovery index without an additional network request or re-import.
+
 This is useful to inspect a case with two `Chauffeur` proposals or
 an overlapping proposed person without publishing full personnel lists.
 More than one proposed chauffeur is **not by itself evidence of a bug or
