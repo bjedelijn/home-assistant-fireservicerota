@@ -286,6 +286,38 @@ preview_fairness_history:
         boolean:
 
 
+preview_fairness_advisory:
+  name: Preview task-scoped historical fairness advisory
+  description: "Read-only first-stage staffing advisory for exactly one station task (e.g. TS, RV, WTS). Reports historical proposal roles, anonymous candidate exposure counts, and missing live availability/eligibility inputs. No probabilities, inferred vehicle lineup, API requests or changes to BrandweerRooster. Optional include_people reveals stored historic candidate names/IDs locally in the service response."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: The user must have an active station membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: Specific task for this station, such as 7674 (TS), 7689 (RV) or 7001 (WTS) in Hardenberg. The task must match the historical incident task ID.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    include_people:
+      name: Include private candidate details
+      description: "Default false: show safe aggregate counts only. Enable only to display cached historical member names/IDs and individual proposal observations in your local Home Assistant response. Neither mode ranks, predicts or validates their present availability."
+      default: false
+      selector:
+        boolean:
+
 inspect_historical_staffing:
   name: Inspect a cached historical incident's staffing
   description: "Explicitly retrieve exactly one BrandweerRooster incident via read-only API GET to inspect staffing evidence missing from the locally retained 25 incidents. Only works for an incident already in this station's private historical fairness cache. No audit import, writes, or cache changes."
