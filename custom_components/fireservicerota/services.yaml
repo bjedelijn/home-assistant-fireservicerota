@@ -357,6 +357,57 @@ probe_task_p2000_audit:
           max: 5
           mode: box
 
+analyze_task_p2000_history:
+  name: Analyze historic task-to-P2000 associations
+  description: >-
+    Experimental read-only evidence analysis for one known station task.
+    Correlates required-shaped six-digit P2000 terms in retained incident
+    message bodies with the incident task list, carefully separating
+    single-task vs multi-task evidence. By default no API calls; optional
+    explicit incident IDs trigger at most ten authenticated incident GETs.
+    Returns numeric candidate terms, counts and an uncalibrated evidence
+    score, never a verified current vehicle mapping. No incident text,
+    addresses, responders, credentials, provider writes or local persistence.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: A post for which the account has active membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: The one station task to analyze (for example 7678).
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    limit:
+      name: Retained history limit
+      description: Include at most this many locally retained closed incidents (1-25).
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 25
+          mode: box
+    incident_ids:
+      name: Additional historical incident IDs
+      description: >-
+        Optional explicit numeric incident IDs not necessarily in retained
+        history, at most ten. Each ID triggers one official read-only
+        incidents/<id> detail GET; no automatic pagination or persistence.
+      selector:
+        object:
+
 probe_task_webpage_p2000:
   name: Probe one task webpage P2000 filter
   description: >-
