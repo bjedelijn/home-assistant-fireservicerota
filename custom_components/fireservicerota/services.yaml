@@ -357,6 +357,49 @@ probe_task_p2000_audit:
           max: 5
           mode: box
 
+preview_station_task_p2000_history:
+  name: Preview historical P2000 associations for all station tasks
+  description: >-
+    Experimental one-station read-only overview. Runs the same conservative
+    single-task incident/P2000 analysis for up to 40 currently indexed tasks,
+    showing the strongest numeric candidate (if unambiguous) and cross-task
+    candidate conflicts. A candidate is historical co-occurrence, not a
+    verified configured term or actual vehicle turnout. Uses at most 25
+    locally retained closed incidents and optionally makes one read-only
+    JSON GET for each of up to ten explicit historical incident IDs.
+    No member data, incident text, addresses, private history changes,
+    session tokens or persistent task-to-vehicle mappings.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Station where the account has active membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    limit:
+      name: Closed incidents to include
+      description: Number of locally retained closed incidents (1-25).
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 25
+          mode: box
+    incident_ids:
+      name: Additional historical incident IDs
+      description: >-
+        Optional numeric IDs to fetch individually from the official JSON
+        API, at most ten. No automatic history pagination or persistence.
+      selector:
+        object:
+
 analyze_task_p2000_history:
   name: Analyze historic task-to-P2000 associations
   description: >-
