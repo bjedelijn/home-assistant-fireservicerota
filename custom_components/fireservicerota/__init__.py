@@ -26,6 +26,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
 from .fairness_advisory import build_task_fairness_advisory
+from .fairness_availability_probe import (
+    choose_one_candidate_schedule_probe,
+    summarize_one_candidate_schedule_probe,
+)
 from .historical_fairness import (
     build_compact_history_evidence,
     enrich_compact_history_task_names,
@@ -76,6 +80,7 @@ from .const import (
     SERVICE_IMPORT_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+    SERVICE_PROBE_FAIRNESS_AVAILABILITY,
     SERVICE_INSPECT_HISTORICAL_STAFFING,
     SERVICE_SAVE_HISTORICAL_STAFFING,
     SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -296,6 +301,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_IMPORT_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+            SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_INSPECT_HISTORICAL_STAFFING,
             SERVICE_SAVE_HISTORICAL_STAFFING,
             SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -580,6 +586,47 @@ def _async_register_services(hass: HomeAssistant) -> None:
             include_people=call.data[ATTR_INCLUDE_PEOPLE],
         )
 
+    async def async_probe_fairness_availability(call: ServiceCall) -> dict:
+        """Check a single cached historical candidate's schedule API access.
+
+        No names/IDs, availability booleans, private intervals or schedule
+        content are returned. Only one authorized API GET is attempted.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        records = await _historical_cache(entry_data).async_list(station_id)
+        membership_id, safe_selection = choose_one_candidate_schedule_probe(
+            records,
+            client.groups,
+            client.task_index,
+            station_id,
+            task_id,
+        )
+        if membership_id is None:
+            return safe_selection
+
+        # Exactly one GET, using the same day window format as existing
+        # per-membership duty sensors. Do not expose or log returned content.
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        try:
+            schedule = await client.async_api_get(
+                f"memberships/{membership_id}/combined_schedule",
+                client._schedule_window_params(),
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Single historical candidate schedule probe failed (%s)",
+                type(err).__name__,
+            )
+            schedule = None
+
+        return summarize_one_candidate_schedule_probe(
+            safe_selection, schedule, now
+        )
+
     async def async_inspect_historical_staffing(call: ServiceCall) -> dict:
         """Read one cached historical incident's live API staffing once.
 
@@ -764,6 +811,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             DOMAIN,
             SERVICE_PREVIEW_FAIRNESS_ADVISORY,
             async_preview_fairness_advisory,
+            schema=PREVIEW_FAIRNESS_ADVISORY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_FAIRNESS_AVAILABILITY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+            async_probe_fairness_availability,
             schema=PREVIEW_FAIRNESS_ADVISORY_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
