@@ -10,6 +10,7 @@ from custom_components.fireservicerota.task_webpage_probe import (
     async_probe_task_webpage,
     extract_task_webpage_p2000,
     official_task_web_origin,
+    classify_web_redirect,
 )
 
 
@@ -54,9 +55,14 @@ class FakeContent:
 
 
 class FakeResponse:
-    def __init__(self, status=200, body="", content_type="text/html; charset=utf-8"):
+    def __init__(
+        self, status=200, body="", content_type="text/html; charset=utf-8",
+        location=None,
+    ):
         self.status = status
         self.headers = {"Content-Type": content_type}
+        if location is not None:
+            self.headers["Location"] = location
         self.content = FakeContent(body.encode("utf-8"))
 
     async def __aenter__(self):
@@ -154,11 +160,46 @@ def test_request_is_one_get_with_oauth_only_and_no_redirects():
 
 
 def test_login_redirect_stops_without_following():
-    fake = FakeSession(FakeResponse(status=302, body=make_html()))
+    fake = FakeSession(FakeResponse(
+        status=302, body=make_html(),
+        location="/users/sign_in?secret=DO_NOT_RETURN_SECRET",
+    ))
     result = execute(fake)
     assert len(fake.calls) == 1
     assert result["probe_status"] == "redirect_to_web_session_or_other_page"
+    assert result["redirect_destination_type"] == "sign_in_redirect"
     assert result["http_status"] == 302
+    assert "DO_NOT_RETURN_SECRET" not in str(result)
+
+
+@pytest.mark.parametrize("location,expected", [
+    (None, "location_missing_or_unusable"),
+    ("/groups/194/tasks/7678?locale=nl&secret=PRIVATE", "same_task_page_redirect"),
+    ("/groups/194/tasks/7678/", "same_task_page_redirect"),
+    ("/login?return_url=PRIVATE", "sign_in_redirect"),
+    ("https://www.brandweerrooster.nl/users/sign_in", "sign_in_redirect"),
+    ("/oauth/authorize?state=SENSITIVE_STATE", "authentication_redirect"),
+    ("https://other.example/auth?secret=PRIVATE", "external_or_untrusted_redirect"),
+    ("//evil.example/path?secret=PRIVATE", "external_or_untrusted_redirect"),
+    ("/groups/194/tasks?locale=nl", "other_redirect"),
+])
+def test_redirect_category_never_exposes_location(location, expected):
+    result = execute(FakeSession(
+        FakeResponse(status=302, location=location)
+    ))
+    assert result["redirect_destination_type"] == expected
+    assert result["vehicle_number"] is None
+    assert result["api_get_attempted"] is True
+    assert "PRIVATE" not in str(result)
+    assert "SENSITIVE" not in str(result)
+    assert "other.example" not in str(result)
+
+
+def test_redirect_classification_has_no_network_action():
+    assert classify_web_redirect(
+        "https://www.brandweerrooster.nl/groups/194/tasks/7678?token=SENSITIVE",
+        station_id="194", task_id="7678",
+    ) == "same_task_page_redirect"
     assert result["vehicle_number"] is None
 
 
