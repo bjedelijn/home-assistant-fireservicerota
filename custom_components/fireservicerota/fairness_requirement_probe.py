@@ -459,7 +459,8 @@ def summarize_task_requirement_schedule(
         "task scope were checked; cached task-index membership is not an "
         "independent live staffing or eligibility check. The live skill "
         "configuration may differ from historical requirements. All individual "
-        "available_memberships are discarded. No predicted lineup, person "
-        "eligibility judgement or operational availability decision is made."
+        "private membership details are discarded. No predicted lineup, "
+        "person eligibility judgement or operational availability decision "
+        "is made."
     )
     return base
