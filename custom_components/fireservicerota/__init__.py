@@ -34,6 +34,10 @@ from .fairness_requirement_probe import (
     choose_historical_task_requirement,
     summarize_task_requirement_schedule,
 )
+from .task_p2000_probe import (
+    choose_task_p2000_probe,
+    summarize_task_p2000_probe,
+)
 from .historical_fairness import (
     build_compact_history_evidence,
     enrich_compact_history_task_names,
@@ -86,6 +90,7 @@ from .const import (
     SERVICE_PREVIEW_FAIRNESS_ADVISORY,
     SERVICE_PROBE_FAIRNESS_AVAILABILITY,
     SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
+    SERVICE_PROBE_TASK_P2000_MAPPING,
     SERVICE_INSPECT_HISTORICAL_STAFFING,
     SERVICE_SAVE_HISTORICAL_STAFFING,
     SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -317,6 +322,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_PREVIEW_FAIRNESS_ADVISORY,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
+            SERVICE_PROBE_TASK_P2000_MAPPING,
             SERVICE_INSPECT_HISTORICAL_STAFFING,
             SERVICE_SAVE_HISTORICAL_STAFFING,
             SERVICE_CLEAR_FAIRNESS_HISTORY,
