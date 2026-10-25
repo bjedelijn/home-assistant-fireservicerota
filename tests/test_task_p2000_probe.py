@@ -235,6 +235,29 @@ def test_nested_api_task_wrapper_and_nested_required_term_field():
     assert "NEVER_RETURN_OWNER" not in str(result)
 
 
+def test_live_task_refuses_conflicting_station_configuration():
+    response = task_api()
+    response["station_ids"] = [500]
+    result = summarize_task_p2000_probe(selected(), response)
+    assert result["probe_status"] == "api_task_station_mismatch"
+    assert result["api_task_station_scope_matches"] is False
+    assert result["vehicle_number"] is None
+    assert result["api_required_p2000_vehicle_terms"] == []
+
+
+def test_cached_task_from_other_station_does_not_get_used():
+    groups = cached_groups()
+    groups[0]["id"] = 500
+    groups[0]["tasks"][0].pop("station_ids")
+    selection = choose_task_p2000_probe(
+        194, 7678, task_index(), groups
+    )
+    assert selection["probe_status"] == "ready_for_single_task_GET"
+    assert selection["cached_task_records_found"] == 0
+    assert selection["cached_required_p2000_vehicle_terms"] == []
+    assert selection["api_get_attempted"] is False
+
+
 def test_no_recursive_person_data_extraction():
     record = task_api()
     record["member_details"] = {
