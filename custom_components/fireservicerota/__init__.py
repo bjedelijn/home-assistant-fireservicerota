@@ -43,6 +43,7 @@ from .task_p2000_audit_probe import (
     summarize_task_audit_probe,
 )
 from .task_webpage_probe import async_probe_task_webpage
+from .task_p2000_history import analyze_task_p2000_history
 from .historical_fairness import (
     build_compact_history_evidence,
     enrich_compact_history_task_names,
@@ -99,6 +100,7 @@ from .const import (
     SERVICE_PROBE_TASK_P2000_MAPPING,
     SERVICE_PROBE_TASK_P2000_AUDIT,
     SERVICE_PROBE_TASK_WEBPAGE_P2000,
+    SERVICE_ANALYZE_TASK_P2000_HISTORY,
     SERVICE_INSPECT_HISTORICAL_STAFFING,
     SERVICE_SAVE_HISTORICAL_STAFFING,
     SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -233,6 +235,23 @@ PROBE_FAIRNESS_AVAILABILITY_SCHEMA = vol.Schema(
 )
 
 
+ANALYZE_TASK_P2000_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_LIMIT, default=25): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=25)
+        ),
+        vol.Optional(ATTR_INCIDENT_IDS): vol.All(
+            cv.ensure_list,
+            [vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$"))],
+            vol.Length(min=1, max=10),
+        ),
+    }
+)
+
+
 PROBE_TASK_P2000_AUDIT_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -345,6 +364,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_PROBE_TASK_P2000_MAPPING,
             SERVICE_PROBE_TASK_P2000_AUDIT,
             SERVICE_PROBE_TASK_WEBPAGE_P2000,
+            SERVICE_ANALYZE_TASK_P2000_HISTORY,
             SERVICE_INSPECT_HISTORICAL_STAFFING,
             SERVICE_SAVE_HISTORICAL_STAFFING,
             SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -711,6 +731,77 @@ def _async_register_services(hass: HomeAssistant) -> None:
             raw_records = None
         return summarize_task_audit_probe(selection, raw_records)
 
+    async def async_analyze_task_p2000_history(call: ServiceCall) -> dict:
+        """Correlate one station task with message terms across incident history.
+
+        Default reads only the locally retained closed incident snapshots.
+        Optional explicit numeric incident IDs authorize at most ten separate
+        official detail GETs; no bulk history request and no data persistence.
+        Keep all incident bodies and responder identities out of the response.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        selection = choose_task_p2000_probe(
+            station_id, task_id, client.task_index, []
+        )
+        if (
+            selection["probe_status"] != "ready_for_single_task_GET"
+            or not selection["task_name"]
+        ):
+            return analyze_task_p2000_history(
+                station_id, task_id, client.task_index, [],
+                retained_count=0,
+            )
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        history = (
+            incident_store.history if incident_store is not None else []
+        )
+        retained_limit = call.data[ATTR_LIMIT]
+        selected_history = history[:retained_limit]
+        incident_rows = list(selected_history)
+
+        requested_ids = list(dict.fromkeys(
+            call.data.get(ATTR_INCIDENT_IDS) or []
+        ))
+        api_ids_read = []
+        api_ids_failed = []
+        for incident_id in requested_ids:
+            try:
+                fetched = await client.async_api_get(
+                    f"incidents/{incident_id}", None
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Historical task P2000 evidence GET failed for %s (%s)",
+                    incident_id, type(err).__name__,
+                )
+                api_ids_failed.append(incident_id)
+                continue
+            if (
+                not isinstance(fetched, dict)
+                or str(fetched.get("id")) != incident_id
+            ):
+                api_ids_failed.append(incident_id)
+                continue
+            api_ids_read.append(incident_id)
+            # No merging or mutation of IncidentStore. The analyzer
+            # will de-duplicate these explicitly fetched details by ID.
+            incident_rows.append(fetched)
+
+        return analyze_task_p2000_history(
+            station_id,
+            task_id,
+            client.task_index,
+            incident_rows,
+            retained_count=len(history),
+            explicitly_requested_ids=requested_ids,
+            api_ids_read=api_ids_read,
+            api_ids_failed=api_ids_failed,
+        )
+
     async def async_probe_task_webpage_p2000(call: ServiceCall) -> dict:
         """Test exactly one OAuth-only GET of an authorized task web page.
 
@@ -1035,6 +1126,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_PROBE_TASK_P2000_AUDIT,
             async_probe_task_p2000_audit,
             schema=PROBE_TASK_P2000_AUDIT_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_ANALYZE_TASK_P2000_HISTORY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ANALYZE_TASK_P2000_HISTORY,
+            async_analyze_task_p2000_history,
+            schema=ANALYZE_TASK_P2000_HISTORY_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_WEBPAGE_P2000):
