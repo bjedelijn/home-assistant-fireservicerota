@@ -18,7 +18,7 @@ def _station_group_memberships(
 ) -> tuple[set[str], dict[str, int | None]]:
     """Find only cached station/descendant group memberships marked active."""
     matching: set[str] = set()
-    user_ids_per_membership: dict[str, set[str | None]] = {}
+    ids_to_users: dict[str, int | None] = {}
     for group in groups if isinstance(groups, list) else []:
         if not isinstance(group, dict):
             continue
@@ -44,16 +44,7 @@ def _station_group_memberships(
                 continue
             matching.add(membership_id)
             user_id = _id(member.get("user_id"))
-            # A conflicting or missing user link must never be treated as
-            # proof that this is a *different* person than the caller.
-            user_ids_per_membership.setdefault(membership_id, set()).add(
-                user_id
-            )
-    ids_to_users = {
-        member: int(next(iter(values)))
-        if len(values) == 1 and None not in values else None
-        for member, values in user_ids_per_membership.items()
-    }
+            ids_to_users[membership_id] = int(user_id) if user_id else None
     return matching, ids_to_users
 
 
@@ -63,9 +54,6 @@ def choose_one_candidate_schedule_probe(
     task_index: dict[Any, Any],
     station_id: int | str,
     task_id: int | str,
-    *,
-    authenticated_user_id: int | str | None = None,
-    require_other_user: bool = False,
 ) -> tuple[int | None, dict[str, Any]]:
     """Select one previously proposed membership in this station/task only.
 
@@ -77,9 +65,6 @@ def choose_one_candidate_schedule_probe(
     task = _id(task_id)
     if station is None or task is None:
         raise ValueError("station_id and task_id must be numeric")
-    if not isinstance(require_other_user, bool):
-        raise ValueError("require_other_user must be boolean")
-    authenticated = _id(authenticated_user_id)
 
     indexed = any(
         _id(key) == task
@@ -106,8 +91,6 @@ def choose_one_candidate_schedule_probe(
         "current_station_crew_eligibility_verified": False,
         "full_station_availability_verified": False,
         "selected_candidate_represents_predicted_lineup": False,
-        "require_other_user": require_other_user,
-        "selected_candidate_relation_to_authenticated_user": "not_verified",
     }
     if not indexed:
         return None, {
@@ -164,54 +147,18 @@ def choose_one_candidate_schedule_probe(
             "probe_status": "no_history_member_match_in_active_cached_groups",
         }
 
-    if require_other_user and authenticated is None:
-        return None, {
-            **base,
-            "probe_status": "authenticated_user_identity_unavailable",
-        }
-    eligible_matches = matched
-    if require_other_user:
-        eligible_matches = {
-            membership
-            for membership in matched
-            if users.get(membership) is not None
-            and str(users[membership]) != authenticated
-        }
-        if not eligible_matches:
-            return None, {
-                **base,
-                "probe_status": "no_confirmed_other_user_in_cached_candidates",
-            }
-
     # Latest proposal merely provides a reproducible sample. No rank, role
     # preference or probability is inferred. Sort numeric IDs, not names.
     for _at, _incident, memberships in sorted(
         recent_records, key=lambda row: (row[0], row[1]), reverse=True
     ):
-        choices = eligible_matches.intersection(memberships)
+        choices = matched.intersection(memberships)
         if choices:
             selected = min(choices, key=int)
-            selected_user = users.get(selected)
-            relation = (
-                "confirmed_different_user"
-                if authenticated is not None
-                and selected_user is not None
-                and str(selected_user) != authenticated
-                else "same_authenticated_user"
-                if authenticated is not None
-                and selected_user is not None
-                and str(selected_user) == authenticated
-                else "not_verified"
-            )
             return int(selected), {
                 **base,
                 "probe_status": "ready_for_single_read_only_GET",
-                "sampling_rule": (
-                    "first_numeric_confirmed_other_user_in_latest_matching_proposal"
-                    if require_other_user
-                    else "first_numeric_member_in_latest_matching_proposal"
-                ),
-                "selected_candidate_relation_to_authenticated_user": relation,
+                "sampling_rule": "first_numeric_member_in_latest_matching_proposal",
                 "membership_selection_is_a_forecast": False,
             }
 
