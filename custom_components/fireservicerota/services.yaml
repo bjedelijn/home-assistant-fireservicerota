@@ -357,6 +357,39 @@ probe_task_p2000_audit:
           max: 5
           mode: box
 
+probe_task_webpage_p2000:
+  name: Probe one task webpage P2000 filter
+  description: >-
+    Experimental opt-in read-only test: request exactly one official
+    BrandweerRooster task page using the Home Assistant OAuth bearer token.
+    No browser cookies, redirects, raw HTML, personnel data, storage,
+    operational dispatch assumptions or provider writes. Returns only
+    recognized P2000 required terms/GMS filters or a safe failure status.
+    A login redirect means the web page does not accept this authentication
+    method; the integration will not try to bypass it.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are configured.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: One station to which the authenticated account belongs.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: For example 7678 for Hardenberg TS-BT.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
 probe_task_p2000_mapping:
   name: Inspect P2000 vehicle term for one task
   description: >-
