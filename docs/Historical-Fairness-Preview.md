@@ -481,7 +481,14 @@ per-membership duty sensor.
 
 Returned data is **anonymous**. The action reports only whether the
 endpoint returned the expected `intervals` list and whether a valid interval
-covers the current instant. It does **not** return the selected member's
+covers the current instant. When exactly one interval matches, the response now
+includes `current_interval_field_presence`: a strict allowlist of boolean
+checks indicating whether that interval contains a boolean `available` or
+`active`, a list `skill_ids` or `assigned_function_ids`, and a recognized
+`detailed_availability` object. If multiple intervals overlap, its value is
+`null` rather than merging ambiguous person data. Only field **presence and
+types** are returned: never the actual available/unavailable value, skill IDs,
+assigned functions, or detailed schedule values. It does **not** return the selected member's
 name, ID, actual available/unavailable state, duty type, detailed availability,
 schedule timestamps, skill list or the raw API response, and it does not
 store any schedule information. A failure is reported conservatively as
