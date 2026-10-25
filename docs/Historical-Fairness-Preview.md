@@ -680,3 +680,47 @@ The screenshot and independent P2000 record for incident `3012389` support
 the historical relationship between TS-BT and `042340`. A future general
 task-to-vehicle map should be derived only from verified, current
 per-task message filters and should not hardcode Hardenberg task IDs.
+
+**Observed live result (25 October 2026):** `GET /tasks/7678` succeeded
+but exposed only `alertable`, `description`, `group_ids`, `id`,
+`name`, `order`, and `station_ids`. The cached `/groups` task copies
+had exactly the same fields. The current matching term `042340` is
+therefore **not exposed by either of these observed API payloads**.
+Do not infer that the UI filter is absent, and do not hardcode a mapping.
+
+### Historical task-change audit (one page, read only)
+
+For the explicit task Audit Log URL provided by the user, a separate
+bounded service can now inspect **one authenticated page** of historical
+task changes, returning only numeric candidates from P2000-related
+*required* filter changes:
+
+```yaml
+action: fireservicerota.probe_task_p2000_audit
+data:
+  station_id: 194
+  task_id: 7678
+  page: 2
+```
+
+To inspect the newest page, use `page: 1`. The service requires an
+authenticated station-task match before one GET with
+`object_ids=7678`, `object_type=task`, `order=desc`, and a page
+between 1 and 5. There is no pagination loop. Records containing private
+auditor identity, free-form change text, member details or credentials
+are never returned or persisted. It displays only
+`historical_numeric_p2000_terms`,
+`filter_change_record_count`, and bounded examples with dates and
+candidate six-digit terms (such as `042340`). An empty result only
+means no matching audit change was recognized on that page; it does not
+prove a term was never configured.
+
+**Crucial:** the audit records are historical configuration changes, not
+a current configuration snapshot. A historical term may represent an
+old or new value, and neither occurrence proves a current vehicle
+mapping. The current matching setting may live in an admin-only
+resource not exposed through the public tasks API. Inspecting the
+Browser Developer Tools Network requests made while opening the task
+settings is the best way to identify the live API endpoint/field.
+Never send browser authentication headers, cookies or private audit
+payloads into issue trackers.
