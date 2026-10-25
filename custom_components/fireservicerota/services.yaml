@@ -285,6 +285,32 @@ preview_fairness_history:
       selector:
         boolean:
 
+
+inspect_historical_staffing:
+  name: Inspect a cached historical incident's staffing
+  description: "Explicitly retrieve exactly one BrandweerRooster incident via read-only API GET to inspect staffing evidence missing from the locally retained 25 incidents. Only works for an incident already in this station's private historical fairness cache. No audit import, writes, or cache changes."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Must be an active authorized station membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_id:
+      name: Historical incident ID
+      description: A previously imported fairness incident for this station. Only this incident will be queried once.
+      required: true
+      example: "3076036"
+      selector:
+        text:
+
 clear_fairness_history:
   name: Delete cached fairness history
   description: "Delete locally cached historical fairness evidence for one station from Home Assistant private storage. Does not modify BrandweerRooster."
