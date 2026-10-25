@@ -515,3 +515,65 @@ forecast would require explicitly authorized, scalable station-scoped reads,
 current eligibility/skill evidence and out-of-sample validation before use.
 The production `extended` branch and existing operational actions are
 unchanged.
+
+## Phase 1c: current aggregate appliance requirement (preferred over bulk person GET)
+
+The official FireServiceRota API documents `GET
+availability_requirements/{id}/schedule` for *current and projected
+appliance statuses*. See
+<https://fireservicerota.zendesk.com/hc/en-us/articles/360010210140-How-do-I-get-the-current-status-of-appliances-through-the-API>.
+The day query must use midnight-aligned start/end times. Compared with
+fetching dozens of individual members' schedules, a single availability
+requirement represents the vehicle's aggregate staffing state.
+
+**One-time, read-only diagnostic:**
+
+```yaml
+action: fireservicerota.probe_fairness_task_coverage
+data:
+  station_id: 194
+  task_id: 7674
+```
+
+The service validates the account's active station membership, checks that the
+task is indexed specifically for this station, and obtains the historical
+staffing overview without any new requests. It looks for one **unique**
+`availability_requirement_id` across completed, single-task, station-scoped
+incidents. On Hardenberg TS, the previously inspected requirement ID is
+`3690`. If zero or multiple IDs occur, the action returns an explicit reason
+and **does not make any API request**. A historical requirement is never
+silently assumed to be the current task configuration.
+
+Only after that selection is unambiguous, one authenticated
+`GET availability_requirements/{id}/schedule` is made for the current
+calendar day. Its response ID and any provided task IDs are verified. The
+current time must match **exactly one** interval. If a requirement ID or task
+link disagrees, the API response has an unexpected structure, or intervals
+overlap, the action refuses to claim usable coverage.
+
+It returns only **aggregate** per-skill values:
+- `current_aggregate_service_level` and `current_aggregate_warning_level`
+  (strict known enum labels).
+- `current_requirement_configuration`, where present: current configured
+  skill IDs and required counts, excluding memberships.
+- `current_aggregate_skills`: known skill IDs with API-reported
+  `minimum`, `buffer`, `assigned_count` and warning level.
+- `current_api_requirement_id_matches`, `current_api_task_ids_match`,
+  and `current_configuration_matches_historical_skill_ids`, preserving
+  **unknown** when the API omits a field.
+- Historical skill context, including TS's supplementary aspirant position,
+  clearly labelled as historical, not current eligibility.
+
+No personal `available_memberships`, names, user IDs, individual candidate
+responses, schedules, geolocation or credentials are returned or saved. No
+BrandweerRooster writes, Home Assistant state changes, cache modifications,
+forecast percentages or candidate ranking take place. API `assigned_count`
+is an aggregated status count, not proof that those people actually rode a
+vehicle or that a specific candidate can fill a current seat. If the current
+requirement configuration differs from history, investigate before reusing
+historical skill codes or crew assumptions.
+
+This first probe remains diagnostic. Official operations and vehicle dispatch
+procedures take precedence; a true person-level advisory would require
+explicit authorization and evidence for live individual eligibility plus
+a held-out prediction backtest.
