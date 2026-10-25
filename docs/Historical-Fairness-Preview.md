@@ -546,10 +546,28 @@ silently assumed to be the current task configuration.
 
 Only after that selection is unambiguous, one authenticated
 `GET availability_requirements/{id}/schedule` is made for the current
-calendar day. Its response ID and any provided task IDs are verified. The
+calendar day. Its response requirement ID and task IDs are checked. The
 current time must match **exactly one** interval. If a requirement ID or task
 link disagrees, the API response has an unexpected structure, or intervals
 overlap, the action refuses to claim usable coverage.
+
+**Investigating task mapping:** Historical requirement `3690` was confirmed
+for Hardenberg TS (`7674`) in 14 stored incident snapshots, but a first live
+schedule probe returned `api_task_ids_do_not_match`. This can result from a
+different task mapping or a requirement shared across multiple tasks. The
+follow-up diagnostic includes `api_reported_task_ids` (a bounded, strictly
+numeric list with no personal information),
+`current_api_requested_task_included`, and
+`current_api_task_mapping_status`:
+`single_requested_task`, `shared_across_tasks`, `different_tasks`,
+`task_ids_missing` or `task_ids_invalid`.
+
+Current aggregate staffing data is returned **only** when the response
+explicitly lists this task and *no others*. A shared, missing or conflicting
+mapping produces a diagnostic status and empty aggregate skill counts, rather
+than presenting a shared coverage result as TS-only. The documented
+`GET /availability_requirements` list also contains `task_ids`, but this
+preview does not automatically make a second request or broaden its scope.
 
 It returns only **aggregate** per-skill values:
 - `current_aggregate_service_level` and `current_aggregate_warning_level`
