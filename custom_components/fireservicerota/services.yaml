@@ -311,6 +311,31 @@ inspect_historical_staffing:
       selector:
         text:
 
+save_historical_staffing:
+  name: Save historical staffing evidence locally
+  description: "Explicitly re-read one previously cached historical incident with a single BrandweerRooster API GET and save only sanitized per-skill coverage counts to the private Home Assistant historical fairness cache. Does NOT refresh audit logs, alter live incident history, or modify BrandweerRooster. The compact fairness preview can then use these saved numbers when the incident was evicted from the last 25."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Must be an active authorized station membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_id:
+      name: Historical incident ID
+      description: An incident already imported in this station's private fairness cache. One API GET will be performed before saving.
+      required: true
+      example: "3076036"
+      selector:
+        text:
+
 clear_fairness_history:
   name: Delete cached fairness history
   description: "Delete locally cached historical fairness evidence for one station from Home Assistant private storage. Does not modify BrandweerRooster."
