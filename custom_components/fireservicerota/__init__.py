@@ -206,6 +206,15 @@ PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema(
 )
 
 
+PROBE_FAIRNESS_AVAILABILITY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    }
+)
+
+
 INSPECT_HISTORICAL_STAFFING_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -819,7 +828,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
             DOMAIN,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             async_probe_fairness_availability,
-            schema=PREVIEW_FAIRNESS_ADVISORY_SCHEMA,
+            schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_INSPECT_HISTORICAL_STAFFING):
