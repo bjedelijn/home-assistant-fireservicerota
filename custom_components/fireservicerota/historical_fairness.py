@@ -625,6 +625,37 @@ def enrich_compact_history_crew_coverage(
         if isinstance(snapshot, dict)
         if (incident_id := _id(snapshot.get("id"))) is not None
     }
+    # Short codes may be absent in one incident's warning_statuses. Resolve
+    # only from other retained requirements with the *same station and task*.
+    # Never assume a numeric skill ID universally represents one role.
+    known_task_skill_codes: dict[tuple[str, str], set[str]] = {}
+    for historical in snapshots.values():
+        for requirement in historical.get("crew_requirements") or []:
+            if not isinstance(requirement, dict):
+                continue
+            stations = {
+                station
+                for value in requirement.get("station_ids") or []
+                if (station := _id(value)) is not None
+            }
+            task_ids = {
+                task
+                for value in requirement.get("task_ids") or []
+                if (task := _id(value)) is not None
+            }
+            if stations != {requested} or len(task_ids) != 1:
+                continue
+            task = next(iter(task_ids))
+            for skill in requirement.get("skills") or []:
+                if not isinstance(skill, dict):
+                    continue
+                skill_id = _id(skill.get("skill_id"))
+                code = _label(skill.get("short_code"))
+                if skill_id and code:
+                    known_task_skill_codes.setdefault(
+                        (task, skill_id), set()
+                    ).add(code.casefold())
+
     result = dict(compact)
     rows = []
     for row in compact.get("incident_evidence_overview") or []:
@@ -649,6 +680,21 @@ def enrich_compact_history_crew_coverage(
             enriched["crew_coverage_status"] = "incident_task_ids_unavailable"
             rows.append(enriched)
             continue
+
+        resolved_tasks = row.get("resolved_tasks") or []
+        # A confirmed TS-specific rule: 'Asp' is an additional position
+        # rather than a required position in the normal TS crew. Current
+        # task metadata is used for this interpretation, not proof of a
+        # historical vehicle configuration.
+        ts_task_id = None
+        if len(incident_task_ids) == 1 and len(resolved_tasks) == 1:
+            task = resolved_tasks[0]
+            if (
+                isinstance(task, dict)
+                and _id(task.get("id")) in incident_task_ids
+                and _label(task.get("name")).casefold() == "ts"
+            ):
+                ts_task_id = next(iter(incident_task_ids))
 
         crew_summary = snapshot.get("crew_summary")
         individual_assignments_available = (
@@ -698,14 +744,60 @@ def enrich_compact_history_crew_coverage(
                     if assignment_count_source
                     else None
                 )
+                current_code = _label(skill.get("short_code"))
+                observed_codes = (
+                    known_task_skill_codes.get((ts_task_id, skill_id), set())
+                    if ts_task_id else set()
+                )
+                # A unique historical code can restore a missing label, but
+                # conflicting labels must never be guessed away.
+                resolved_code = (
+                    current_code if current_code
+                    else next(iter(observed_codes)) if len(observed_codes) == 1
+                    else None
+                )
+                unambiguous_asp = (
+                    resolved_code is not None
+                    and resolved_code.casefold() in {"asp", "aspirant"}
+                    and observed_codes.issubset({"asp", "aspirant"})
+                )
+                supplementary = bool(ts_task_id and unambiguous_asp)
+
+                # The warning status count may be larger than the number of
+                # explicit role assignments. Keep both evidence types separate.
+                individual_count = (
+                    _optional_nonnegative_int(
+                        skill.get("individual_assignment_count")
+                    )
+                    if individual_assignments_available
+                    and len(incident_task_ids) == 1
+                    else None
+                )
                 skills.append({
                     "skill_id": skill_id,
-                    "short_code": _label(skill.get("short_code")) or None,
+                    "short_code": resolved_code,
+                    "short_code_source": (
+                        "retained_incident_requirement" if current_code
+                        else "same_station_task_retained_history"
+                        if resolved_code else "unresolved"
+                    ),
                     "required": required,
                     "assigned": assigned,
                     "shortfall": max(0, required - assigned)
                     if assigned is not None else None,
                     "coverage_source": source,
+                    "individual_assignment_count": individual_count,
+                    "individual_assignment_shortfall": (
+                        max(0, required - individual_count)
+                        if individual_count is not None else None
+                    ),
+                    "position_type": (
+                        "supplemental" if supplementary else "regular"
+                    ),
+                    "position_type_source": (
+                        "ts_asp_confirmed_additional_position"
+                        if supplementary else "not_identified_as_supplemental"
+                    ),
                 })
 
             if not skills:
@@ -715,6 +807,25 @@ def enrich_compact_history_crew_coverage(
                 for skill in skills
             )
             all_known = all(skill["shortfall"] is not None for skill in skills)
+
+            def assignment_sufficient(items: list[dict]) -> bool | None:
+                if not items:
+                    return None
+                shortages = [
+                    item["individual_assignment_shortfall"] for item in items
+                ]
+                if any(n is not None and n > 0 for n in shortages):
+                    return False
+                if any(n is None for n in shortages):
+                    return None
+                return True
+
+            regular = [
+                item for item in skills if item["position_type"] == "regular"
+            ]
+            supplementary = [
+                item for item in skills if item["position_type"] == "supplemental"
+            ]
             enriched["crew_requirement_evidence"].append({
                 "availability_requirement_id": _id(
                     requirement.get("availability_requirement_id")
@@ -723,6 +834,16 @@ def enrich_compact_history_crew_coverage(
                 "skills": skills,
                 "sufficient": (
                     False if any_shortfall else True if all_known else None
+                ),
+                "regular_crew_sufficient": assignment_sufficient(regular),
+                "supplemental_positions_sufficient": (
+                    assignment_sufficient(supplementary)
+                ),
+                "regular_coverage_source": (
+                    "individual_incident_skill_assignment_records"
+                    if individual_assignments_available
+                    and len(incident_task_ids) == 1
+                    else "no_task_scoped_individual_assignment_evidence"
                 ),
             })
 
@@ -738,12 +859,16 @@ def enrich_compact_history_crew_coverage(
         "retained_ha_incident_snapshot_not_fairness_audit_time"
     )
     result["crew_coverage_interpretation"] = (
-        "Per-skill required and recorded assigned counts from retained "
-        "normalized incident snapshots. A positive shortfall means missing "
-        "recorded skill coverage, not a proven physical personnel shortfall. "
-        "Overlapping skill requirements are never summed into crew size. "
-        "Available-membership counts are not treated as assignments. "
-        "Missing or ambiguously scoped requirements remain unknown."
+        "The original sufficient field compares all API-configured skill "
+        "requirements and warning counts. It includes any additional Asp "
+        "position. For a singly identified TS, Asp is supplementary, and "
+        "regular_crew_sufficient uses explicit individual skill-assignment "
+        "records while supplemental_positions_sufficient is separate. "
+        "Some warning_statuses counts exceed individual assignment counts "
+        "and must not be presented as actual vehicle crew. All evidence is "
+        "retrospective, not verified physical turnout. Overlapping skills "
+        "must not be summed into unique personnel positions; missing "
+        "individual records or ambiguous task/skill labels stay unknown."
     )
     return result
 
