@@ -30,6 +30,7 @@ from .historical_fairness import (
     enrich_compact_history_task_names,
     enrich_compact_history_crew_coverage,
     build_one_time_incident_staffing_evidence,
+    prepare_private_staffing_evidence,
     build_historical_role_preview,
     select_retained_history_ids,
     summarize_incident_for_history,
@@ -72,6 +73,7 @@ from .const import (
     SERVICE_IMPORT_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_HISTORY,
     SERVICE_INSPECT_HISTORICAL_STAFFING,
+    SERVICE_SAVE_HISTORICAL_STAFFING,
     SERVICE_CLEAR_FAIRNESS_HISTORY,
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
@@ -280,6 +282,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_IMPORT_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_HISTORY,
             SERVICE_INSPECT_HISTORICAL_STAFFING,
+            SERVICE_SAVE_HISTORICAL_STAFFING,
             SERVICE_CLEAR_FAIRNESS_HISTORY,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
@@ -522,6 +525,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 compact,
                 incident_store.history if incident_store is not None else [],
                 station_id,
+                cached_fairness_records=rows,
             )
         return preview
 
@@ -578,6 +582,51 @@ def _async_register_services(hass: HomeAssistant) -> None:
             task_index=client.task_index,
             retained_history=incident_store.history,
         )
+
+    async def async_save_historical_staffing(call: ServiceCall) -> dict:
+        """Explicitly save minimal one-time GET staffing data in HA .storage.
+
+        This calls the same read-only inspector, then persists only whitelisted
+        role counts. No BrandweerRooster writes, audit fetch or HA history edits.
+        """
+        inspection = await async_inspect_historical_staffing(call)
+        if (
+            inspection.get("crew_coverage_status")
+            != "recorded_skill_requirements_found"
+        ):
+            return {
+                "saved": False,
+                "incident_id": inspection.get("incident_id"),
+                "station_id": inspection.get("station_id"),
+                "reason": inspection.get("crew_coverage_status"),
+                "historical_audit_refetched": False,
+                "local_incident_history_modified": False,
+            }
+        try:
+            minimal = prepare_private_staffing_evidence(inspection)
+            entry_data = _service_entry_data(
+                hass, call.data.get(ATTR_ENTRY_ID)
+            )
+            stored = await _historical_cache(
+                entry_data
+            ).async_save_staffing_evidence(
+                call.data[ATTR_STATION_ID],
+                call.data[ATTR_INCIDENT_ID],
+                minimal,
+            )
+        except ValueError as err:
+            raise HomeAssistantError(
+                "Could not safely save historical staffing evidence: "
+                f"{err}"
+            ) from err
+
+        return {
+            **stored,
+            "storage_scope": "private_historical_fairness_cache_only",
+            "historical_audit_refetched": False,
+            "local_incident_history_modified": False,
+            "brandweerrooster_modified": False,
+        }
 
     async def async_clear_fairness_history(call: ServiceCall) -> dict:
         """Erase the local cache for a station; never touch BrandweerRooster."""
@@ -664,6 +713,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             DOMAIN,
             SERVICE_INSPECT_HISTORICAL_STAFFING,
             async_inspect_historical_staffing,
+            schema=INSPECT_HISTORICAL_STAFFING_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_SAVE_HISTORICAL_STAFFING):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SAVE_HISTORICAL_STAFFING,
+            async_save_historical_staffing,
             schema=INSPECT_HISTORICAL_STAFFING_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
