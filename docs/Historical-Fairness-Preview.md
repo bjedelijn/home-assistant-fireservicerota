@@ -765,10 +765,13 @@ Safety and scope:
 - The web request uses `allow_redirects=False`, a 10-second timeout,
   and a hard 400 KB response cap. No raw HTML, tokens, cookies, personnel
   data, audit records or response bodies are returned or persisted.
-- If OAuth fails or the web endpoint redirects to sign-in, the action
+- If OAuth fails or the web endpoint redirects, the action
   returns `oauth_not_authorized_for_webpage` or
-  `redirect_to_web_session_or_other_page` and **stops**. This is a
-  diagnostic result, not an invitation to inject browser cookies.
+  `redirect_to_web_session_or_other_page` and **stops**. It also reports
+  `redirect_destination_type` as a *safe category*, never the raw
+  Location URL or its query/credentials. This distinguishes a login
+  redirect from a same-task canonical URL redirect without following either.
+  This is a diagnostic result, not an invitation to inject browser cookies.
 - On HTTP 200 HTML, the parser accepts only the explicit task-show page,
   a matching station breadcrumb, the exact task name from the authorized
   index, and specific rows in the `Algemeen` settings table. It exposes
