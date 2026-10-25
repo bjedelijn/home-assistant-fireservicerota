@@ -318,6 +318,32 @@ preview_fairness_advisory:
       selector:
         boolean:
 
+probe_fairness_availability:
+  name: Probe historical candidate availability API access
+  description: "Experimental read-only diagnostic. For one authorized station/task, find ONE historical candidate who still appears as an active membership in cached station/related groups and send at most ONE GET to their combined_schedule. Return only whether that endpoint responds with timestamped intervals, never the person's identity, actual availability, or schedule times. Does not validate complete staffing or predict a vehicle crew."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Authorized station with stored fairness history.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: A single task indexed to this station. For Hardenberg TS use 7674.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
 inspect_historical_staffing:
   name: Inspect a cached historical incident's staffing
   description: "Explicitly retrieve exactly one BrandweerRooster incident via read-only API GET to inspect staffing evidence missing from the locally retained 25 incidents. Only works for an incident already in this station's private historical fairness cache. No audit import, writes, or cache changes."
