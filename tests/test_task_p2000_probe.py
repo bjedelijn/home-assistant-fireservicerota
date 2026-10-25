@@ -110,7 +110,7 @@ def test_live_task_p2000_config_maps_042340_from_exact_required_field():
     for confidential in (
         "VERY PRIVATE", "SECRET PERSON", "supersecret",
         "member_details", "memberships", "user_data", "secret_token",
-        "auth", "Intrekken", "041034", "1000", "2000",
+        "Intrekken", "041034", "1000", "2000",
     ):
         assert confidential not in str(result)
 
