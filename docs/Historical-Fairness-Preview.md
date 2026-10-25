@@ -724,3 +724,67 @@ Browser Developer Tools Network requests made while opening the task
 settings is the best way to identify the live API endpoint/field.
 Never send browser authentication headers, cookies or private audit
 payloads into issue trackers.
+
+## Phase 1e: one-shot task webpage OAuth test
+
+The authenticated BrandweerRooster browser page for
+`/groups/194/tasks/7678?locale=nl` contains task-specific data directly in
+its **server-rendered HTML**:
+
+- Station: Hardenberg, task ID `7678` (`TS-BT`)
+- GMS kazerne filter: `HARDBG`
+- GMS ploeg soortcode filter: `b-ts`
+- P2000 **required** incident-message term: `042340`
+- P2000 excluded term: `Intrekken`
+- Shared availability requirement: `3690` (tasks `7674`, `7678`)
+
+This establishes the website's **current alert-matching configuration**,
+not proof of a dispatched or physically deployed vehicle. The JSON
+`GET /api/v2/tasks/7678` response did **not** expose these settings; the
+task audit report on pages 1 and 2 returned zero records.
+
+The HTML page normally uses a logged-in browser session. We must **not**
+assume the integration's API OAuth bearer token can access that page.
+The following deliberate diagnostic makes **at most one** GET to the exact
+official HTTPS host with the existing OAuth bearer token and no browser
+cookies, manual session copying, redirects, refresh retries or API writes:
+
+```yaml
+action: fireservicerota.probe_task_webpage_p2000
+data:
+  station_id: 194
+  task_id: 7678
+```
+
+Safety and scope:
+
+- The user must be a current member of the requested station, and the
+  task must resolve **uniquely** to that station in the existing task index.
+- The authentication token is sent only to the fixed
+  `https://www.brandweerrooster.nl` origin. A different base URL is rejected.
+- The web request uses `allow_redirects=False`, a 10-second timeout,
+  and a hard 400 KB response cap. No raw HTML, tokens, cookies, personnel
+  data, audit records or response bodies are returned or persisted.
+- If OAuth fails or the web endpoint redirects to sign-in, the action
+  returns `oauth_not_authorized_for_webpage` or
+  `redirect_to_web_session_or_other_page` and **stops**. This is a
+  diagnostic result, not an invitation to inject browser cookies.
+- On HTTP 200 HTML, the parser accepts only the explicit task-show page,
+  a matching station breadcrumb, the exact task name from the authorized
+  index, and specific rows in the `Algemeen` settings table. It exposes
+  the two GMS filters and unambiguous whole six-digit *required* P2000
+  message terms, never excluded terms or numbers in unrelated HTML.
+- It does **not** modify the existing task index, persist a mapping,
+  infer actual operational turnout, or change the live fairness computation.
+
+Relevant response fields: `probe_status`, `http_status`,
+`task_page_identity_verified`, `task_station_breadcrumb_verified`,
+`gms_station_filter`, `gms_team_type_filter`,
+`required_p2000_terms`, `vehicle_number`, and
+`vehicle_mapping_status`. A single configured required term is a
+**candidate matching term**, not independently verified appliance attendance.
+
+If OAuth cannot read the task website, investigate a documented, authorized
+JSON resource or request the matching metadata through the provider's
+official API. Do not collect web session cookies or scrape authenticated
+browser state as part of the integration.
