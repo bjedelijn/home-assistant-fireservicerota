@@ -7,6 +7,7 @@ from custom_components.fireservicerota.historical_fairness import (
     _reported_status_code,
     build_compact_history_evidence,
     build_historical_role_preview,
+    enrich_compact_history_task_names,
     select_retained_history_ids,
     summarize_incident_for_history,
 )
@@ -506,3 +507,58 @@ def test_compact_preview_omits_candidate_identifiers_and_full_name_lists():
     assert "Person Two" not in str(compact)
     assert "membership_id" not in str(compact)
     assert "user_id" not in str(compact)
+
+
+def test_compact_task_names_resolve_from_current_station_without_guessing():
+    sample = analysis()
+    sample["staffing_by_group"]["incident_task_ids"] = [7001, 7689, 9999]
+    record = summarize_incident_for_history(sample, 100)["record"]
+    compact = build_compact_history_evidence(
+        build_historical_role_preview([record], 100)
+    )
+    index = {
+        7001: [
+            {"id": 7001, "name": "WTS", "station_id": 100},
+            {"id": 7001, "name": "Other station task", "station_id": 200},
+        ],
+        "7689": [{"id": 7689, "name": "Red vehicle", "station_id": "100"}],
+        9999: [{"id": 9999, "name": "Do not expose", "station_id": 200}],
+    }
+    enriched = enrich_compact_history_task_names(compact, index, 100)
+    tasks = enriched["incident_evidence_overview"][0]["resolved_tasks"]
+    assert tasks == [
+        {"id": "7001", "name": "WTS", "resolution": "current_station_task_index"},
+        {"id": "7689", "name": "Red vehicle", "resolution": "current_station_task_index"},
+        {
+            "id": "9999",
+            "resolution": "name_not_available_in_current_station_index",
+        },
+    ]
+    assert enriched["task_name_source"] == (
+        "current_station_task_index_not_historical_task_snapshot"
+    )
+    assert "resolved_tasks" not in compact["incident_evidence_overview"][0]
+    assert "historical_roles" not in enriched
+    assert "Other station task" not in str(enriched)
+    assert "Do not expose" not in str(enriched)
+    assert "membership_id" not in str(enriched)
+    assert "user_id" not in str(enriched)
+
+
+def test_conflicting_station_task_names_remain_unresolved():
+    sample = analysis()
+    sample["staffing_by_group"]["incident_task_ids"] = [7001]
+    record = summarize_incident_for_history(sample, 100)["record"]
+    compact = build_compact_history_evidence(
+        build_historical_role_preview([record], 100)
+    )
+    index = {
+        7001: [
+            {"id": 7001, "name": "WTS", "station_id": 100},
+            {"id": 7001, "name": "Other name", "station_id": 100},
+        ]
+    }
+    tasks = enrich_compact_history_task_names(
+        compact, index, 100
+    )["incident_evidence_overview"][0]["resolved_tasks"]
+    assert tasks == [{"id": "7001", "resolution": "conflicting_current_task_names"}]
