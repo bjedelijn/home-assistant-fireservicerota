@@ -28,6 +28,7 @@ from .fairness_audit import analyze_incident_fairness
 from .historical_fairness import (
     build_compact_history_evidence,
     enrich_compact_history_task_names,
+    enrich_compact_history_crew_coverage,
     build_historical_role_preview,
     select_retained_history_ids,
     summarize_incident_for_history,
@@ -499,8 +500,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
         if call.data[ATTR_OVERVIEW_ONLY]:
             compact = build_compact_history_evidence(preview)
             client = entry_data[DATA_CLIENT]
-            return enrich_compact_history_task_names(
+            compact = enrich_compact_history_task_names(
                 compact, client.task_index, station_id
+            )
+            incident_store = entry_data.get(DATA_INCIDENT_STORE)
+            return enrich_compact_history_crew_coverage(
+                compact,
+                incident_store.history if incident_store is not None else [],
+                station_id,
             )
         return preview
 
