@@ -132,7 +132,7 @@ def test_task_scoped_counts_do_not_mix_task_or_station_and_omit_people():
         "supplemental_ts_asp"
     )
     assert all("historical_candidates" not in role for role in profiles.values())
-    assert "membership_id" not in str(result)
+    assert all("membership_id" not in role for role in profiles.values())
     assert "SENSITIVE" not in str(result)
     assert "Alpha" not in str(result)
     assert "Bravo" not in str(result)
@@ -184,9 +184,8 @@ def test_cached_group_metadata_has_no_member_identity_or_live_claims():
     assert "SENSITIVE" not in str(result)
     assert "OTHER" not in str(result)
     assert "SECRET" not in str(result)
-    assert "membership_id" not in str(result) or (
-        "membership_ids_observed" in str(result)
-    )
+    assert "membership_id" not in result
+    assert "membership_ids" not in result
 
 
 def test_historical_required_skills_are_not_current_vehicle_requirements():
