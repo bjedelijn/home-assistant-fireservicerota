@@ -591,3 +591,159 @@ def enrich_compact_history_task_names(
         resolved_rows.append(enriched)
     result["incident_evidence_overview"] = resolved_rows
     return result
+
+def _optional_nonnegative_int(value: Any) -> int | None:
+    """Return a known nonnegative API count, never coerce missing to zero."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    if isinstance(value, str) and value.strip().isdecimal():
+        return int(value.strip())
+    return None
+
+
+def enrich_compact_history_crew_coverage(
+    compact: dict[str, Any],
+    retained_history: list[dict[str, Any]],
+    station_id: int | str,
+) -> dict[str, Any]:
+    """Join separately recorded skill coverage from retained HA incident history.
+
+    Never convert fairness proposal roles into assigned vehicle positions.
+    Requirements may overlap; shortfalls remain per skill, not unique people.
+    No API request, cache mutation, incident change or personally identifying
+    data is needed for this optional compact read-only diagnostic.
+    """
+    requested = _id(station_id)
+    if requested is None:
+        raise ValueError("station_id must be numeric")
+
+    snapshots = {
+        incident_id: snapshot
+        for snapshot in retained_history
+        if isinstance(snapshot, dict)
+        if (incident_id := _id(snapshot.get("id"))) is not None
+    }
+    result = dict(compact)
+    rows = []
+    for row in compact.get("incident_evidence_overview") or []:
+        if not isinstance(row, dict):
+            continue
+        enriched = dict(row)
+        enriched["crew_requirement_evidence"] = []
+        snapshot = snapshots.get(_id(row.get("incident_id")))
+        if not isinstance(snapshot, dict) or not isinstance(
+            snapshot.get("crew_requirements"), list
+        ):
+            enriched["crew_coverage_status"] = "no_retained_staffing_snapshot"
+            rows.append(enriched)
+            continue
+
+        incident_task_ids = {
+            task_id
+            for task in (row.get("incident_task_ids") or [])
+            if (task_id := _id(task)) is not None
+        }
+        if not incident_task_ids:
+            enriched["crew_coverage_status"] = "incident_task_ids_unavailable"
+            rows.append(enriched)
+            continue
+
+        crew_summary = snapshot.get("crew_summary")
+        individual_assignments_available = (
+            isinstance(crew_summary, dict)
+            and crew_summary.get("individual_assignments_available") is True
+        )
+        for requirement in snapshot["crew_requirements"]:
+            if not isinstance(requirement, dict):
+                continue
+            station_ids = {
+                station
+                for value in (requirement.get("station_ids") or [])
+                if (station := _id(value)) is not None
+            }
+            requirement_task_ids = {
+                task_id
+                for value in (requirement.get("task_ids") or [])
+                if (task_id := _id(value)) is not None
+            }
+            # A requirement must be explicitly scoped to this single station
+            # and its tasks; never borrow one from another station or vehicle.
+            if station_ids != {requested} or not requirement_task_ids:
+                continue
+            if not requirement_task_ids.issubset(incident_task_ids):
+                continue
+
+            skills = []
+            for skill in requirement.get("skills") or []:
+                if not isinstance(skill, dict):
+                    continue
+                skill_id = _id(skill.get("skill_id"))
+                required = _optional_nonnegative_int(skill.get("required"))
+                if skill_id is None or required is None:
+                    continue
+
+                source = skill.get("coverage_source")
+                assignment_count_source = (
+                    source == "warning_statuses"
+                    or (
+                        source == "incident_skill_assignments"
+                        and individual_assignments_available
+                    )
+                )
+                # 'available_memberships' is availability, not assignments.
+                assigned = (
+                    _optional_nonnegative_int(skill.get("assigned"))
+                    if assignment_count_source
+                    else None
+                )
+                skills.append({
+                    "skill_id": skill_id,
+                    "short_code": _label(skill.get("short_code")) or None,
+                    "required": required,
+                    "assigned": assigned,
+                    "shortfall": max(0, required - assigned)
+                    if assigned is not None else None,
+                    "coverage_source": source,
+                })
+
+            if not skills:
+                continue
+            any_shortfall = any(
+                skill["shortfall"] is not None and skill["shortfall"] > 0
+                for skill in skills
+            )
+            all_known = all(skill["shortfall"] is not None for skill in skills)
+            enriched["crew_requirement_evidence"].append({
+                "availability_requirement_id": _id(
+                    requirement.get("availability_requirement_id")
+                ),
+                "task_ids": sorted(requirement_task_ids, key=int),
+                "skills": skills,
+                "sufficient": (
+                    False if any_shortfall else True if all_known else None
+                ),
+            })
+
+        enriched["crew_coverage_status"] = (
+            "recorded_skill_requirements_found"
+            if enriched["crew_requirement_evidence"]
+            else "no_unambiguous_station_task_requirements"
+        )
+        rows.append(enriched)
+
+    result["incident_evidence_overview"] = rows
+    result["crew_coverage_source"] = (
+        "retained_ha_incident_snapshot_not_fairness_audit_time"
+    )
+    result["crew_coverage_interpretation"] = (
+        "Per-skill required and recorded assigned counts from retained "
+        "normalized incident snapshots. A positive shortfall means missing "
+        "recorded skill coverage, not a proven physical personnel shortfall. "
+        "Overlapping skill requirements are never summed into crew size. "
+        "Available-membership counts are not treated as assignments. "
+        "Missing or ambiguously scoped requirements remain unknown."
+    )
+    return result
+
