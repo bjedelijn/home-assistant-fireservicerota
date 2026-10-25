@@ -318,6 +318,37 @@ preview_fairness_advisory:
       selector:
         boolean:
 
+probe_task_p2000_mapping:
+  name: Inspect P2000 vehicle term for one task
+  description: >-
+    Experimental read-only task configuration probe. For one authorized
+    station and task, inspects only cached field names and performs at most
+    one authenticated GET tasks/<id>. Returns numeric P2000 required-terms
+    (candidate roepnummers) only when explicitly recognized. No bulk scans,
+    no user data, no cached changes and no operational vehicle prediction.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: One station for which the account has an active membership.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      description: "For example 7678 (TS-BT of station 194)."
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
 probe_fairness_task_coverage:
   name: Probe current aggregate vehicle task coverage
   description: "Experimental read-only lookup of one historically identified availability requirement for a station/task. Makes at most one official availability_requirements/<id>/schedule GET for the current day. Displays aggregated per-skill counts and appliance warning/service levels only. Never returns member identities, individual availability, full API payloads or a proposed crew. Historical task/requirement must resolve unambiguously."
