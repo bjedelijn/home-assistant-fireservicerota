@@ -69,7 +69,7 @@ def _tokens(value: Any) -> set[str]:
     """Only exact six-digit tokens; never extract arbitrary digits from text."""
     if isinstance(value, str):
         # Multiple explicit required terms can be separated by commas/semicolons.
-        items = re.split(r"[,;\\n]", value)
+        items = [part for line in value.splitlines() for part in line.replace(",", ";").split(";")]
         return {
             token.strip()
             for token in items
