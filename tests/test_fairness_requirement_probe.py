@@ -274,7 +274,7 @@ def test_missing_or_malformed_api_response_is_not_downtime_claim():
     for response, status in [
         (None, "api_schedule_unavailable_or_permission_denied"),
         ({}, "api_requirement_metadata_missing"),
-        ({"availability_requirement": {"id": 3690}},
+        ({"availability_requirement": {"id": 3690, "task_ids": [7674]}},
          "invalid_or_unbounded_intervals"),
     ]:
         result = summarize_task_requirement_schedule(selection, response, now)
