@@ -607,6 +607,7 @@ def enrich_compact_history_crew_coverage(
     compact: dict[str, Any],
     retained_history: list[dict[str, Any]],
     station_id: int | str,
+    cached_fairness_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Join separately recorded skill coverage from retained HA incident history.
 
@@ -625,6 +626,14 @@ def enrich_compact_history_crew_coverage(
         if isinstance(snapshot, dict)
         if (incident_id := _id(snapshot.get("id"))) is not None
     }
+    cached_by_incident = {
+        incident_id: record
+        for record in (cached_fairness_records or [])
+        if isinstance(record, dict)
+        if _id(record.get("station_id")) == requested
+        if (incident_id := _id(record.get("incident_id"))) is not None
+    }
+    used_saved_evidence = False
     # Short codes may be absent in one incident's warning_statuses. Resolve
     # only from other retained requirements with the *same station and task*.
     # Never assume a numeric skill ID universally represents one role.
@@ -667,10 +676,46 @@ def enrich_compact_history_crew_coverage(
         if not isinstance(snapshot, dict) or not isinstance(
             snapshot.get("crew_requirements"), list
         ):
-            enriched["crew_coverage_status"] = "no_retained_staffing_snapshot"
+            cached = cached_by_incident.get(_id(row.get("incident_id")), {})
+            saved = cached.get("saved_staffing_evidence")
+            row_tasks = sorted(
+                {
+                    item
+                    for value in row.get("incident_task_ids") or []
+                    if (item := _id(value)) is not None
+                },
+                key=int,
+            )
+            if (
+                isinstance(saved, dict)
+                and saved.get("version") == 1
+                and saved.get("incident_task_ids") == row_tasks
+                and isinstance(saved.get("crew_requirement_evidence"), list)
+                and saved["crew_requirement_evidence"]
+            ):
+                enriched["crew_requirement_evidence"] = [
+                    dict(requirement)
+                    for requirement in saved["crew_requirement_evidence"]
+                    if isinstance(requirement, dict)
+                ]
+                enriched["crew_coverage_status"] = (
+                    "recorded_skill_requirements_found"
+                )
+                enriched["crew_coverage_evidence_source"] = (
+                    "explicitly_saved_single_incident_api_snapshot"
+                )
+                enriched["crew_coverage_checked_at"] = saved.get("checked_at")
+                used_saved_evidence = True
+            else:
+                enriched["crew_coverage_status"] = (
+                    "no_retained_staffing_snapshot"
+                )
             rows.append(enriched)
             continue
 
+        enriched["crew_coverage_evidence_source"] = (
+            "retained_ha_incident_snapshot"
+        )
         incident_task_ids = {
             task_id
             for task in (row.get("incident_task_ids") or [])
@@ -856,7 +901,9 @@ def enrich_compact_history_crew_coverage(
 
     result["incident_evidence_overview"] = rows
     result["crew_coverage_source"] = (
-        "retained_ha_incident_snapshot_not_fairness_audit_time"
+        "retained_ha_history_plus_opt_in_saved_api_snapshots"
+        if used_saved_evidence
+        else "retained_ha_incident_snapshot_not_fairness_audit_time"
     )
     result["crew_coverage_interpretation"] = (
         "The original sufficient field compares all API-configured skill "
@@ -868,7 +915,9 @@ def enrich_compact_history_crew_coverage(
         "and must not be presented as actual vehicle crew. All evidence is "
         "retrospective, not verified physical turnout. Overlapping skills "
         "must not be summed into unique personnel positions; missing "
-        "individual records or ambiguous task/skill labels stay unknown."
+        "individual records or ambiguous task/skill labels stay unknown. "
+        "Explicitly saved API snapshots, if any, were recorded later than "
+        "the historical fairness proposal and contain no new person data."
     )
     return result
 
@@ -983,4 +1032,157 @@ def build_one_time_incident_staffing_evidence(
             "vehicle turnout. Function counts can overlap; supplemental "
             "positions are evaluated separately where identifiable."
         ),
+    }
+
+def prepare_private_staffing_evidence(
+    inspection: dict[str, Any],
+) -> dict[str, Any]:
+    """Strip one inspected incident to bounded, identity-free numeric evidence.
+
+    This payload contains no response people, assignments, member names,
+    memberships, audit text, URLs or credentials. It must be explicitly saved
+    by a separate Home Assistant action; inspection itself never persists.
+    """
+    if (
+        inspection.get("source") != "one_time_authenticated_incident_api_get"
+        or inspection.get("crew_coverage_status")
+        != "recorded_skill_requirements_found"
+    ):
+        raise ValueError("no verified incident skill evidence to save")
+
+    task_ids = sorted(
+        {
+            item
+            for raw in inspection.get("incident_task_ids") or []
+            if (item := _id(raw)) is not None
+        },
+        key=int,
+    )
+    if not task_ids:
+        raise ValueError("cannot save staffing without matching incident tasks")
+
+    known_coverage_sources = {
+        "warning_statuses",
+        "incident_skill_assignments",
+        "warning_statuses_available_memberships",
+    }
+    allowed_short_code_sources = {
+        "retained_incident_requirement",
+        "same_station_task_retained_history",
+        "unresolved",
+    }
+    requirements = []
+    raw_requirements = inspection.get("crew_requirement_evidence") or []
+    if not 1 <= len(raw_requirements) <= 12:
+        raise ValueError("unexpected number of incident requirements")
+
+    for requirement in raw_requirements:
+        if not isinstance(requirement, dict):
+            raise ValueError("invalid incident requirement")
+        req_tasks = sorted(
+            {
+                item
+                for raw in requirement.get("task_ids") or []
+                if (item := _id(raw)) is not None
+            },
+            key=int,
+        )
+        if not req_tasks or not set(req_tasks).issubset(task_ids):
+            raise ValueError("requirement task IDs do not match incident")
+        raw_skills = requirement.get("skills")
+        if not isinstance(raw_skills, list) or not 1 <= len(raw_skills) <= 30:
+            raise ValueError("invalid incident skill list")
+
+        skills = []
+        for skill in raw_skills:
+            if not isinstance(skill, dict):
+                raise ValueError("invalid incident skill record")
+            skill_id = _id(skill.get("skill_id"))
+            required = _optional_nonnegative_int(skill.get("required"))
+            if skill_id is None or required is None or required > 1000:
+                raise ValueError("invalid required skill count")
+            assigned = _optional_nonnegative_int(skill.get("assigned"))
+            individual = _optional_nonnegative_int(
+                skill.get("individual_assignment_count")
+            )
+            if (assigned is not None and assigned > 10000) or (
+                individual is not None and individual > 10000
+            ):
+                raise ValueError("out of range assignment count")
+
+            raw_code = _label(skill.get("short_code"))
+            short_code = (
+                raw_code
+                if re.fullmatch(r"[A-Za-z][A-Za-z0-9 _./-]{0,31}", raw_code)
+                else None
+            )
+            position_type = (
+                "supplemental"
+                if skill.get("position_type") == "supplemental"
+                else "regular"
+            )
+            coverage_source = skill.get("coverage_source")
+            if coverage_source not in known_coverage_sources:
+                raise ValueError("unknown coverage source")
+            raw_code_source = skill.get("short_code_source")
+            code_source = (
+                raw_code_source
+                if raw_code_source in allowed_short_code_sources
+                else "unresolved"
+            )
+            skills.append({
+                "skill_id": skill_id,
+                "short_code": short_code,
+                "short_code_source": code_source,
+                "required": required,
+                "assigned": assigned,
+                "shortfall": (
+                    max(0, required - assigned) if assigned is not None
+                    else None
+                ),
+                "coverage_source": coverage_source,
+                "individual_assignment_count": individual,
+                "individual_assignment_shortfall": (
+                    max(0, required - individual) if individual is not None
+                    else None
+                ),
+                "position_type": position_type,
+                "position_type_source": (
+                    "ts_asp_confirmed_additional_position"
+                    if position_type == "supplemental"
+                    else "not_identified_as_supplemental"
+                ),
+            })
+
+        def sufficiency(key: str) -> bool | None:
+            value = requirement.get(key)
+            return value if isinstance(value, bool) else None
+
+        requirements.append({
+            "availability_requirement_id": _id(
+                requirement.get("availability_requirement_id")
+            ),
+            "task_ids": req_tasks,
+            "skills": skills,
+            "sufficient": sufficiency("sufficient"),
+            "regular_crew_sufficient": sufficiency(
+                "regular_crew_sufficient"
+            ),
+            "supplemental_positions_sufficient": sufficiency(
+                "supplemental_positions_sufficient"
+            ),
+            "regular_coverage_source": (
+                "individual_incident_skill_assignment_records"
+                if requirement.get("regular_coverage_source")
+                == "individual_incident_skill_assignment_records"
+                else "no_task_scoped_individual_assignment_evidence"
+            ),
+        })
+
+    return {
+        "version": 1,
+        "source": "opt_in_one_time_authenticated_incident_api_get",
+        "incident_task_ids": task_ids,
+        "checked_at": inspection.get("api_record_checked_at"),
+        "crew_requirement_evidence": requirements,
     }
