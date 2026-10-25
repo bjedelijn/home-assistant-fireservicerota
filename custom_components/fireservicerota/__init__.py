@@ -42,6 +42,7 @@ from .task_p2000_audit_probe import (
     choose_task_audit_probe,
     summarize_task_audit_probe,
 )
+from .task_webpage_probe import async_probe_task_webpage
 from .historical_fairness import (
     build_compact_history_evidence,
     enrich_compact_history_task_names,
@@ -97,6 +98,7 @@ from .const import (
     SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_PROBE_TASK_P2000_MAPPING,
     SERVICE_PROBE_TASK_P2000_AUDIT,
+    SERVICE_PROBE_TASK_WEBPAGE_P2000,
     SERVICE_INSPECT_HISTORICAL_STAFFING,
     SERVICE_SAVE_HISTORICAL_STAFFING,
     SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -342,6 +344,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_PROBE_TASK_P2000_MAPPING,
             SERVICE_PROBE_TASK_P2000_AUDIT,
+            SERVICE_PROBE_TASK_WEBPAGE_P2000,
             SERVICE_INSPECT_HISTORICAL_STAFFING,
             SERVICE_SAVE_HISTORICAL_STAFFING,
             SERVICE_CLEAR_FAIRNESS_HISTORY,
@@ -708,6 +711,48 @@ def _async_register_services(hass: HomeAssistant) -> None:
             raw_records = None
         return summarize_task_audit_probe(selection, raw_records)
 
+    async def async_probe_task_webpage_p2000(call: ServiceCall) -> dict:
+        """Test exactly one OAuth-only GET of an authorized task web page.
+
+        Reject non-BWR hosts and cross-station tasks; do not follow redirects,
+        use browser cookies, store task mappings or return HTML/person data.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        selection = choose_task_p2000_probe(
+            station_id, task_id, client.task_index, []
+        )
+        if (
+            selection["probe_status"] != "ready_for_single_task_GET"
+            or not selection["task_name"]
+        ):
+            return {
+                "station_id": str(station_id),
+                "task_id": str(task_id),
+                "probe_status": "task_not_uniquely_indexed_for_station",
+                "api_get_attempted": False,
+                "personal_data_returned": False,
+                "local_storage_modified": False,
+                "brandweerrooster_modified": False,
+            }
+
+        token_info = getattr(client.fsr, "_token_info", None)
+        access_token = (
+            token_info.get("access_token")
+            if isinstance(token_info, dict) else None
+        )
+        return await async_probe_task_webpage(
+            async_get_clientsession(hass),
+            base_url=str(client._url),
+            access_token=access_token,
+            station_id=str(station_id),
+            task_id=str(task_id),
+            task_name=selection["task_name"],
+        )
+
     async def async_probe_task_p2000_mapping(call: ServiceCall) -> dict:
         """Read one authorized task's P2000 match terms, without storing data.
 
@@ -990,6 +1035,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_PROBE_TASK_P2000_AUDIT,
             async_probe_task_p2000_audit,
             schema=PROBE_TASK_P2000_AUDIT_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_WEBPAGE_P2000):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_TASK_WEBPAGE_P2000,
+            async_probe_task_webpage_p2000,
+            schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_P2000_MAPPING):
