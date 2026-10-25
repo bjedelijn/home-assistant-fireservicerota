@@ -7,6 +7,7 @@ from custom_components.fireservicerota.historical_fairness import (
     _reported_status_code,
     build_compact_history_evidence,
     build_historical_role_preview,
+    build_one_time_incident_staffing_evidence,
     enrich_compact_history_task_names,
     enrich_compact_history_crew_coverage,
     select_retained_history_ids,
@@ -804,4 +805,149 @@ def test_warning_counts_without_individual_records_cannot_verify_regular_crew():
     assert req["sufficient"] is True
     assert req["regular_crew_sufficient"] is None
     assert req["skills"][0]["individual_assignment_count"] is None
+
+def test_one_time_api_staffing_restores_view_without_mutating_cached_history():
+    cached = {
+        "incident_id": "12001",
+        "station_id": "100",
+        "incident_task_ids": ["7674"],
+    }
+    incident = {
+        "id": 12001,
+        "task_ids": [7674],
+        "incident_responses": [{"user_name": "SENSITIVE TEST PERSON"}],
+    }
+    normalized = {
+        "crew_summary": {"individual_assignments_available": True},
+        "crew_assignments": [{"user_name": "SENSITIVE TEST PERSON"}],
+        "crew_requirements": [{
+            "station_ids": [100],
+            "task_ids": [7674],
+            "skills": [
+                {
+                    "skill_id": 7, "short_code": "Bev", "required": 1,
+                    "assigned": 3, "individual_assignment_count": 1,
+                    "coverage_source": "warning_statuses",
+                },
+                {
+                    "skill_id": 1168, "short_code": "Ch", "required": 1,
+                    "assigned": 1, "individual_assignment_count": 1,
+                    "coverage_source": "warning_statuses",
+                },
+                {
+                    "skill_id": 775, "short_code": "Ms", "required": 4,
+                    "assigned": 5, "individual_assignment_count": 4,
+                    "coverage_source": "warning_statuses",
+                },
+                {
+                    "skill_id": 165, "short_code": None, "required": 1,
+                    "assigned": 0, "individual_assignment_count": 0,
+                    "coverage_source": "incident_skill_assignments",
+                },
+            ],
+        }],
+    }
+    retained = [{
+        "id": 12000,
+        "crew_requirements": [{
+            "station_ids": [100], "task_ids": [7674],
+            "skills": [{"skill_id": 165, "short_code": "Asp"}],
+        }],
+    }]
+    response = build_one_time_incident_staffing_evidence(
+        station_id=100,
+        cached_fairness_record=cached,
+        api_incident=incident,
+        normalized_staffing=normalized,
+        task_index={7674: [
+            {"id": 7674, "name": "TS", "station_id": 100}
+        ]},
+        retained_history=retained,
+    )
+    req = response["crew_requirement_evidence"][0]
+    assert response["crew_coverage_status"] == "recorded_skill_requirements_found"
+    assert response["source"] == "one_time_authenticated_incident_api_get"
+    assert response["fairness_cache_modified"] is False
+    assert response["local_incident_history_modified"] is False
+    assert response["historical_audit_refetched"] is False
+    assert req["regular_crew_sufficient"] is True
+    assert req["supplemental_positions_sufficient"] is False
+    assert req["skills"][3]["position_type"] == "supplemental"
+    assert req["skills"][3]["short_code"].lower() == "asp"
+    assert "SENSITIVE TEST PERSON" not in str(response)
+    assert "membership_id" not in str(response)
+    assert "crew_assignments" not in str(response)
+    assert retained[0]["id"] == 12000
+    assert cached["incident_task_ids"] == ["7674"]
+
+
+def test_one_time_api_staffing_rejects_mismatched_station():
+    cached = {
+        "incident_id": "12001",
+        "station_id": "100",
+        "incident_task_ids": ["7674"],
+    }
+    with pytest.raises(ValueError, match="not for this station"):
+        build_one_time_incident_staffing_evidence(
+            station_id=200,
+            cached_fairness_record=cached,
+            api_incident={"id": 12001, "task_ids": [7674]},
+            normalized_staffing={"crew_requirements": []},
+            task_index={},
+            retained_history=[],
+        )
+
+
+def test_one_time_api_staffing_cannot_join_changed_task_context():
+    response = build_one_time_incident_staffing_evidence(
+        station_id="100",
+        cached_fairness_record={
+            "incident_id": "12001",
+            "station_id": "100",
+            "incident_task_ids": ["7674"],
+        },
+        api_incident={"id": 12001, "task_ids": [7001]},
+        normalized_staffing={"crew_requirements": [
+            {"station_ids": [100], "task_ids": [7674],
+             "skills": [{"skill_id": 7, "required": 1, "assigned": 1}]},
+        ]},
+        task_index={},
+        retained_history=[],
+    )
+    assert response["crew_coverage_status"] == "api_task_ids_differ_from_cached_fairness"
+    assert response["crew_requirement_evidence"] == []
+
+
+def test_one_time_api_staffing_handles_missing_api_data_conservatively():
+    cached = {
+        "incident_id": "12001",
+        "station_id": "100",
+        "incident_task_ids": ["7674"],
+    }
+    response = build_one_time_incident_staffing_evidence(
+        station_id=100,
+        cached_fairness_record=cached,
+        api_incident={"id": 12001, "task_ids": [7674]},
+        normalized_staffing=None,
+        task_index={},
+        retained_history=[],
+    )
+    assert response["crew_coverage_status"] == "api_staffing_requirements_unavailable"
+    assert response["crew_requirement_evidence"] == []
+
+
+def test_one_time_api_staffing_rejects_different_api_incident():
+    response = build_one_time_incident_staffing_evidence(
+        station_id=100,
+        cached_fairness_record={
+            "incident_id": "12001", "station_id": "100",
+            "incident_task_ids": ["7674"],
+        },
+        api_incident={"id": 13002, "task_ids": [7674]},
+        normalized_staffing={"crew_requirements": []},
+        task_index={},
+        retained_history=[],
+    )
+    assert response["crew_coverage_status"] == "api_incident_missing_or_id_mismatch"
+    assert response["crew_requirement_evidence"] == []
 
