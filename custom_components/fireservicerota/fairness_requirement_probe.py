@@ -9,6 +9,7 @@ location/attendance, or any raw response. Not a lineup prediction.
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Any
 
 from .historical_fairness import _id, _label, _optional_nonnegative_int
@@ -210,12 +211,57 @@ def _skill_statuses(raw: Any, expected_ids: set[str]) -> tuple[
     return sorted(result, key=lambda item: int(item["skill_id"])), unknown
 
 
+_SAFE_TASK_NAME = re.compile(r"[A-Za-z][A-Za-z0-9 ._()/\\-]{0,39}\\Z")
+
+
+def _resolve_shared_task_station_scope(
+    task_ids: set[str],
+    station_id: str | None,
+    task_index: dict[Any, Any] | None,
+) -> list[dict[str, str]] | None:
+    """Match *every* shared task to one distinct, station-scoped task entry.
+
+    An ambiguous, cross-station, missing or person-like task label fails closed.
+    These group-discovery records are cached, not independently live data.
+    """
+    if (
+        station_id is None or not isinstance(task_index, dict)
+        or not 2 <= len(task_ids) <= 8
+    ):
+        return None
+    resolved = []
+    for task_id in sorted(task_ids, key=int):
+        matches = [
+            entry
+            for key, entries in task_index.items()
+            if _id(key) == task_id
+            and isinstance(entries, list)
+            for entry in entries
+        ]
+        if len(matches) != 1:
+            return None
+        entry = matches[0]
+        if (
+            not isinstance(entry, dict)
+            or _id(entry.get("id")) != task_id
+            or _id(entry.get("station_id")) != station_id
+        ):
+            return None
+        name = _label(entry.get("name"))
+        if not _SAFE_TASK_NAME.fullmatch(name):
+            return None
+        resolved.append({"id": task_id, "name": name})
+    return resolved
+
+
 def summarize_task_requirement_schedule(
     selection: dict[str, Any],
     schedule: Any,
     checked_at: datetime,
+    *,
+    task_index: dict[Any, Any] | None = None,
 ) -> dict[str, Any]:
-    """Extract only current aggregate task/skill coverage, with fail-closed joins."""
+    """Extract scoped current aggregate task/skill coverage, never crew names."""
     expected_requirement = _id(
         selection.get("historical_availability_requirement_id")
     )
@@ -233,6 +279,12 @@ def summarize_task_requirement_schedule(
         "api_reported_task_ids_count": None,
         "current_api_requested_task_included": None,
         "current_api_task_mapping_status": "unverified",
+        "shared_task_station_scope_verified": False,
+        "shared_task_station_scope_source": (
+            "cached_authenticated_station_task_index_not_live"
+        ),
+        "resolved_requirement_tasks": [],
+        "current_aggregate_scope": "not_verified",
         "current_aggregate_service_level": None,
         "current_aggregate_warning_level": None,
         "current_aggregate_skills": [],
@@ -297,11 +349,30 @@ def summarize_task_requirement_schedule(
     if task not in response_tasks:
         base["current_api_task_mapping_status"] = "different_tasks"
         return {**base, "probe_status": "api_task_ids_do_not_match"}
-    if len(response_tasks) != 1:
+    shared = len(response_tasks) != 1
+    if shared:
         base["current_api_task_mapping_status"] = "shared_across_tasks"
-        return {**base, "probe_status": "api_requirement_shared_across_tasks"}
-
-    base["current_api_task_mapping_status"] = "single_requested_task"
+        resolved = _resolve_shared_task_station_scope(
+            response_tasks, _id(selection.get("station_id")), task_index
+        )
+        if resolved is None:
+            return {
+                **base,
+                "probe_status": "api_requirement_shared_across_tasks",
+            }
+        # The *requirement* is usable as a station-level aggregate, but its
+        # skill counts are not exclusive to either named task/vehicle.
+        base["current_api_task_mapping_status"] = (
+            "shared_same_station_tasks_verified"
+        )
+        base["shared_task_station_scope_verified"] = True
+        base["resolved_requirement_tasks"] = resolved
+        base["current_aggregate_scope"] = (
+            "shared_requirement_same_station_not_task_specific"
+        )
+    else:
+        base["current_api_task_mapping_status"] = "single_requested_task"
+        base["current_aggregate_scope"] = "single_task_requirement"
     current_config = _skill_config(
         meta.get("single_skill_availability_requirements")
     )
@@ -371,15 +442,24 @@ def summarize_task_requirement_schedule(
     base["current_aggregate_skills"] = statuses
     base["current_unmatched_skill_status_count"] = unknown_skill_count
     base["current_aggregate_skill_coverage_checked"] = True
-    base["probe_status"] = "readable_current_task_aggregate_skill_statuses"
+    base["probe_status"] = (
+        "readable_current_shared_requirement_skill_statuses"
+        if shared else "readable_current_task_aggregate_skill_statuses"
+    )
     base["interpretation"] = (
-        "Only aggregate current requirement/skill status counts from one "
-        "official appliance schedule are shown. 'reported_assigned_count' "
-        "is an API status count, NOT an individually verified vehicle crew. "
-        "The requirement ID was cross-checked; task mapping is considered "
-        "current only if task_ids are present in the API response and match. "
-        "Current configuration may differ from historical role requirements. "
-        "Available_memberships and all personal records are discarded. "
-        "No predicted lineup or operational availability decision is made."
+        "This is aggregate current availability-requirement evidence shared "
+        "by multiple named tasks at the same station, as resolved from cached "
+        "task metadata. It is NOT a separate vehicle count or exclusive "
+        "coverage for either task. "
+        if shared else
+        "This is aggregate current evidence for one task requirement. "
+    ) + (
+        "'reported_assigned_count' is an API skill status count, NOT "
+        "an individually verified vehicle crew. The API requirement ID and "
+        "task scope were checked; cached task-index membership is not an "
+        "independent live staffing or eligibility check. The live skill "
+        "configuration may differ from historical requirements. All individual "
+        "available_memberships are discarded. No predicted lineup, person "
+        "eligibility judgement or operational availability decision is made."
     )
     return base
