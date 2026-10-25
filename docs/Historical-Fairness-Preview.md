@@ -289,3 +289,39 @@ remain `null` where such count evidence is missing; neither proves who
 physically boarded a vehicle. The derived TS distinction does not change
 `crew_summary.sufficient`, any live operational behavior, or the stored
 incident snapshot. Current task metadata may not represent historical rules.
+
+## Inspect staffing for an incident no longer in the last 25
+
+The ordinary `backfill_history_staffing` action is intentionally limited to
+the incident snapshots still retained by Home Assistant. Older incident
+fairness records can still exist independently in private historical storage.
+
+If a cached incident has `no_retained_staffing_snapshot`, explicitly call:
+
+```yaml
+action: fireservicerota.inspect_historical_staffing
+data:
+  station_id: 194
+  incident_id: "3076036"
+```
+
+This optional action verifies the account's station membership and requires
+the incident to already exist in that station's private historical fairness
+cache. It sends **exactly one authenticated GET** for
+`incidents/{incident_id}`, never downloads the audit log, never changes
+BrandweerRooster, and never modifies the local 25-incident history or
+historical fairness cache.
+
+The response contains an identity-free, on-demand `crew_requirement_evidence`
+view (including regular versus supplemental role coverage where evidenced),
+`crew_coverage_status`, resolved task metadata and explicit provenance. It
+checks that the incident ID and task IDs returned by the API agree with the
+stored fairness record; disagreement or missing staffing data is reported as
+unknown instead of guessed. It is **retrospective current API data**, not an
+independently verified turnout or a snapshot made at the fairness-proposal
+time.
+
+This is initially **inspection only**: the main compact fairness preview will
+continue to show `no_retained_staffing_snapshot` for the older incident.
+A separate, reviewed opt-in persistence step would be needed to save that
+minimal staffing evidence in the local private fairness cache.
