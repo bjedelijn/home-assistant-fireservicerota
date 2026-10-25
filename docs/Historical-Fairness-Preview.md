@@ -260,3 +260,32 @@ snapshot, **not** a snapshot taken at the time of the fairness proposal.
 Neither assignments nor `dispatched` independently prove physical turnout.
 The diagnostic remains descriptive, without scores or crew predictions.
 
+### Regular TS crew versus supplementary aspirant
+
+A TS `Asp` aspirant is an **additional position** rather than a required
+position of the normal TS crew. The compact preview explicitly distinguishes:
+
+- `sufficient`: the original comparison of **all** API-configured
+  requirements, including supplementary positions and the API warning counts.
+  It is retained for provenance and may be `false` for an otherwise fully
+  staffed TS.
+- `regular_crew_sufficient`: derived from the per-skill
+  `individual_assignment_count` records for the regular crew, independent of
+  the supplementary aspirant.
+- `supplemental_positions_sufficient`: separate coverage of known additional
+  Asp positions. `false` here alone does not make a regular TS6 deficient.
+- `position_type`: `regular` or `supplemental`, on each skill entry.
+  Classifying `Asp` as supplemental requires the resolved single task to be
+  a TS, with an unambiguous `Asp` code. If the current incident omitted that
+  code, it can be resolved using a matching station/task/skill code from
+  another locally retained incident. No numeric skill ID is hard-coded.
+
+The existing `assigned` field represents its original
+`warning_statuses` count (or other source as indicated), **not** necessarily
+the number of people with explicit role assignments. The separate
+`individual_assignment_count` reports the latter type of evidence. The
+`regular_crew_sufficient` and `supplemental_positions_sufficient` values
+remain `null` where such count evidence is missing; neither proves who
+physically boarded a vehicle. The derived TS distinction does not change
+`crew_summary.sufficient`, any live operational behavior, or the stored
+incident snapshot. Current task metadata may not represent historical rules.
