@@ -613,6 +613,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
             client.task_index,
             station_id,
             task_id,
+            authenticated_user_id=(
+                client.user_data.get("id")
+                if isinstance(client.user_data, dict) else None
+            ),
         )
         if membership_id is None:
             return safe_selection
