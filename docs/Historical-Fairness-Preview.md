@@ -562,12 +562,29 @@ numeric list with no personal information),
 `single_requested_task`, `shared_across_tasks`, `different_tasks`,
 `task_ids_missing` or `task_ids_invalid`.
 
-Current aggregate staffing data is returned **only** when the response
-explicitly lists this task and *no others*. A shared, missing or conflicting
-mapping produces a diagnostic status and empty aggregate skill counts, rather
-than presenting a shared coverage result as TS-only. The documented
-`GET /availability_requirements` list also contains `task_ids`, but this
-preview does not automatically make a second request or broaden its scope.
+Current aggregate staffing data is returned only when the response
+explicitly includes the requested task **and its full task scope can be
+validated**. A single-task requirement remains task-scoped. A shared
+requirement is now permitted **only at requirement level**, provided **all**
+of its task IDs resolve to a unique name and the **same station** in the
+already cached authenticated task index. Such results explicitly report
+`current_api_task_mapping_status: shared_same_station_tasks_verified`,
+`current_aggregate_scope:
+shared_requirement_same_station_not_task_specific`, and
+`resolved_requirement_tasks`. A verified Hardenberg shared requirement
+`3690` lists `7674` (TS) and `7678` (TS-BT). This does **not** imply two
+separate appliances, two independent sets of crew, or historical fairness
+coverage for TS-BT. In the 17 currently retained fairness records, TS has 14
+complete single-task incidents and TS-BT has none.
+
+If any linked task is missing, ambiguous, belongs to another station, or has
+an unsafe label, the action returns the previous
+`api_requirement_shared_across_tasks` diagnostic **without any live counts**.
+A missing or contradictory API task mapping likewise remains unverified. A
+shared aggregate must never be added twice to a total by summing across
+both tasks. The documented `GET /availability_requirements` list also
+contains `task_ids`, but this preview still does not automatically make
+a second request or broaden its scope.
 
 It returns only **aggregate** per-skill values:
 - `current_aggregate_service_level` and `current_aggregate_warning_level`
@@ -576,6 +593,9 @@ It returns only **aggregate** per-skill values:
   skill IDs and required counts, excluding memberships.
 - `current_aggregate_skills`: known skill IDs with API-reported
   `minimum`, `buffer`, `assigned_count` and warning level.
+- `current_aggregate_scope` tells you whether the measurements apply to a
+  single task or to a requirement shared by tasks from the same station.
+  This is *not* verified physical vehicle crew or person eligibility.
 - `current_api_requirement_id_matches`, `current_api_task_ids_match`,
   and `current_configuration_matches_historical_skill_ids`, preserving
   **unknown** when the API omits a field.
