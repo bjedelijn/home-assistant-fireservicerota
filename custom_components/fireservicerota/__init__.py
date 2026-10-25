@@ -231,6 +231,18 @@ PROBE_FAIRNESS_AVAILABILITY_SCHEMA = vol.Schema(
 )
 
 
+PROBE_TASK_P2000_AUDIT_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_PAGE, default=1): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=5)
+        ),
+    }
+)
+
+
 INSPECT_HISTORICAL_STAFFING_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -659,6 +671,43 @@ def _async_register_services(hass: HomeAssistant) -> None:
             safe_selection, schedule, now
         )
 
+    async def async_probe_task_p2000_audit(call: ServiceCall) -> dict:
+        """Inspect one page of a task's P2000-related audit changes.
+
+        Unlike live task detail, audit records are historical. Never return
+        raw record content, modifier names, person identifiers or credentials.
+        """
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        page = call.data[ATTR_PAGE]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        selection = choose_task_audit_probe(
+            station_id, task_id, client.task_index, page
+        )
+        if selection["probe_status"] != "ready_for_one_audit_page_GET":
+            return selection
+        try:
+            raw_records = await client.async_api_get(
+                "reporting/general_report/audit_log/data",
+                {
+                    "object_ids": str(task_id),
+                    "object_type": "task",
+                    "order": "desc",
+                    "debug": "false",
+                    "cols": "",
+                    "page": page,
+                },
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Single task audit probe unavailable (%s)",
+                type(err).__name__,
+            )
+            raw_records = None
+        return summarize_task_audit_probe(selection, raw_records)
+
     async def async_probe_task_p2000_mapping(call: ServiceCall) -> dict:
         """Read one authorized task's P2000 match terms, without storing data.
 
@@ -933,6 +982,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             async_probe_fairness_availability,
             schema=PROBE_FAIRNESS_AVAILABILITY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_P2000_AUDIT):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_TASK_P2000_AUDIT,
+            async_probe_task_p2000_audit,
+            schema=PROBE_TASK_P2000_AUDIT_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_PROBE_TASK_P2000_MAPPING):
