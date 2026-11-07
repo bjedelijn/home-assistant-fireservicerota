@@ -4,7 +4,7 @@
 
 These pages contain practical examples for **FireServiceRota Extended**. They are written to be reusable for different users and organizations and intentionally avoid local station IDs, vehicle numbers, private addresses, personal device names and other installation-specific data.
 
-Current examples target **`1.3.3`** (some examples also apply to older releases).
+General examples target stable **`1.3.3`**. The vehicle-replacement and next-scheduled-available examples explicitly marked **`1.3.4-beta.2`** require the beta prerelease; they are not available in stable 1.3.3.
 
 > Home Assistant is an additional information and automation layer. Do not use it as the only emergency alerting method. Official pager, app, P2000 and/or other approved alerting channels remain leading.
 
@@ -21,6 +21,9 @@ Questions, bug reports and contributions can be handled through the GitHub repos
 - [Dashboard examples](Dashboard-Examples.md)
 - [Station availability / paraat](Station-Availability.md)
 - [CarPlay / Siri availability and spoken incident information](CarPlay-Siri-Availability.md)
+- [Multiple temporary vehicle replacements (1.3.4-beta.2)](Replacement-Vehicles.md)
+- [Multi-post vehicle replacement package example](examples/Temporary-Replacement-Vehicle-Package.yaml)
+- [1.3.4-beta.2 release notes](Release-Notes-1.3.4-beta.2.md)
 - [Station availability + CarPlay Assist package example](examples/Station-Availability-CarPlay-Package.yaml)
 - [Updating from Git](Updating.md)
 - [Privacy and safety](Privacy-and-Safety.md)
