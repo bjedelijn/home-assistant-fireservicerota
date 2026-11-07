@@ -17,6 +17,7 @@ script:
       - action: fireservicerota.set_replacement_vehicle
         data:
           station_id: 123
+          original_vehicle_number: "04-2333"
           vehicle_number: "{{ voertuignummer | trim }}"
 
   brandweer_post_a_vervangend_voertuig_opheffen:
@@ -27,6 +28,7 @@ script:
       - action: fireservicerota.clear_replacement_vehicle
         data:
           station_id: 123
+          original_vehicle_number: "04-2333"
 
   brandweer_post_a_vervangend_voertuig_opvragen:
     alias: Brandweer Post A - Vervangend voertuig opvragen
