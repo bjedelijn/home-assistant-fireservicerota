@@ -244,6 +244,10 @@ class P2000EnrichmentManager:
             "recent_practical_events": self.recent_practical_events,
             "providers": providers,
             "vehicle_registry": self._vehicle_registry.status,
+            "replacement_vehicles": (
+                self._replacement_vehicle_store.active
+                if self._replacement_vehicle_store is not None else []
+            ),
         }
 
     def async_add_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
