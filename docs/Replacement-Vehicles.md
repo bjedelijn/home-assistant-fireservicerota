@@ -1,6 +1,6 @@
 # Tijdelijk vervangend voertuig (ontwikkelfunctie)
 
-Een post kan tijdelijk met een ander voertuig rijden. De meldkamer alarmeert
+Een post kan tijdelijk met meerdere andere voertuigen rijden. Iedere koppeling benoemt het oorspronkelijke en het vervangende nummer. De meldkamer alarmeert
 het **werkelijke** voertuignummer via P2000. FireServiceRota past dat nummer
 nooit aan, maar kan per eigen post vastleggen welk voertuig tijdelijk voor
 die post rijdt.
@@ -18,6 +18,7 @@ Gebruik voor `station_id` de ID van een eigen actieve post uit de integratie.
 action: fireservicerota.set_replacement_vehicle
 data:
   station_id: 123
+  original_vehicle_number: "04-2333"
   vehicle_number: "04-1034"
 ```
 
@@ -27,6 +28,7 @@ Om dezelfde post weer zonder vervanger te laten werken:
 action: fireservicerota.clear_replacement_vehicle
 data:
   station_id: 123
+  original_vehicle_number: "04-2333"
 ```
 
 Actieve vervangers uitlezen (actie met antwoord):
@@ -37,7 +39,7 @@ response_variable: replacement_result
 ```
 
 Het opnieuw instellen van dezelfde vervanger verandert het begindatum/tijdstip
-niet. Een nieuwe vervanger sluit de vorige koppeling af. De mapping wordt
+niet. Een nieuwe vervanger sluit alleen de vorige koppeling van hetzelfde oorspronkelijke voertuig af; andere voertuigen blijven intact. De mapping wordt
 bewaard in Home Assistant storage en blijft bij een herstart beschikbaar.
 
 De actieve koppelingen zijn ook zichtbaar onder het attribuut
@@ -66,8 +68,7 @@ betrouwbare gebeurtenistijd heeft.
 ## Beperkingen
 
 - Alleen voor eigen, actieve station memberships.
-- Er kan één actieve vervanger per post worden ingesteld, en een vervanger
-  mag niet tegelijkertijd aan twee posten gekoppeld zijn.
+- Er kunnen meerdere actieve vervangers per post worden ingesteld, een per oorspronkelijk voertuig. Een vervanger mag niet tegelijkertijd aan twee oorspronkelijke voertuigen gekoppeld zijn.
 - Dit is aanvullende lokale interpretatie, geen wijziging in de
   meldkamerregistratie of de BrandweerRooster API.
 - Koppeling werkt op P2000-berichten die door de bestaande
@@ -76,3 +77,7 @@ betrouwbare gebeurtenistijd heeft.
 - Nog valideren op live P2000-berichten, herstarts en meerdere posten vóór release.
 
 Zie ook `docs/examples/Temporary-Replacement-Vehicle-Package.yaml`.
+
+## Upgrade vanaf beta.1
+
+Beta.1 kende geen oorspronkelijk voertuignummer. Dat is niet veilig te raden: actieve oude koppelingen worden bij de eerste start beëindigd, historische gegevens blijven bewaard. Stel de vervangingen na de upgrade opnieuw in met zowel het originele nummer als het vervangende nummer. Bijvoorbeeld: bij post 194 kunnen 04-2350 -> 04-1050 en 04-2360 -> 04-1060 tegelijk actief zijn.
