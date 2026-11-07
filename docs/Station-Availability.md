@@ -80,6 +80,7 @@ When the action response is requested, these fields are returned:
 ```text
 previous_available
 actual_available
+next_scheduled_available_at
 confirmed
 status_changed
 start_time
@@ -185,3 +186,7 @@ Use the station-specific duty binary sensors to discover the relevant `station_i
 See [Dashboard examples](Dashboard-Examples.md) for a Bubble Card popup pattern and [CarPlay / Siri availability](CarPlay-Siri-Availability.md) for spoken, verified feedback.
 
 > Home Assistant is an additional operational convenience layer. Official BrandweerRooster and organization procedures remain leading.
+
+## Next scheduled paraat moment (1.3.4-beta)
+
+The action response adds `next_scheduled_available_at`, the next time the selected membership's schedule actually becomes **paraat**, even when several consecutive intervals remain not available. This differs from `end_time`, which is just the end of the temporary override. Display or announce a friendly local date/time (today, tomorrow, or weekday/date) only when this field is present. See [CarPlay / Siri availability](CarPlay-Siri-Availability.md) and its [example package](examples/Station-Availability-CarPlay-Package.yaml).
