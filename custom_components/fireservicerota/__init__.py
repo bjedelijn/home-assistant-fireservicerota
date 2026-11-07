@@ -26,7 +26,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
 from .schedule_helpers import next_available_after
-from .replacement_vehicles import ReplacementVehicleStore, normalize_unit
+from .replacement_vehicles import ReplacementVehicleStore
 
 from .const import (
     ATTR_ADDRESS,
@@ -119,11 +119,13 @@ SET_STATION_AVAILABILITY_SCHEMA = vol.Schema(
 SET_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.Coerce(int),
+    vol.Required("original_vehicle_number"): cv.string,
     vol.Required("vehicle_number"): cv.string,
 })
 CLEAR_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.Coerce(int),
+    vol.Required("original_vehicle_number"): cv.string,
 })
 GET_REPLACEMENT_VEHICLES_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -348,6 +350,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
             record = await store.async_set(
                 station_id=station_id,
                 station_name=str(membership.get("station_name") or station_id),
+                original_vehicle_number=call.data["original_vehicle_number"],
                 vehicle_number=call.data["vehicle_number"],
             )
         except ValueError as err:
@@ -362,11 +365,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
         client = entry_data[DATA_CLIENT]
         station_id = call.data[ATTR_STATION_ID]
         client._resolve_station_membership(None, station_id)
-        cleared = await entry_data[DATA_REPLACEMENT_VEHICLES].async_clear(station_id)
+        try:
+            cleared = await entry_data[DATA_REPLACEMENT_VEHICLES].async_clear(
+                station_id=station_id,
+                original_vehicle_number=call.data["original_vehicle_number"],
+            )
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
         manager = entry_data.get(DATA_P2000_MANAGER)
         if manager is not None and cleared:
             manager._notify()
-        return {"station_id": station_id, "cleared": cleared}
+        return {
+            "station_id": station_id,
+            "original_vehicle_number": call.data["original_vehicle_number"],
+            "cleared": cleared,
+        }
 
     async def async_get_replacement_vehicles(call: ServiceCall) -> dict:
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
