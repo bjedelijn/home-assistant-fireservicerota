@@ -25,6 +25,7 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
+from .schedule_helpers import next_available_after
 
 from .const import (
     ATTR_ADDRESS,
@@ -1085,6 +1086,7 @@ class FireServiceRotaClient:
         day_start = local_start.replace(hour=0, minute=0, second=0, microsecond=0)
         intervals = []
         received_schedule = False
+        complete = True
 
         for day_offset in range(days):
             window_start = day_start + timedelta(days=day_offset)
@@ -1093,6 +1095,7 @@ class FireServiceRotaClient:
                 self._availability_schedule_day_params(window_start),
             )
             if not isinstance(schedule, dict):
+                complete = False
                 _LOGGER.warning(
                     "Could not retrieve availability schedule for membership %s "
                     "on %s",
@@ -1113,7 +1116,7 @@ class FireServiceRotaClient:
         if not received_schedule:
             return None
 
-        return {"intervals": intervals}
+        return {"intervals": intervals, "complete": complete}
 
     @staticmethod
     def _next_schedule_change(
@@ -1269,30 +1272,17 @@ class FireServiceRotaClient:
             and actual_available != previous_available
         )
 
-        # The override's end is not necessarily when this member is next
-        # available. Look past that boundary in the refreshed combined schedule.
+        # A temporary override can end before the member is scheduled to be
+        # available again. Never present the override end as confirmed return.
         next_scheduled_available_at = None
         if confirmed and not requested_available:
             future_schedule = await self._async_get_availability_schedule(
                 membership_id, end, days=7
             )
             if isinstance(future_schedule, dict):
-                available_starts = []
-                for interval in future_schedule.get("intervals", []) or []:
-                    if not isinstance(interval, dict) or interval.get("available") is not True:
-                        continue
-                    try:
-                        interval_start = datetime.fromisoformat(interval["start_time"])
-                        interval_end = datetime.fromisoformat(interval["end_time"])
-                    except (KeyError, TypeError, ValueError):
-                        continue
-                    if interval_start.tzinfo is None or interval_end.tzinfo is None:
-                        continue
-                    if interval_end <= end:
-                        continue
-                    available_starts.append(max(interval_start, end))
-                if available_starts:
-                    next_scheduled_available_at = min(available_starts).isoformat()
+                next_available = next_available_after(future_schedule, end)
+                if next_available is not None:
+                    next_scheduled_available_at = next_available.isoformat()
 
         return {
             "next_scheduled_available_at": next_scheduled_available_at,
