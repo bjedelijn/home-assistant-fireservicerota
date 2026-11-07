@@ -1,42 +1,93 @@
-# Example Home Assistant package for the native replacement vehicle services.
-# Replace station_id with a discovered station ID for your own membership.
-# NOTE: a temporary replacement is a local operational attribution.
-# It does not alter official dispatch, original P2000 texts, or Brandbase.
+# FireServiceRota Extended 1.3.4-beta.2 — public, reusable example.
+# ONE package: /config/packages/fireservicerota_replacement_example.yaml
+# Replace the fictional station IDs 123 and 456 with your own linked stations.
+# Never copy identifiers or helpers into an existing package if they already exist.
+# Vehicle replacement affects local P2000 attribution, not the official message.
+#
+# Multiple replacements per post are supported. The combination
+# (station_id, original_vehicle_number) identifies a single replacement.
+# The same replacement vehicle may not be used for two originals at once.
+
+input_select:
+  fsr_replacement_station:
+    name: FireServiceRota voertuigbeheer post
+    options:
+      - Post A
+      - Post B
+
+input_text:
+  fsr_original_unit:
+    name: Oorspronkelijk voertuig
+    max: 16
+    initial: ""
+  fsr_replacement_unit:
+    name: Vervangend voertuig
+    max: 16
+    initial: ""
 
 script:
-  brandweer_post_a_vervangend_voertuig_instellen:
-    alias: Brandweer Post A - Vervangend voertuig instellen
-    icon: mdi:fire-truck
+  fsr_replacement_set:
+    alias: FireServiceRota - Voertuigvervanging instellen of wijzigen
     mode: single
-    fields:
-      voertuignummer:
-        required: true
-        selector:
-          text: {}
     sequence:
+      - variables:
+          post: "{{ states('input_select.fsr_replacement_station') }}"
+          original: "{{ states('input_text.fsr_original_unit') | trim }}"
+          replacement: "{{ states('input_text.fsr_replacement_unit') | trim }}"
+          station: >-
+            {{ {'Post A': 123, 'Post B': 456}.get(post, 0) }}
+      - condition: template
+        value_template: >-
+          {{ station | int(0) > 0
+             and original | regex_match('^04[- ]?[0-9]{4}$')
+             and replacement | regex_match('^04[- ]?[0-9]{4}$')
+             and original | replace('-', '') | replace(' ', '')
+                 != replacement | replace('-', '') | replace(' ', '') }}
       - action: fireservicerota.set_replacement_vehicle
         data:
-          station_id: 123
-          original_vehicle_number: "04-0000"
-          vehicle_number: "{{ voertuignummer | trim }}"
-
-  brandweer_post_a_vervangend_voertuig_opheffen:
-    alias: Brandweer Post A - Vervangend voertuig opheffen
-    icon: mdi:truck-remove
-    mode: single
-    sequence:
-      - action: fireservicerota.clear_replacement_vehicle
-        data:
-          station_id: 123
-          original_vehicle_number: "04-0000"
-
-  brandweer_post_a_vervangend_voertuig_opvragen:
-    alias: Brandweer Post A - Vervangend voertuig opvragen
-    mode: single
-    sequence:
-      - action: fireservicerota.get_replacement_vehicles
+          station_id: "{{ station | int }}"
+          original_vehicle_number: "{{ original }}"
+          vehicle_number: "{{ replacement }}"
         response_variable: replacement_result
       - action: logbook.log
         data:
           name: FireServiceRota
-          message: "{{ replacement_result.active | default([]) | to_json }}"
+          message: >-
+            {{ post }}: {{ replacement_result.original_vehicle_number }}
+            -> {{ replacement_result.vehicle_number }}.
+
+  fsr_replacement_clear:
+    alias: FireServiceRota - Een voertuigvervanging opheffen
+    mode: single
+    sequence:
+      - variables:
+          post: "{{ states('input_select.fsr_replacement_station') }}"
+          original: "{{ states('input_text.fsr_original_unit') | trim }}"
+          station: >-
+            {{ {'Post A': 123, 'Post B': 456}.get(post, 0) }}
+      - condition: template
+        value_template: >-
+          {{ station | int(0) > 0
+             and original | regex_match('^04[- ]?[0-9]{4}$') }}
+      - action: fireservicerota.clear_replacement_vehicle
+        data:
+          station_id: "{{ station | int }}"
+          original_vehicle_number: "{{ original }}"
+        response_variable: clear_result
+      - action: logbook.log
+        data:
+          name: FireServiceRota
+          message: >-
+            {{ post }}: vervanging van {{ original }}
+            {{ 'opgeheven' if clear_result.cleared else 'was niet actief' }}.
+
+  fsr_replacement_list:
+    alias: FireServiceRota - Actieve voertuigvervangingen opvragen
+    mode: single
+    sequence:
+      - action: fireservicerota.get_replacement_vehicles
+        response_variable: replacements
+      - action: logbook.log
+        data:
+          name: FireServiceRota
+          message: "{{ replacements.active | default([]) | to_json }}"
