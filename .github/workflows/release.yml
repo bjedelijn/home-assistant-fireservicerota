@@ -3,7 +3,7 @@ name: Publish beta prerelease
 on:
   push:
     branches:
-      - beta/1.3.4-beta.1
+      - beta/1.3.4-beta.2
     paths:
       - custom_components/fireservicerota/manifest.json
 
