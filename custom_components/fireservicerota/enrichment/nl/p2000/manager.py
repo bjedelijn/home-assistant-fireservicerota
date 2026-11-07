@@ -19,6 +19,7 @@ from .rtl import P2000RtlMqttProvider
 from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
 from ..vehicle_registry import BrandbaseVehicleRegistry
+from ...replacement_vehicles import effective_assignment
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class P2000EnrichmentManager:
         scan_interval: int = 30,
         source: str = "online",
         rtl_topic: str | None = None,
+        replacement_vehicle_store=None,
     ) -> None:
         self._hass = hass
         self._incident_store = incident_store
@@ -67,6 +69,7 @@ class P2000EnrichmentManager:
             kwargs = {"topic": rtl_topic} if rtl_topic else {}
             self._providers.append(P2000RtlMqttProvider(hass, **kwargs))
         self._vehicle_registry = BrandbaseVehicleRegistry(hass)
+        self._replacement_vehicle_store = replacement_vehicle_store
         self._task: asyncio.Task | None = None
         self._first_received: dict[str, str] = {}
         self._buffer: dict[str, P2000Event] = {}
@@ -1089,6 +1092,19 @@ class P2000EnrichmentManager:
             for item in registry_details
             if isinstance(item, dict)
         }
+        replacement_records = (
+            self._replacement_vehicle_store.records
+            if self._replacement_vehicle_store is not None else []
+        )
+        # Resolve by message timestamp, not by the current time. This preserves
+        # historical attribution after a replacement is cleared or changed.
+        replacement_by_unit = {}
+        for event in ordered:
+            at = event.event_time or event.received_at
+            for number in event.units:
+                assignment = effective_assignment(replacement_records, str(number), at)
+                if assignment is not None:
+                    replacement_by_unit[str(number)] = assignment
 
         confirmed_units: list[str] = []
         unresolved_unit_candidates: list[str] = []
@@ -1097,6 +1113,7 @@ class P2000EnrichmentManager:
         for detail in unit_details:
             unit = str(detail.get("unit") or "")
             registry = vehicle_by_unit.get(unit)
+            replacement = replacement_by_unit.get(unit)
             if registry:
                 detail["vehicle_registry"] = registry
 
@@ -1106,7 +1123,7 @@ class P2000EnrichmentManager:
                 and detail.get("station_reason") == "unit_suffix_match"
             )
 
-            confirmed = registry_confirmed or capcode_confirmed
+            confirmed = registry_confirmed or capcode_confirmed or replacement is not None
             detail["vehicle_confirmed"] = confirmed
 
             if registry_confirmed:
@@ -1158,6 +1175,39 @@ class P2000EnrichmentManager:
                 detail["vehicle_confirmation_source"] = None
                 detail["vehicle_confirmation_reason"] = None
 
+            if replacement is not None:
+                # Never discard canonical registry/P2000 attribution.
+                detail["replacement_vehicle"] = {
+                    "station_id": replacement["station_id"],
+                    "station_name": replacement["station_name"],
+                    "start_time": replacement["start_time"],
+                    "end_time": replacement.get("end_time"),
+                    "source": "local_station_override",
+                }
+                detail["operational_station_name"] = replacement["station_name"]
+                detail["operational_station_source"] = "local_station_override"
+                if not registry_confirmed and not capcode_confirmed:
+                    detail["vehicle_confirmation_source"] = "local_station_override"
+                    detail["vehicle_confirmation_reason"] = "explicit_replacement_vehicle"
+                    vehicle_details.append({
+                        "unit": unit,
+                        "confirmed": True,
+                        "resolved": False,
+                        "source": "local_station_override",
+                        "confidence": "manual",
+                        "station": replacement["station_name"],
+                        "operational_station_name": replacement["station_name"],
+                        "replacement_vehicle": True,
+                        "vehicle_type": None,
+                        "vehicle_type_code": None,
+                        "candidates": [],
+                    })
+                else:
+                    for vehicle in vehicle_details:
+                        if str(vehicle.get("unit")) == unit:
+                            vehicle["operational_station_name"] = replacement["station_name"]
+                            vehicle["operational_station_source"] = "local_station_override"
+                            vehicle["replacement_vehicle"] = True
             if confirmed:
                 confirmed_units.append(unit)
             else:
