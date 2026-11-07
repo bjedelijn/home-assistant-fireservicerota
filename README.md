@@ -39,6 +39,7 @@ Practical examples and privacy-safe configuration guides are available here:
 - [Updating from Git](docs/Updating.md)
 - [Privacy and safety](docs/Privacy-and-Safety.md)
 - [Station availability / paraat](docs/Station-Availability.md)
+- [Temporary replacement vehicles (draft)](docs/Replacement-Vehicles.md)
 - [CarPlay / Siri availability and spoken incident information](docs/CarPlay-Siri-Availability.md)
 - [Station availability + CarPlay Assist package example](docs/examples/Station-Availability-CarPlay-Package.yaml)
 - [1.3.3 release notes](docs/Release-Notes-1.3.3.md)
