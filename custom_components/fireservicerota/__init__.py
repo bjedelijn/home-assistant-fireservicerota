@@ -1269,7 +1269,33 @@ class FireServiceRotaClient:
             and actual_available != previous_available
         )
 
+        # The override's end is not necessarily when this member is next
+        # available. Look past that boundary in the refreshed combined schedule.
+        next_scheduled_available_at = None
+        if confirmed and not requested_available:
+            future_schedule = await self._async_get_availability_schedule(
+                membership_id, end, days=7
+            )
+            if isinstance(future_schedule, dict):
+                available_starts = []
+                for interval in future_schedule.get("intervals", []) or []:
+                    if not isinstance(interval, dict) or interval.get("available") is not True:
+                        continue
+                    try:
+                        interval_start = datetime.fromisoformat(interval["start_time"])
+                        interval_end = datetime.fromisoformat(interval["end_time"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if interval_start.tzinfo is None or interval_end.tzinfo is None:
+                        continue
+                    if interval_end <= end:
+                        continue
+                    available_starts.append(max(interval_start, end))
+                if available_starts:
+                    next_scheduled_available_at = min(available_starts).isoformat()
+
         return {
+            "next_scheduled_available_at": next_scheduled_available_at,
             "membership_id": membership_id,
             "station_id": membership.get("station_id"),
             "station_name": membership.get("station_name"),
