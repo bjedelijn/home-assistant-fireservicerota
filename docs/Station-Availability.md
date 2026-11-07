@@ -123,6 +123,24 @@ Example with a Home Assistant response variable:
 
 This verification is useful for dashboard confirmation, Siri/CarPlay speech and any automation where a successful HTTP response alone is not enough.
 
+## Next verified roster availability (draft feature)
+
+The response from `set_station_availability` can additionally include
+`next_scheduled_available_at` when a **not available** action has been
+confirmed. This is different from `end_time`: the latter is the end of the
+temporary override, not proof that the member is available again.
+
+The optional lookup checks the selected membership's combined schedule beyond
+the exception end (up to seven calendar days). It returns an ISO timestamp only
+when the returned intervals form a continuous, explicitly available path to the
+first available interval. Missing days, gaps, or unparseable availability produce
+`null`. The service still returns its write/read-back confirmation when this
+optional lookup fails; spoken output must explicitly say the next moment could
+not be determined instead of claiming it equals the exception end.
+
+CarPlay date wording belongs in the HA example package; keep this calculation
+station-specific and never generalize a person's availability to other posts.
+
 ## Per-post behavior
 
 Availability is always written to the selected **station membership**:
