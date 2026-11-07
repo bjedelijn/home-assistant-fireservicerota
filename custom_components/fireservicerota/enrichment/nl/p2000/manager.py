@@ -19,7 +19,7 @@ from .rtl import P2000RtlMqttProvider
 from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
 from ..vehicle_registry import BrandbaseVehicleRegistry
-from ...replacement_vehicles import effective_assignment
+from ....replacement_vehicles import effective_assignment
 
 _LOGGER = logging.getLogger(__name__)
 
