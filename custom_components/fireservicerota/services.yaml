@@ -205,3 +205,59 @@ analyze_incident_fairness:
       description: "Optional station IDs mapped to enabled/disabled for this incident only. Not persisted and never sent to BrandweerRooster. Example: {'3853': disabled}. Absence of fairness suggestions is not evidence of disabled staffing."
       selector:
         object:
+
+set_replacement_vehicle:
+  name: Vervangend voertuig instellen
+  description: >-
+    Koppel een tijdelijk vervangend voertuignummer aan een eigen post.
+    P2000-berichten en de Brandbase-registratie worden niet aangepast.
+  fields:
+    station_id:
+      name: Post-ID
+      required: true
+      example: 123
+      selector:
+        number:
+          min: 1
+          max: 99999999
+          mode: box
+    vehicle_number:
+      name: Vervangend voertuignummer
+      required: true
+      example: "04-1034"
+      selector:
+        text: {}
+    entry_id:
+      name: Configuratie-ID
+      required: false
+      selector:
+        text: {}
+
+clear_replacement_vehicle:
+  name: Vervangend voertuig opheffen
+  description: Beëindig de tijdelijke voertuigkoppeling voor één eigen post.
+  fields:
+    station_id:
+      name: Post-ID
+      required: true
+      example: 123
+      selector:
+        number:
+          min: 1
+          max: 99999999
+          mode: box
+    entry_id:
+      name: Configuratie-ID
+      required: false
+      selector:
+        text: {}
+
+get_replacement_vehicles:
+  name: Actieve vervangende voertuigen
+  description: Vraag de huidige per-post vervangingskoppelingen op.
+  fields:
+    entry_id:
+      name: Configuratie-ID
+      required: false
+      selector:
+        text: {}
