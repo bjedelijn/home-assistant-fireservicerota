@@ -209,7 +209,7 @@ analyze_incident_fairness:
 set_replacement_vehicle:
   name: Vervangend voertuig instellen
   description: >-
-    Koppel een tijdelijk vervangend voertuignummer aan een eigen post.
+    Koppel een tijdelijk vervangend voertuig aan een specifiek origineel voertuig binnen een eigen post. Meerdere koppelingen per post zijn toegestaan.
     P2000-berichten en de Brandbase-registratie worden niet aangepast.
   fields:
     station_id:
@@ -221,6 +221,13 @@ set_replacement_vehicle:
           min: 1
           max: 99999999
           mode: box
+    original_vehicle_number:
+      name: Oorspronkelijk voertuignummer
+      description: Het normale voertuig van de post (bijvoorbeeld 04-2350).
+      required: true
+      example: "04-2350"
+      selector:
+        text: {}
     vehicle_number:
       name: Vervangend voertuignummer
       required: true
@@ -235,7 +242,7 @@ set_replacement_vehicle:
 
 clear_replacement_vehicle:
   name: Vervangend voertuig opheffen
-  description: Beëindig de tijdelijke voertuigkoppeling voor één eigen post.
+  description: Beëindig alleen de vervanging van een specifiek oorspronkelijk voertuig.
   fields:
     station_id:
       name: Post-ID
@@ -246,6 +253,13 @@ clear_replacement_vehicle:
           min: 1
           max: 99999999
           mode: box
+    original_vehicle_number:
+      name: Oorspronkelijk voertuignummer
+      description: Alleen de vervanging van dit voertuig wordt opgeheven.
+      required: true
+      example: "04-2350"
+      selector:
+        text: {}
     entry_id:
       name: Configuratie-ID
       required: false
