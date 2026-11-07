@@ -19,6 +19,7 @@ from .const import (
     DATA_COORDINATOR,
     DATA_INCIDENT_STORE,
     DATA_P2000_MANAGER,
+    DATA_REPLACEMENT_VEHICLES,
     DOMAIN as FIRESERVICEROTA_DOMAIN,
     P2000_DEFAULT_RTL_TOPIC,
     P2000_DEFAULT_SCAN_INTERVAL,
@@ -68,6 +69,7 @@ async def async_setup_entry(
             ),
             source=selected_p2000_source,
             rtl_topic=options.get(CONF_P2000_RTL_TOPIC, P2000_DEFAULT_RTL_TOPIC),
+            replacement_vehicle_store=hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id].get(DATA_REPLACEMENT_VEHICLES),
         )
         hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
             DATA_P2000_MANAGER

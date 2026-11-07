@@ -80,6 +80,7 @@ When the action response is requested, these fields are returned:
 ```text
 previous_available
 actual_available
+next_scheduled_available_at
 confirmed
 status_changed
 start_time
@@ -122,6 +123,24 @@ Example with a Home Assistant response variable:
 ```
 
 This verification is useful for dashboard confirmation, Siri/CarPlay speech and any automation where a successful HTTP response alone is not enough.
+
+## Next verified roster availability (draft feature)
+
+The response from `set_station_availability` can additionally include
+`next_scheduled_available_at` when a **not available** action has been
+confirmed. This is different from `end_time`: the latter is the end of the
+temporary override, not proof that the member is available again.
+
+The optional lookup checks the selected membership's combined schedule beyond
+the exception end (up to seven calendar days). It returns an ISO timestamp only
+when the returned intervals form a continuous, explicitly available path to the
+first available interval. Missing days, gaps, or unparseable availability produce
+`null`. The service still returns its write/read-back confirmation when this
+optional lookup fails; spoken output must explicitly say the next moment could
+not be determined instead of claiming it equals the exception end.
+
+CarPlay date wording belongs in the HA example package; keep this calculation
+station-specific and never generalize a person's availability to other posts.
 
 ## Per-post behavior
 
@@ -167,3 +186,7 @@ Use the station-specific duty binary sensors to discover the relevant `station_i
 See [Dashboard examples](Dashboard-Examples.md) for a Bubble Card popup pattern and [CarPlay / Siri availability](CarPlay-Siri-Availability.md) for spoken, verified feedback.
 
 > Home Assistant is an additional operational convenience layer. Official BrandweerRooster and organization procedures remain leading.
+
+## Next scheduled paraat moment (1.3.4-beta)
+
+The action response adds `next_scheduled_available_at`, the next time the selected membership's schedule actually becomes **paraat**, even when several consecutive intervals remain not available. This differs from `end_time`, which is just the end of the temporary override. Display or announce a friendly local date/time (today, tomorrow, or weekday/date) only when this field is present. See [CarPlay / Siri availability](CarPlay-Siri-Availability.md) and its [example package](examples/Station-Availability-CarPlay-Package.yaml).

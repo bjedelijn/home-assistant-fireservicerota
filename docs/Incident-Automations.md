@@ -246,3 +246,29 @@ This avoids calling `media_pause` on devices that are off/unavailable.
 - [iPhone critical alerts](iPhone-Critical-Alerts.md)
 - [Crew staffing and assignments](Crew-Staffing.md)
 - [Incident lifecycle and history](Incident-Lifecycle-and-History.md)
+
+## Replacement-aware P2000 notification (1.3.4-beta.2)
+
+If a station's usual vehicle is temporarily replaced, match the incoming **confirmed P2000 vehicle** against the active replacement mapping for the **specific original vehicle**, rather than accepting all substitute vehicles assigned to the same station. Otherwise a multi-vehicle station could trigger the wrong station- or vehicle-specific TTS/night action.
+
+For example, a fictional vehicle `04-0001` at station `123` can be associated with one active replacement:
+
+```yaml
+- variables:
+    active_replacements: >-
+      {{ state_attr('sensor.p2000_status', 'replacement_vehicles') or [] }}
+    p2000: >-
+      {{ trigger.to_state.attributes.get('p2000_enrichment', {}) or {} }}
+    confirmed_units: >-
+      {{ p2000.get('units', []) or [] }}
+    my_vehicle: >-
+      {% set matches = active_replacements
+        | selectattr('station_id', 'eq', 123)
+        | selectattr('original_vehicle_number', 'eq', '040001')
+        | list %}
+      {{ matches[0].vehicle_number if matches else '040001' }}
+- condition: template
+  value_template: "{{ my_vehicle in confirmed_units }}"
+```
+
+This snippet is **not a complete incident automation**: retain your own duty-status guard, DND/night policy, incident ID and new-unit deduplication, speech/lights routing, and a fallback for unavailable enrichment. Do not claim the original vehicle itself was dispatched when P2000 shows the actual replacement unit. The mapping applies only to incidents within its time window. More details: [Replacement Vehicles](Replacement-Vehicles.md) and [multi-post package example](examples/Temporary-Replacement-Vehicle-Package.yaml).

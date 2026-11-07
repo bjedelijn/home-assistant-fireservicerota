@@ -51,6 +51,24 @@ script:
           gewijzigd: "{{ fsr_result.status_changed | default(false) | bool }}"
           actueel: "{{ fsr_result.actual_available | default(none) }}"
           eind_raw: "{{ fsr_result.end_time | default('') }}"
+          volgende_paraat_raw: "{{ fsr_result.next_scheduled_available_at | default('', true) }}"
+          volgende_paraat_tekst: >-
+            {% if volgende_paraat_raw %}
+              {% set dt = as_datetime(volgende_paraat_raw).astimezone() %}
+              {% set vandaag = now().date() %}
+              {% if dt.date() == vandaag %}
+                vandaag om {{ dt.strftime('%H:%M') }}
+              {% elif dt.date() == vandaag + timedelta(days=1) %}
+                morgen om {{ dt.strftime('%H:%M') }}
+              {% else %}
+                {{ ['maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag','zondag'][dt.weekday()] }}
+                {{ dt.day }}
+                {{ ['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'][dt.month - 1] }}
+                om {{ dt.strftime('%H:%M') }}
+              {% endif %}
+            {% else %}
+              onbekend
+            {% endif %}
           eind_tekst: >-
             {% if eind_raw %}
               {{ as_datetime(eind_raw).astimezone().strftime('%H:%M') }}
@@ -65,10 +83,23 @@ script:
             {% endif %}
           resultaat_tekst: >-
             {% if bevestigd and gewijzigd %}
-              {{ station_name }} is nu {{ gewenst_tekst }} tot {{ eind_tekst }}.
+              {% if not (available | bool) %}
+                {{ station_name }} is nu niet paraat.
+                {% if volgende_paraat_raw %}
+                  Volgens het rooster ben je weer paraat {{ volgende_paraat_tekst | trim }}.
+                {% else %}
+                  De tijdelijke wijziging loopt tot {{ eind_tekst }}, maar het volgende paraatmoment is niet gevonden.
+                {% endif %}
+              {% else %}
+                {{ station_name }} is nu paraat tot {{ eind_tekst }}.
+              {% endif %}
             {% elif bevestigd %}
               {{ station_name }} stond al {{ gewenst_tekst }}.
-              De periode is bevestigd tot {{ eind_tekst }}.
+              {% if not (available | bool) and volgende_paraat_raw %}
+                Volgens het rooster ben je weer paraat {{ volgende_paraat_tekst | trim }}.
+              {% else %}
+                De periode is bevestigd tot {{ eind_tekst }}.
+              {% endif %}
             {% else %}
               Wijziging niet bevestigd.
               {{ station_name }} staat volgens BrandweerRooster nu {{ actueel_tekst }}.
