@@ -1276,13 +1276,22 @@ class FireServiceRotaClient:
         # available again. Never present the override end as confirmed return.
         next_scheduled_available_at = None
         if confirmed and not requested_available:
-            future_schedule = await self._async_get_availability_schedule(
-                membership_id, end, days=7
-            )
-            if isinstance(future_schedule, dict):
-                next_available = next_available_after(future_schedule, end)
-                if next_available is not None:
-                    next_scheduled_available_at = next_available.isoformat()
+            # Optional read-only lookup: a failed schedule request must never
+            # turn a successfully verified availability write into an error.
+            try:
+                future_schedule = await self._async_get_availability_schedule(
+                    membership_id, end, days=7
+                )
+                if isinstance(future_schedule, dict):
+                    next_available = next_available_after(future_schedule, end)
+                    if next_available is not None:
+                        next_scheduled_available_at = next_available.isoformat()
+            except Exception:
+                _LOGGER.warning(
+                    "Could not determine next scheduled available time for membership %s",
+                    membership_id,
+                    exc_info=True,
+                )
 
         return {
             "next_scheduled_available_at": next_scheduled_available_at,
