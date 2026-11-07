@@ -1,9 +1,9 @@
-name: Publish stable release
+name: Publish beta prerelease
 
 on:
   push:
     branches:
-      - extended
+      - beta/1.3.4-beta.1
     paths:
       - custom_components/fireservicerota/manifest.json
 
@@ -39,6 +39,7 @@ jobs:
         shell: bash
         run: |
           test -f "docs/Release-Notes-${{ steps.version.outputs.version }}.md"
+          [[ "${{ steps.version.outputs.version }}" == *-beta.* ]]
 
       - name: Publish GitHub release if tag is new
         env:
@@ -55,4 +56,5 @@ jobs:
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
             --title "FireServiceRota Extended $VERSION" \
+            --prerelease \
             --notes-file "docs/Release-Notes-$VERSION.md"
