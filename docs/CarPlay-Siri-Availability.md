@@ -61,6 +61,7 @@ Relevant action response fields include:
 - `status_changed`
 - `start_time`
 - `end_time`
+- `next_scheduled_available_at` (1.3.4 beta: next actual available interval, not merely the next schedule boundary)
 
 A write can be useful even when the boolean state was already correct because the requested temporary period may have changed. Spoken output should therefore distinguish:
 
@@ -177,3 +178,13 @@ The example deliberately uses placeholder station IDs and generic station names.
 ## Safety
 
 Do not use Home Assistant, Siri or CarPlay as the only availability, dispatch or emergency-alerting mechanism. Official BrandweerRooster and organization procedures remain leading.
+
+## Next available time after a temporary not-available override (1.3.4-beta)
+
+When announcing a confirmed **niet paraat** change, prefer `next_scheduled_available_at`. The integration searches ahead for the first roster point when the membership will actually be available again. `end_time` only represents the temporary override's end; it is **not** necessarily the same as returning to paraat.
+
+The accompanying [CarPlay package example](examples/Station-Availability-CarPlay-Package.yaml) formats the next available time in Dutch: *vandaag*, *morgen*, or weekday + day/month and time. If no reliable next available time is supplied, say that it is unknown rather than inventing a time. Announce success only when the service response returns `confirmed: true`.
+
+### Testing checklist
+
+Check a change that returns to paraat within the same day, tomorrow, and after several schedule intervals (including intervening non-paraat intervals). Test both a successful change and a read-back failure. Verify spoken text in Home Assistant Assist on the phone before relying on CarPlay TTS. Direct script Quick Access buttons might show a notification rather than spoken feedback; use Assist prompts for the voice path.
