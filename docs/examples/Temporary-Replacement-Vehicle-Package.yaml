@@ -1,49 +1,40 @@
-# Home Assistant package example: temporary replacement vehicle per station.
-# This is a local display/announcement override, NOT a change to
-# BrandweerRooster, the P2000 source, or official vehicle registration.
-# Replace placeholder vehicle and station values with your own.
-input_text:
-  brandweer_post_a_vervangend_voertuig:
-    name: Brandweer Post A vervangend voertuig
-    max: 16
-    icon: mdi:fire-truck
+# Example Home Assistant package for the native replacement vehicle services.
+# Replace station_id with a discovered station ID for your own membership.
+# NOTE: a temporary replacement is a local operational attribution.
+# It does not alter official dispatch, original P2000 texts, or Brandbase.
 
 script:
   brandweer_post_a_vervangend_voertuig_instellen:
     alias: Brandweer Post A - Vervangend voertuig instellen
+    icon: mdi:fire-truck
+    mode: single
     fields:
       voertuignummer:
         required: true
         selector:
           text: {}
     sequence:
-      - action: input_text.set_value
-        target:
-          entity_id: input_text.brandweer_post_a_vervangend_voertuig
+      - action: fireservicerota.set_replacement_vehicle
         data:
-          value: "{{ voertuignummer | trim }}"
+          station_id: 123
+          vehicle_number: "{{ voertuignummer | trim }}"
+
   brandweer_post_a_vervangend_voertuig_opheffen:
     alias: Brandweer Post A - Vervangend voertuig opheffen
+    icon: mdi:truck-remove
+    mode: single
     sequence:
-      - action: input_text.set_value
-        target:
-          entity_id: input_text.brandweer_post_a_vervangend_voertuig
+      - action: fireservicerota.clear_replacement_vehicle
         data:
-          value: ""
+          station_id: 123
 
-template:
-  - sensor:
-      - name: Brandweer Post A actueel voertuig
-        unique_id: brandweer_post_a_actueel_voertuig
-        icon: mdi:fire-truck
-        state: >-
-          {% set vervanging = states('input_text.brandweer_post_a_vervangend_voertuig') %}
-          {{ vervanging if vervanging not in ['unknown','unavailable','none',''] else '04-0000' }}
-        attributes:
-          standaard_voertuig: "04-0000"
-          vervangend_voertuig: >-
-            {% set s = states('input_text.brandweer_post_a_vervangend_voertuig') %}
-            {{ s if s not in ['unknown','unavailable','none',''] else '' }}
-          vervanging_actief: >-
-            {{ states('input_text.brandweer_post_a_vervangend_voertuig') not in
-              ['unknown','unavailable','none',''] }}
+  brandweer_post_a_vervangend_voertuig_opvragen:
+    alias: Brandweer Post A - Vervangend voertuig opvragen
+    mode: single
+    sequence:
+      - action: fireservicerota.get_replacement_vehicles
+        response_variable: replacement_result
+      - action: logbook.log
+        data:
+          name: FireServiceRota
+          message: "{{ replacement_result.active | default([]) | to_json }}"
