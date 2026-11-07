@@ -19,4 +19,13 @@ Beta.1 saved replacement vehicles without their original numbers. These cannot b
 
 ## Testing
 
-Live P2000 event formatting and Home Assistant automations are not yet field-tested. The separate user YAML packages and dashboard are **not included in this integration release** and will be updated after beta.2 validation. Do not depend on a beta as the sole emergency alerting mechanism. Back up Home Assistant before installing. Prereleases must be explicitly selected in HACS where supported.
+Live P2000 event formatting and Home Assistant automations are not yet field-tested. The separate installation-specific YAML packages and Lovelace dashboard are **not bundled with this integration release**. Privacy-safe, reusable examples have been updated in the docs. Local Home Assistant testing confirmed replacement add/change/clear, duplicate rejection and visibility via `sensor.p2000_status`; CarPlay audio and real P2000 end-to-end verification are still pending. Do not depend on a beta as the sole emergency alerting mechanism. Back up Home Assistant before installing. Prereleases must be explicitly selected in HACS where supported.
+
+## Documentation updates
+
+- [Multiple replacements, mapping and night filtering](Replacement-Vehicles.md)
+- [Generic multi-post automation package](examples/Temporary-Replacement-Vehicle-Package.yaml)
+- [Compact Home and incident popup buttons](Dashboard-Examples.md)
+- [Verified next-scheduled-available CarPlay announcements](CarPlay-Siri-Availability.md)
+
+Do not merge this prerelease to the stable branch solely on the basis of these documentation updates; complete the CarPlay and live alert checks first.
