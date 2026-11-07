@@ -26,6 +26,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
 from .schedule_helpers import next_available_after
+from .replacement_vehicles import ReplacementVehicleStore, normalize_unit
 
 from .const import (
     ATTR_ADDRESS,
@@ -52,6 +53,7 @@ from .const import (
     DATA_COORDINATOR,
     DATA_INCIDENT_STORE,
     DATA_P2000_MANAGER,
+    DATA_REPLACEMENT_VEHICLES,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
@@ -59,6 +61,9 @@ from .const import (
     SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
     SERVICE_SET_STATION_AVAILABILITY,
+    SERVICE_SET_REPLACEMENT_VEHICLE,
+    SERVICE_CLEAR_REPLACEMENT_VEHICLE,
+    SERVICE_GET_REPLACEMENT_VEHICLES,
     AVAILABILITY_MODE_DURATIONS,
     AVAILABILITY_MODE_NEXT_SCHEDULE,
     AVAILABILITY_MODE_CUSTOM,
@@ -110,6 +115,19 @@ SET_STATION_AVAILABILITY_SCHEMA = vol.Schema(
         vol.Optional(ATTR_IGNORE_SCHEDULE_WARNINGS, default=True): cv.boolean,
     }
 )
+
+SET_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.Coerce(int),
+    vol.Required("vehicle_number"): cv.string,
+})
+CLEAR_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.Coerce(int),
+})
+GET_REPLACEMENT_VEHICLES_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+})
 
 ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
     {
@@ -166,9 +184,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await coordinator.async_refresh()
 
+    replacement_store = ReplacementVehicleStore(hass, entry.entry_id)
+    await replacement_store.async_load()
+
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_CLIENT: client,
         DATA_COORDINATOR: coordinator,
+        DATA_REPLACEMENT_VEHICLES: replacement_store,
     }
 
     _async_register_services(hass)
@@ -211,6 +233,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
             SERVICE_SET_STATION_AVAILABILITY,
+            SERVICE_SET_REPLACEMENT_VEHICLE,
+            SERVICE_CLEAR_REPLACEMENT_VEHICLE,
+            SERVICE_GET_REPLACEMENT_VEHICLES,
         ):
             if hass.services.has_service(DOMAIN, service):
                 hass.services.async_remove(DOMAIN, service)
@@ -310,6 +335,37 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
         return result
 
+    async def async_set_replacement_vehicle(call: ServiceCall) -> dict:
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        station_id = call.data[ATTR_STATION_ID]
+        # Only allow mappings for a discovered, active station membership.
+        membership_id, membership = client._resolve_station_membership(None, station_id)
+        if int(membership.get("station_id")) != station_id:
+            raise HomeAssistantError("Station membership mismatch")
+        store = entry_data[DATA_REPLACEMENT_VEHICLES]
+        try:
+            record = await store.async_set(
+                station_id=station_id,
+                station_name=str(membership.get("station_name") or station_id),
+                vehicle_number=call.data["vehicle_number"],
+            )
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+        return record
+
+    async def async_clear_replacement_vehicle(call: ServiceCall) -> dict:
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        station_id = call.data[ATTR_STATION_ID]
+        client._resolve_station_membership(None, station_id)
+        cleared = await entry_data[DATA_REPLACEMENT_VEHICLES].async_clear(station_id)
+        return {"station_id": station_id, "cleared": cleared}
+
+    async def async_get_replacement_vehicles(call: ServiceCall) -> dict:
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        return {"active": entry_data[DATA_REPLACEMENT_VEHICLES].active}
+
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
         """Inspect one incident's audit log with the existing OAuth client."""
         client = _service_client(hass, call.data.get(ATTR_ENTRY_ID))
@@ -381,6 +437,22 @@ def _async_register_services(hass: HomeAssistant) -> None:
             async_set_station_availability,
             schema=SET_STATION_AVAILABILITY_SCHEMA,
             supports_response=SupportsResponse.OPTIONAL,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_REPLACEMENT_VEHICLE):
+        hass.services.async_register(
+            DOMAIN, SERVICE_SET_REPLACEMENT_VEHICLE, async_set_replacement_vehicle,
+            schema=SET_REPLACEMENT_VEHICLE_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_CLEAR_REPLACEMENT_VEHICLE):
+        hass.services.async_register(
+            DOMAIN, SERVICE_CLEAR_REPLACEMENT_VEHICLE, async_clear_replacement_vehicle,
+            schema=CLEAR_REPLACEMENT_VEHICLE_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_GET_REPLACEMENT_VEHICLES):
+        hass.services.async_register(
+            DOMAIN, SERVICE_GET_REPLACEMENT_VEHICLES, async_get_replacement_vehicles,
+            schema=GET_REPLACEMENT_VEHICLES_SCHEMA, supports_response=SupportsResponse.ONLY,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS):
