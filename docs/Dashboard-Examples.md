@@ -358,3 +358,81 @@ Public examples use placeholder entity/script names. Replace them with the stati
 Use the same pattern for 4h and 8h buttons. For multi-station users, create one popup per station or generate the wrapper scripts from local station IDs. The integration itself remains station-ID agnostic.
 
 For verified Siri/CarPlay feedback, see [CarPlay / Siri availability](CarPlay-Siri-Availability.md).
+
+## Compact vehicle-management entry points (1.3.4-beta.2)
+
+Keep the main Home dashboard short. A single Mushroom chip can open the *same* vehicle-management Bubble Card popup from both the Home view and the general incident popup. Vehicle management is **not** a Gramsbergen/Post A-only function; replacements are associated with any of your linked posts.
+
+Example Home chip (place in an **existing** `custom:mushroom-chips-card`):
+
+```yaml
+- type: template
+  icon: mdi:fire-truck
+  icon_color: >-
+    {{ 'amber' if (state_attr('sensor.p2000_status',
+         'replacement_vehicles') or []) | count > 0 else 'grey' }}
+  content: >-
+    {% set rows = state_attr('sensor.p2000_status',
+       'replacement_vehicles') or [] %}
+    Voertuigen{% if rows | count > 0 %} · {{ rows | count }}{% endif %}
+  tap_action:
+    action: navigate
+    navigation_path: '#fsr-vehicles'
+```
+
+Example small button in the **existing** incident popup's action row:
+
+```yaml
+- type: custom:mushroom-template-card
+  primary: Voertuigen
+  icon: mdi:fire-truck
+  layout: horizontal
+  tap_action:
+    action: navigate
+    navigation_path: '#fsr-vehicles'
+```
+
+A compact shared management popup uses the package helpers from
+[Temporary-Replacement-Vehicle-Package.yaml](examples/Temporary-Replacement-Vehicle-Package.yaml):
+
+```yaml
+- type: custom:bubble-card
+  card_type: pop-up
+  hash: '#fsr-vehicles'
+  name: Voertuigbeheer
+  icon: mdi:fire-truck
+  button_type: name
+  cards:
+    - type: markdown
+      content: |-
+        {% set rows = state_attr('sensor.p2000_status',
+          'replacement_vehicles') or [] %}
+        {% for r in rows %}
+        **{{ r.station_name }}** ·
+        {{ r.original_vehicle_number }} → {{ r.vehicle_number }}
+        {% else %}
+        Geen actieve vervangingen.
+        {% endfor %}
+    - type: entities
+      show_header_toggle: false
+      entities:
+        - input_select.fsr_replacement_station
+        - input_text.fsr_original_unit
+        - input_text.fsr_replacement_unit
+    - type: horizontal-stack
+      cards:
+        - type: button
+          name: Instellen / wijzigen
+          icon: mdi:truck-plus
+          tap_action:
+            action: call-service
+            service: script.fsr_replacement_set
+        - type: button
+          name: Opheffen
+          icon: mdi:truck-remove
+          tap_action:
+            action: call-service
+            service: script.fsr_replacement_clear
+```
+
+Use one popup definition per dashboard, not duplicate popup cards with the same hash. Existing Home Assistant entity IDs and dashboard layouts may differ; the example helper IDs are intentionally generic. Avoid storing a real replacement simply for UI testing, since it affects local incident interpretation.
