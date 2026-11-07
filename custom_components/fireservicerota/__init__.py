@@ -352,6 +352,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
             )
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
+        manager = entry_data.get(DATA_P2000_MANAGER)
+        if manager is not None:
+            manager._notify()
         return record
 
     async def async_clear_replacement_vehicle(call: ServiceCall) -> dict:
@@ -360,6 +363,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
         station_id = call.data[ATTR_STATION_ID]
         client._resolve_station_membership(None, station_id)
         cleared = await entry_data[DATA_REPLACEMENT_VEHICLES].async_clear(station_id)
+        manager = entry_data.get(DATA_P2000_MANAGER)
+        if manager is not None and cleared:
+            manager._notify()
         return {"station_id": station_id, "cleared": cleared}
 
     async def async_get_replacement_vehicles(call: ServiceCall) -> dict:
