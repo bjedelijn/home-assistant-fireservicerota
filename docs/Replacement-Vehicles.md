@@ -40,6 +40,10 @@ Het opnieuw instellen van dezelfde vervanger verandert het begindatum/tijdstip
 niet. Een nieuwe vervanger sluit de vorige koppeling af. De mapping wordt
 bewaard in Home Assistant storage en blijft bij een herstart beschikbaar.
 
+De actieve koppelingen zijn ook zichtbaar onder het attribuut
+`replacement_vehicles` van `sensor.p2000_status` als P2000-verrijking is ingeschakeld.
+Na instellen of opheffen wordt deze status direct bijgewerkt.
+
 ## Interpretatie van P2000
 
 - `p2000_enrichment.messages` blijft de oorspronkelijke meldkamerdata bevatten.
