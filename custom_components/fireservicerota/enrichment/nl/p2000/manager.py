@@ -1184,11 +1184,14 @@ class P2000EnrichmentManager:
                 detail["replacement_vehicle"] = {
                     "station_id": replacement["station_id"],
                     "station_name": replacement["station_name"],
+                    "original_vehicle_number": replacement.get("original_vehicle_number"),
+                    "vehicle_number": replacement["vehicle_number"],
                     "start_time": replacement["start_time"],
                     "end_time": replacement.get("end_time"),
                     "source": "local_station_override",
                 }
                 detail["operational_station_name"] = replacement["station_name"]
+                detail["original_vehicle_number"] = replacement.get("original_vehicle_number")
                 detail["operational_station_source"] = "local_station_override"
                 if not registry_confirmed and not capcode_confirmed:
                     detail["vehicle_confirmation_source"] = "local_station_override"
@@ -1200,6 +1203,7 @@ class P2000EnrichmentManager:
                         "source": "local_station_override",
                         "confidence": "manual",
                         "station": replacement["station_name"],
+                        "original_vehicle_number": replacement.get("original_vehicle_number"),
                         "operational_station_name": replacement["station_name"],
                         "replacement_vehicle": True,
                         "vehicle_type": None,
@@ -1210,6 +1214,7 @@ class P2000EnrichmentManager:
                     for vehicle in vehicle_details:
                         if str(vehicle.get("unit")) == unit:
                             vehicle["operational_station_name"] = replacement["station_name"]
+                            vehicle["original_vehicle_number"] = replacement.get("original_vehicle_number")
                             vehicle["operational_station_source"] = "local_station_override"
                             vehicle["replacement_vehicle"] = True
             if confirmed:
