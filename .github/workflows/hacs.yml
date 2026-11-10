@@ -2,7 +2,11 @@ name: HACS and Hassfest
 
 on:
   push:
+    branches:
+      - extended
   pull_request:
+    branches:
+      - extended
   schedule:
     - cron: "23 5 * * 3"
   workflow_dispatch:
