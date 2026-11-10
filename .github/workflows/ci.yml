@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
+    branches:
+      - extended
   pull_request:
+    branches:
+      - extended
   workflow_dispatch:
 
 permissions:
