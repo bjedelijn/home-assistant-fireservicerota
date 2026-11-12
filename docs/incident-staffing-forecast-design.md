@@ -111,3 +111,24 @@ Incomplete or ambiguous mappings must be labelled as such.
 - Do not commit live incidents, names, rosters, capcodes, or tokens to this
   public repository.
 - Keep `extended` untouched until CI and Home Assistant field testing pass.
+
+
+## Phase 2 groundwork: verified-slot feasibility (development only)
+
+`fairness_scenario.evaluate_verified_seat_scenario` is a pure, unregistered
+helper with anonymous tests. It checks whether **explicitly supplied**
+currently available, eligible memberships can cover *current* required skill
+slots, with unique memberships and task/station scope. Repeat a skill slot for
+requirements such as WTS's two chauffeur positions. Supplemental aspirant
+qualifications never substitute automatically for a regular crew skill.
+
+This is **not wired to Home Assistant actions**, makes no API calls and never
+calculates fairness rankings or a predicted lineup. Provenance flags in test
+inputs are caller attestations, not independent verification. Until a complete,
+authorized, fresh per-member availability/eligibility source and verified
+current task configuration are validated, a caller must refuse to set those
+flags and no operational or predictive display should use this helper.
+
+Tests intentionally use synthetic memberships. By default the helper returns
+only aggregate slot coverage; an explicitly opted-in developer scenario can
+include membership IDs. That illustrative assignment is not a prediction.
