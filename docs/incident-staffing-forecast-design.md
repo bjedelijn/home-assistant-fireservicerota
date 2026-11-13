@@ -392,3 +392,15 @@ are bounded to 18 ASCII digits to avoid oversized-input conversion errors.
 Fixed rejection responses contain neither the malformed group content nor
 partial roster counts. The authorized complete live roster is still
 unverified, and no additional API requests are made.
+
+
+### Distinct people, not extra memberships
+
+A person can have one direct station membership and a *different* linked
+team membership. The cache-only diagnostic now separately reports distinct
+linked users belonging to the direct station group, and users appearing
+**only** in related groups, if all user links are unambiguous. Related-only
+memberships of people already in the station do not inflate the related-only
+person count. This is an anonymous cached structural observation, not proof
+of full roster coverage or task eligibility; unknown identity or missing
+station group causes null person counts.

@@ -388,3 +388,47 @@ def test_nonmapping_cached_group_row_rejects_counts():
     assert result["diagnostic_status"] == "invalid_cached_group_row"
     assert result["cached_active_related_membership_count"] is None
     assert "PRIVATE" not in str(result)
+
+
+def test_related_team_membership_of_same_station_user_is_not_extra_person():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": [
+                {"id": 11, "user_id": 101, "status": "active"},
+                {"id": 22, "user_id": 102, "status": "active"},
+            ]},
+            {"id": 700, "type": "team", "parent_group_id": 194,
+             "memberships": [
+                {"id": 33, "user_id": 101, "status": "active"},
+                {"id": 44, "user_id": 103, "status": "active"},
+            ]},
+        ], own_membership_index={}, own_membership_duty={},
+    )
+    assert result["cached_active_direct_station_membership_count"] == 2
+    assert result["cached_active_related_only_membership_count"] == 2
+    assert result["cached_distinct_user_count_if_fully_linked"] == 3
+    assert result["cached_direct_station_user_count_if_fully_linked"] == 2
+    assert result["cached_related_only_user_count_if_fully_linked"] == 1
+    assert result["current_station_full_roster_verified"] is False
+    assert "101" not in str(result)
+
+
+def test_related_only_users_stay_unknown_without_station_group():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 700, "type": "team", "parent_group_id": 194,
+             "memberships": [{"id": 33, "user_id": 103, "status": "active"}]},
+        ], own_membership_index={}, own_membership_duty={},
+    )
+    assert result["cached_direct_station_user_count_if_fully_linked"] is None
+    assert result["cached_related_only_user_count_if_fully_linked"] is None
+
+
+def test_unverified_identity_means_no_per_person_station_team_counts():
+    result = assess_candidate_roster_source(
+        194, groups=[{"id": 194, "type": "station", "memberships": [
+            {"id": 11, "status": "active"},
+        ]}], own_membership_index={}, own_membership_duty={},
+    )
+    assert result["cached_direct_station_user_count_if_fully_linked"] is None
+    assert result["cached_related_only_user_count_if_fully_linked"] is None

@@ -45,6 +45,8 @@ def _scope_rejected(station: str, status: str) -> dict[str, Any]:
         "cached_active_related_only_membership_count": None,
         "own_memberships_in_direct_station_group": None,
         "cached_distinct_user_count_if_fully_linked": None,
+        "cached_direct_station_user_count_if_fully_linked": None,
+        "cached_related_only_user_count_if_fully_linked": None,
         "cached_multi_membership_user_count_if_fully_linked": None,
         "cached_membership_identity_link_issues": None,
         "invalid_active_membership_rows": None,
@@ -178,6 +180,8 @@ def assess_candidate_roster_source(
     # have already been collapsed into links, so they do not inflate people.
     unique_people: int | None = None
     multi_membership_people: int | None = None
+    direct_users: int | None = None
+    related_only_users: int | None = None
     if not conflicting_identity_links and not invalid_station_rows and station_found:
         user_counts: dict[str, int] = {}
         for user_link in links.values():
@@ -186,6 +190,12 @@ def assess_candidate_roster_source(
                 user_counts[user_id] = user_counts.get(user_id, 0) + 1
         unique_people = len(user_counts)
         multi_membership_people = sum(count > 1 for count in user_counts.values())
+        direct_user_ids = {
+            next(iter(links[membership_id]))
+            for membership_id in direct_station_members
+        }
+        direct_users = len(direct_user_ids)
+        related_only_users = len(set(user_counts) - direct_user_ids)
     own_ids = {
         value for key in own_membership_index
         if (value := _id(key)) is not None
@@ -213,6 +223,8 @@ def assess_candidate_roster_source(
             len(direct_overlap) if station_found else None
         ),
         "cached_distinct_user_count_if_fully_linked": unique_people,
+        "cached_direct_station_user_count_if_fully_linked": direct_users,
+        "cached_related_only_user_count_if_fully_linked": related_only_users,
         "cached_multi_membership_user_count_if_fully_linked": multi_membership_people,
         "cached_membership_identity_link_issues": conflicting_identity_links,
         "invalid_active_membership_rows": invalid_station_rows,
