@@ -36,6 +36,8 @@ def _scope_rejected(station: str, status: str) -> dict[str, Any]:
         "source": "cached_groups_plus_authenticated_user_membership_index",
         "station_discovered": False,
         "cached_active_related_membership_count": None,
+        "cached_distinct_user_count_if_fully_linked": None,
+        "cached_multi_membership_user_count_if_fully_linked": None,
         "cached_membership_identity_link_issues": None,
         "invalid_active_membership_rows": None,
         "authenticated_user_membership_count": None,
@@ -135,6 +137,19 @@ def assess_candidate_roster_source(
     conflicting_identity_links = sum(
         len(values) > 1 or None in values for values in links.values()
     )
+    # Count unique users ONLY when all cached active membership-to-user links
+    # are complete and unambiguous. Multiple group rows for one membership
+    # have already been collapsed into links, so they do not inflate people.
+    unique_people: int | None = None
+    multi_membership_people: int | None = None
+    if not conflicting_identity_links and not invalid_station_rows and station_found:
+        user_counts: dict[str, int] = {}
+        for user_link in links.values():
+            user_id = next(iter(user_link))
+            if user_id is not None:
+                user_counts[user_id] = user_counts.get(user_id, 0) + 1
+        unique_people = len(user_counts)
+        multi_membership_people = sum(count > 1 for count in user_counts.values())
     own_ids = {
         value for key in own_membership_index
         if (value := _id(key)) is not None
@@ -150,6 +165,8 @@ def assess_candidate_roster_source(
         "source": "cached_groups_plus_authenticated_user_membership_index",
         "station_discovered": station_found,
         "cached_active_related_membership_count": len(cached_station_members),
+        "cached_distinct_user_count_if_fully_linked": unique_people,
+        "cached_multi_membership_user_count_if_fully_linked": multi_membership_people,
         "cached_membership_identity_link_issues": conflicting_identity_links,
         "invalid_active_membership_rows": invalid_station_rows,
         "authenticated_user_membership_count": len(own_ids),

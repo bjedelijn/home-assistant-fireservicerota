@@ -164,3 +164,48 @@ def test_invalid_groups_structure_is_not_mistaken_for_empty_station():
     assert result["diagnostic_status"] == "groups_structure_invalid"
     assert result["cached_active_related_membership_count"] is None
     assert "PRIVATE" not in str(result)
+
+
+def test_two_memberships_one_person_are_not_two_people():
+    result = assess_candidate_roster_source(
+        194,
+        groups=[{"id": 194, "type": "station", "memberships": [
+            {"id": 11, "user_id": 1001, "status": "active", "name": "SECRET"},
+            {"id": 22, "user_id": 1001, "status": "active"},
+            {"id": 33, "user_id": 1002, "status": "active"},
+        ]}],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["cached_active_related_membership_count"] == 3
+    assert result["cached_distinct_user_count_if_fully_linked"] == 2
+    assert result["cached_multi_membership_user_count_if_fully_linked"] == 1
+    assert result["current_station_full_roster_verified"] is False
+    assert "1001" not in str(result)
+    assert "SECRET" not in str(result)
+
+
+def test_incomplete_identity_links_do_not_guess_unique_person_count():
+    result = assess_candidate_roster_source(
+        194, groups=[{"id": 194, "type": "station", "memberships": [
+            {"id": 11, "user_id": 1001, "status": "active"},
+            {"id": 22, "status": "active"},
+        ]}], own_membership_index={}, own_membership_duty={},
+    )
+    assert result["cached_active_related_membership_count"] == 2
+    assert result["cached_distinct_user_count_if_fully_linked"] is None
+    assert result["cached_multi_membership_user_count_if_fully_linked"] is None
+
+
+def test_repeated_group_membership_is_one_person_without_double_counting():
+    member = {"id": 11, "user_id": 1001, "status": "active"}
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": [member]},
+            {"id": 777, "type": "team", "parent_group_id": 194,
+             "memberships": [member]},
+        ],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["cached_active_related_membership_count"] == 1
+    assert result["cached_distinct_user_count_if_fully_linked"] == 1
+    assert result["cached_multi_membership_user_count_if_fully_linked"] == 0

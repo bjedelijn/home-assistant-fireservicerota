@@ -334,3 +334,16 @@ own memberships/duty entries. On rejection it returns a fixed reason and
 **no partial member counts** (null rather than zero). These are prototype
 diagnostic safety bounds, not operational assumptions about station size.
 No additional API call or persistence is involved.
+
+
+### Cached memberships versus distinct user diagnostics
+
+The cache-only service now distinguishes a **membership count** from a
+**distinct linked user count**. A single user may have multiple station/team
+memberships; repeated rows for the same membership across cached groups are
+deduplicated. Distinct-user and multiple-membership counts are returned only
+when every included active membership has one unambiguous user link, there are
+no malformed related membership rows, and the station group is found.
+Otherwise these numbers are `null` rather than an unsafe guess. Even fully
+linked *cached* identities do not establish a current, complete, authorized
+station roster, availability or staffing prediction.
