@@ -99,10 +99,11 @@ def test_unexpected_cached_group_shapes_do_not_crash_or_leak_raw_content():
         194,
         groups=[
             {"id": 194, "type": "station", "ancestor_ids": "PRIVATE",
-             "memberships": {"person": "SECRET"}},
-            {"id": 194, "type": "station", "memberships": [
+             "memberships": [
                 None, {"id": 1, "user_id": 9, "status": "active", "name": "SECRET"},
             ]},
+            {"id": 700, "type": "team", "parent_group_id": 194,
+             "memberships": {"person": "SECRET"}},
         ],
         own_membership_index="SECRET",
         own_membership_duty=None,
