@@ -286,3 +286,22 @@ minutes old or over thirty seconds in the future, it refuses to evaluate.
 These conservative development thresholds do not establish the reliability of
 the task API source or the caller's clock and are not intended as immutable
 operational SLAs. This feature remains disconnected from live HA services.
+
+
+## Existing authenticated-client scope audit
+
+A review of the current integration's `FireServiceRotaClient` found that
+`membership_index` contains **only the currently authenticated user's**
+active memberships. `_async_update_membership_duty` iterates that index
+and populates `membership_duty`; it is therefore **not a station roster**.
+A successful duty refresh must never be promoted to a full-station candidate
+snapshot. No existing method certifies a complete authorized station-wide
+roster, its individual skills, and per-person current availability.
+
+The new pure unregistered `fairness_roster_scope.assess_candidate_roster_source`
+reports aggregate cached group and own-membership counts, identity-link
+ambiguities, and this limitation. It does **not** return people or mark
+the station roster as complete, even if all *cached* rows are covered.
+The next implementation decision requires verifying a permitted current
+station-wide API source and its completeness semantics, not looping through
+historical candidate IDs. Avoid unauthorized broad person/schedule requests.

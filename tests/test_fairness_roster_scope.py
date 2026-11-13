@@ -1,0 +1,93 @@
+"""Aggregate anonymous scope tests; never include roster identities."""
+
+from custom_components.fireservicerota.fairness_roster_scope import (
+    assess_candidate_roster_source,
+)
+
+
+def test_own_duty_is_not_station_duty():
+    result = assess_candidate_roster_source(
+        194,
+        groups=[
+            {"id": 194, "type": "station", "memberships": [
+                {"id": 11, "user_id": 1001, "status": "active", "name": "PRIVATE ONE"},
+                {"id": 22, "user_id": 1002, "status": "active", "name": "PRIVATE TWO"},
+            ]},
+            {"id": 200, "type": "station", "memberships": [
+                {"id": 99, "user_id": 9999, "status": "active", "name": "FOREIGN"},
+            ]},
+        ],
+        own_membership_index={11: {"name": "PRIVATE ONE"}},
+        own_membership_duty={11: {"available": True}},
+    )
+    assert result["cached_active_related_membership_count"] == 2
+    assert result["own_memberships_with_cached_duty_at_station"] == 1
+    assert result["current_station_full_roster_verified"] is False
+    assert result["can_build_operational_prediction"] is False
+    assert result["predicted_lineup"] is None
+    assert "PRIVATE" not in str(result)
+    assert "1001" not in str(result)
+
+
+def test_even_all_cached_memberships_seen_do_not_prove_full_station():
+    result = assess_candidate_roster_source(
+        194,
+        groups=[{"id": 194, "type": "station", "memberships": [
+            {"id": 11, "user_id": 1001, "status": "active"},
+        ]}],
+        own_membership_index={11: {}}, own_membership_duty={11: {}},
+    )
+    assert result["own_memberships_with_cached_duty_at_station"] == 1
+    assert result["current_station_full_roster_verified"] is False
+
+
+def test_related_team_and_duplicate_group_are_not_double_counted():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": [
+                {"id": 11, "user_id": 1001, "status": "active"},
+            ]},
+            {"id": 777, "type": "team", "parent_group_id": 194,
+             "memberships": [
+                {"id": 11, "user_id": 1001, "status": "active"},
+                {"id": 22, "user_id": 1002, "status": "active"},
+             ]},
+        ],
+        own_membership_index={11: {}}, own_membership_duty={11: {}},
+    )
+    assert result["cached_active_related_membership_count"] == 2
+    assert result["cached_membership_identity_link_issues"] == 0
+
+
+def test_missing_user_link_and_conflicting_user_link_report_only_counts():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": [
+                {"id": 11, "user_id": 1001, "status": "active"},
+                {"id": 22, "status": "active"},
+            ]},
+            {"id": 777, "type": "team", "parent_group_id": 194,
+             "memberships": [{"id": 11, "user_id": 9999, "status": "active"}]},
+        ],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["cached_membership_identity_link_issues"] == 2
+    assert "9999" not in str(result)
+
+
+def test_no_groups_never_suggests_no_station_firefighters():
+    result = assess_candidate_roster_source(
+        194, groups=None, own_membership_index={}, own_membership_duty={},
+    )
+    assert result["station_discovered"] is False
+    assert result["cached_active_related_membership_count"] == 0
+    assert result["current_station_full_roster_verified"] is False
+
+
+def test_invalid_station_id_rejected():
+    import pytest
+
+    with pytest.raises(ValueError):
+        assess_candidate_roster_source(
+            True, groups=[], own_membership_index={}, own_membership_duty={},
+        )
