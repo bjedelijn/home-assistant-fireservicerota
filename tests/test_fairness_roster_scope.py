@@ -262,3 +262,44 @@ def test_foreign_station_not_counted_as_direct():
     assert result["cached_active_related_only_membership_count"] == 0
     assert result["own_memberships_in_direct_station_group"] == 0
     assert result["current_station_full_roster_verified"] is False
+
+
+def test_duplicate_station_group_records_cannot_be_combined():
+    result = assess_candidate_roster_source(
+        194,
+        groups=[
+            {"id": 194, "type": "station", "memberships": [
+                {"id": 11, "user_id": 1001, "status": "active"},
+            ]},
+            {"id": "194", "type": "station", "memberships": [
+                {"id": 22, "user_id": 1002, "status": "active"},
+            ]},
+        ],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "ambiguous_duplicate_station_group"
+    assert result["cached_active_direct_station_membership_count"] is None
+    assert result["cached_distinct_user_count_if_fully_linked"] is None
+    assert result["can_build_operational_prediction"] is False
+
+
+def test_requested_station_id_reused_as_team_fails_closed():
+    result = assess_candidate_roster_source(
+        194,
+        groups=[{"id": 194, "type": "team", "memberships": [
+            {"id": 11, "user_id": 1001, "status": "active"},
+        ]}],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "station_group_type_mismatch"
+    assert result["cached_active_related_membership_count"] is None
+
+
+def test_exact_duplicate_station_group_still_rejected():
+    station = {"id": 194, "type": "station", "memberships": []}
+    result = assess_candidate_roster_source(
+        194, groups=[station, station],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "ambiguous_duplicate_station_group"
+    assert result["station_discovered"] is False

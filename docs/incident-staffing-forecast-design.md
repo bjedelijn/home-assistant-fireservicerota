@@ -360,3 +360,13 @@ the diagnostic reports how many of the authenticated user's memberships
 appear directly in the station group. These remain cached counts, not
 a complete current station roster, a permission grant, or operational
 staffing evidence. No personal identifiers are returned.
+
+
+### Ambiguous station group responses
+
+The cached diagnostic refuses to combine two group records with the same
+requested station ID, including duplicated identical records. An ID that
+is present but labeled with a non-station group type is also rejected.
+Instead of unioning potentially conflicting membership lists, the result
+returns a fixed rejection status with null counts and no identities.
+This does not validate the freshness or completeness of a single group.

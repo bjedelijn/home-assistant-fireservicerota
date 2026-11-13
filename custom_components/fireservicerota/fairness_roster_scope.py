@@ -98,6 +98,18 @@ def assess_candidate_roster_source(
             if total_rows > _MAX_TOTAL_MEMBERSHIP_ROWS:
                 return _scope_rejected(station, "total_membership_limit_exceeded")
 
+    # A station must have one unambiguous source group. Duplicate station
+    # records or the same group ID advertised as a non-station type can
+    # represent conflicting cached snapshots; do not union their members.
+    same_id_groups = [
+        group for group in groups
+        if isinstance(group, dict) and _id(group.get("id")) == station
+    ]
+    if len(same_id_groups) > 1:
+        return _scope_rejected(station, "ambiguous_duplicate_station_group")
+    if same_id_groups and same_id_groups[0].get("type") != "station":
+        return _scope_rejected(station, "station_group_type_mismatch")
+
     station_found = False
     cached_station_members: set[str] = set()
     direct_station_members: set[str] = set()
