@@ -173,3 +173,14 @@ original separately. In historical views use the event-time replacement
 mapping rather than today's active mapping. Ambiguous mappings or active
 replacement conflicts fail closed. The presentation does **not** change
 fairness evidence, the source P2000 message or operational dispatch.
+
+
+### Bounded matching complexity (regression hardening)
+
+The pure scenario helper uses deterministic augmenting-path bipartite matching
+rather than enumerating permutations of personnel. It can evaluate up to 32
+distinct verified slots and 100 candidate memberships without exponential
+search; synthetic tests cover multi-skilled reassignment, full-sized candidate
+sets and insufficient unique candidates. This remains a feasibility check,
+not a ranking or predicted deployment. Missing current verified individual
+availability, skill eligibility, or distinct seat provenance still fails closed.

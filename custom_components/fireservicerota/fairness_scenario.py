@@ -145,25 +145,24 @@ def evaluate_verified_seat_scenario(
         for skill in slots
     ]
     ordering = sorted(range(len(slots)), key=lambda i: (len(options[i]), slots[i], i))
-    assigned: dict[int, str] = {}
-    used: set[str] = set()
+    # Deterministic bipartite maximum matching (augmenting paths), rather
+    # than enumerating possible lineups with exponential backtracking.
+    # A member is matched to no more than one slot, regardless of skills.
+    matched_member_slot: dict[str, int] = {}
 
-    def solve(position: int) -> bool:
-        if position == len(ordering):
-            return True
-        slot_index = ordering[position]
+    def augment(slot_index: int, visited_members: set[str]) -> bool:
         for member_id in options[slot_index]:
-            if member_id in used:
+            if member_id in visited_members:
                 continue
-            used.add(member_id)
-            assigned[slot_index] = member_id
-            if solve(position + 1):
+            visited_members.add(member_id)
+            previous_slot = matched_member_slot.get(member_id)
+            if previous_slot is None or augment(previous_slot, visited_members):
+                matched_member_slot[member_id] = slot_index
                 return True
-            del assigned[slot_index]
-            used.remove(member_id)
         return False
 
-    feasible = solve(0)
+    feasible = all(augment(slot_index, set()) for slot_index in ordering)
+    assigned = {slot_index: member_id for member_id, slot_index in matched_member_slot.items()}
     summary: dict[str, dict[str, int]] = {}
     for i, skill in enumerate(slots):
         group = summary.setdefault(skill, {"required_slots": 0, "eligible_available_members": 0})

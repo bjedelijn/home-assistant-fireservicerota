@@ -160,3 +160,43 @@ def test_explicit_slot_model_with_unverified_flag_is_refused():
         task_requirements=req,
     )
     assert result["scenario_status"] == "distinct_seat_model_not_verified"
+
+
+def test_augmenting_path_reassigns_multiskilled_member():
+    # Greedy, non-backtracking assignment could consume the only commander.
+    result = calculate(
+        [person(1, [7, 1168]), person(2, [1168])],
+        [{"skill_id": 1168, "count": 1}, {"skill_id": 7, "count": 1}],
+        include_membership_ids=True,
+    )
+    assert result["staffing_feasible"] is True
+    assigned = {row["skill_id"]: row["membership_id"]
+                for row in result["illustrative_assignment"]}
+    assert assigned == {"1168": "2", "7": "1"}
+
+
+def test_many_candidates_are_bounded_and_no_false_double_crew():
+    members = [person(i, [7, 1168, 775]) for i in range(1, 101)]
+    result = calculate(
+        members,
+        [{"skill_id": 775, "count": 30},
+         {"skill_id": 7, "count": 1},
+         {"skill_id": 1168, "count": 1}],
+        include_membership_ids=True,
+    )
+    assert result["staffing_feasible"] is True
+    assert len(result["illustrative_assignment"]) == 32
+    assert len({entry["membership_id"] for entry in
+                result["illustrative_assignment"]}) == 32
+
+
+def test_infeasible_overlapping_candidates_do_not_hang_or_predict():
+    members = [person(i, [7, 1168]) for i in range(1, 16)]
+    result = calculate(
+        members,
+        [{"skill_id": 7, "count": 16},
+         {"skill_id": 1168, "count": 16}],
+    )
+    assert result["staffing_feasible"] is False
+    assert result["predicted_lineup"] is None
+    assert result["illustrative_assignment"] is None
