@@ -166,6 +166,7 @@ def test_explicit_slot_model_with_unverified_flag_is_refused():
         station_id=194, task_id=7674,
         current_snapshot=snapshot([person(1, [7])]),
         task_requirements=req,
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
     )
     assert result["scenario_status"] == "distinct_seat_model_not_verified"
 
