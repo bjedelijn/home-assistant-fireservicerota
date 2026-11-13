@@ -17,6 +17,7 @@ def requirements(slots):
     return {
         "station_id": 194, "task_id": 7674, "verified": True,
         "current": True, "slots": slots,
+        "observed_at": "2026-11-12T12:00:00+01:00",
         "coverage_model": "explicit_distinct_seat_slots",
         "slot_model_verified": True,
     }
@@ -288,3 +289,52 @@ def test_naive_observation_clock_fails_closed():
         evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
     )
     assert result["scenario_status"] == "invalid_observation_timestamp"
+
+
+def test_task_requirement_config_staleness_rejected_even_with_fresh_members():
+    req = requirements([{"skill_id": 7, "count": 1}])
+    req["observed_at"] = "2026-11-12T11:55:00+01:00"
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=req,
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
+    )
+    assert result["scenario_status"] == "stale_task_requirement_configuration"
+    assert result["predicted_lineup"] is None
+
+
+def test_task_requirement_timestamp_absent_rejected():
+    req = requirements([{"skill_id": 7, "count": 1}])
+    req.pop("observed_at")
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=req,
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
+    )
+    assert result["scenario_status"] == "task_requirement_timestamp_missing"
+
+
+def test_future_task_configuration_rejected():
+    req = requirements([{"skill_id": 7, "count": 1}])
+    req["observed_at"] = "2026-11-12T12:02:00+01:00"
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=req,
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
+    )
+    assert result["scenario_status"] == "task_requirement_from_unverified_future"
+
+
+def test_naive_task_configuration_timestamp_rejected():
+    req = requirements([{"skill_id": 7, "count": 1}])
+    req["observed_at"] = "2026-11-12T12:00:00"
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=req,
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
+    )
+    assert result["scenario_status"] == "task_requirement_timestamp_invalid"

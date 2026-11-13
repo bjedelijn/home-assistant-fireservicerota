@@ -275,3 +275,14 @@ This does not independently verify the caller's clock or the remote
 observation provenance; production callers still require a reviewed,
 authorized station-wide source. No live request, fairness ranking or
 predicted lineup is introduced.
+
+
+### Task-configuration timestamp freshness
+
+A recent personnel snapshot alone is insufficient. The pure seat scenario
+helper additionally requires a separate timezone-aware `observed_at` on the
+verified task requirement configuration. If absent, malformed, more than five
+minutes old or over thirty seconds in the future, it refuses to evaluate.
+These conservative development thresholds do not establish the reliability of
+the task API source or the caller's clock and are not intended as immutable
+operational SLAs. This feature remains disconnected from live HA services.

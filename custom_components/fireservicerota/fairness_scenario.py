@@ -58,7 +58,7 @@ def evaluate_verified_seat_scenario(
       availability_verified=True, eligibility_verified=True,
       members=[{membership_id, user_id, available=True/False, skill_ids=[...]}]
     Required task structure:
-      station_id, task_id, current=True, verified=True,
+      station_id, task_id, observed_at, current=True, verified=True,
       coverage_model='explicit_distinct_seat_slots', slot_model_verified=True,
       slots=[{skill_id, count}]  (regular distinct seats only).
 
@@ -108,6 +108,23 @@ def evaluate_verified_seat_scenario(
         return _reject("snapshot_from_unverified_future", station, task)
     if age > _MAX_SNAPSHOT_AGE:
         return _reject("stale_current_snapshot", station, task)
+
+    # A fresh personnel snapshot must not be combined with a stale/unknown
+    # task configuration. Require independently timestamped task requirements.
+    task_observed_raw = task_requirements.get("observed_at")
+    if not isinstance(task_observed_raw, str) or not task_observed_raw:
+        return _reject("task_requirement_timestamp_missing", station, task)
+    try:
+        task_observed = datetime.fromisoformat(task_observed_raw.replace("Z", "+00:00"))
+        if task_observed.tzinfo is None or task_observed.utcoffset() is None:
+            return _reject("task_requirement_timestamp_invalid", station, task)
+        task_age = evaluated_at - task_observed
+    except (TypeError, ValueError, OverflowError):
+        return _reject("task_requirement_timestamp_invalid", station, task)
+    if task_age < -_MAX_FUTURE_SKEW:
+        return _reject("task_requirement_from_unverified_future", station, task)
+    if task_age > _MAX_SNAPSHOT_AGE:
+        return _reject("stale_task_requirement_configuration", station, task)
 
     # API crew_requirements[].skills[].required may encode overlapping skill
     # coverage. Requiring explicit verified seats prevents quietly summing
