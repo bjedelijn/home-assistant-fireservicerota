@@ -305,6 +305,7 @@ def test_multiple_current_intervals_do_not_merge_private_field_shapes():
     )
     assert summary["current_interval_present"] is True
     assert summary["current_interval_matches"] == 2
+    assert summary["probe_status"] == "ambiguous_overlapping_current_intervals"
     assert summary["current_interval_field_presence"] is None
     assert summary["current_candidate_available"] is None
     assert "CONFIDENTIAL" not in str(summary)
@@ -355,3 +356,26 @@ def test_valid_interval_reports_only_presence_not_skill_values():
         assert forbidden not in str(summary)
     assert summary["current_candidate_available"] is None
     assert summary["current_candidate_duty_type"] is None
+
+
+def test_naive_checked_at_is_rejected_before_interval_scan():
+    _member, meta = choose_one_candidate_schedule_probe(
+        history(), groups(), task_index(), 194, 7674
+    )
+    with pytest.raises(ValueError, match="timezone-aware"):
+        summarize_one_candidate_schedule_probe(
+            meta, {"intervals": []}, datetime(2026, 10, 25, 10, 30)
+        )
+
+
+def test_oversized_schedule_does_not_get_partially_interpreted():
+    _member, meta = choose_one_candidate_schedule_probe(
+        history(), groups(), task_index(), 194, 7674
+    )
+    outcome = summarize_one_candidate_schedule_probe(
+        meta, {"intervals": [{}] * 501},
+        datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc),
+    )
+    assert outcome["probe_status"] == "unexpected_schedule_response_structure"
+    assert outcome["current_interval_present"] is None
+    assert outcome["full_station_availability_verified"] is False

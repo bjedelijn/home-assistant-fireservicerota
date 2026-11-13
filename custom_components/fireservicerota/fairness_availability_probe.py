@@ -233,6 +233,8 @@ def summarize_one_candidate_schedule_probe(
     checked_at: datetime,
 ) -> dict[str, Any]:
     """Return only the API-readability result, never an individual's schedule."""
+    if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+        raise ValueError("checked_at must be timezone-aware")
     base = {
         **safe_selection,
         "api_get_attempted": True,
@@ -254,7 +256,7 @@ def summarize_one_candidate_schedule_probe(
         }
 
     intervals = schedule.get("intervals")
-    if not isinstance(intervals, list):
+    if not isinstance(intervals, list) or len(intervals) > 500:
         return {
             **base,
             "probe_status": "unexpected_schedule_response_structure",
@@ -265,7 +267,7 @@ def summarize_one_candidate_schedule_probe(
 
     current_intervals: list[dict[str, Any]] = []
     valid_interval_count = 0
-    for interval in intervals[:500]:
+    for interval in intervals:
         if not isinstance(interval, dict):
             continue
         start_raw = interval.get("start_time")
@@ -294,8 +296,10 @@ def summarize_one_candidate_schedule_probe(
     return {
         **base,
         "probe_status": (
-            "readable_schedule_current_interval"
-            if current_intervals
+            "ambiguous_overlapping_current_intervals"
+            if len(current_intervals) > 1
+            else "readable_schedule_current_interval"
+            if len(current_intervals) == 1
             else "readable_schedule_but_no_current_interval"
         ),
         "schedule_response_structure_readable": True,

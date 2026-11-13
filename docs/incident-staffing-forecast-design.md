@@ -184,3 +184,14 @@ search; synthetic tests cover multi-skilled reassignment, full-sized candidate
 sets and insufficient unique candidates. This remains a feasibility check,
 not a ranking or predicted deployment. Missing current verified individual
 availability, skill eligibility, or distinct seat provenance still fails closed.
+
+
+### Availability probe interval ambiguity hardening
+
+The one-candidate schedule probe now returns
+`ambiguous_overlapping_current_intervals` when more than one current interval
+matches; it does not merge the private values or infer availability. A
+timezone-naive comparison time is rejected and a schedule with more than
+500 intervals fails closed instead of silently truncating. No current member
+availability is published, no complete station eligibility is inferred and
+no operational lineup prediction is produced.
