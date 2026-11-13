@@ -263,3 +263,15 @@ incorrectly assigning one firefighter to two positions. A future reviewed
 adapter may safely consolidate memberships per user when it can validate
 availability and skills per station/task; the pure helper does not guess.
 No member IDs or names are included by default.
+
+
+### Explicit timestamp freshness gate for scenario inputs
+
+The pure scenario solver now **requires** a timezone-aware `evaluated_at`
+timestamp supplied by its caller. It parses the timezone-aware snapshot
+`observed_at` and refuses observations older than five minutes, over thirty
+seconds in the future, malformed timestamps or absent/naive evaluation time.
+This does not independently verify the caller's clock or the remote
+observation provenance; production callers still require a reviewed,
+authorized station-wide source. No live request, fairness ranking or
+predicted lineup is introduced.

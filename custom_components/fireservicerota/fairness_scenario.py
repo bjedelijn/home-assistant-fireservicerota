@@ -9,10 +9,13 @@ A feasible combination is not a predicted dispatch or verified vehicle crew.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import Any
 
 _MAX_MEMBERS = 100
 _MAX_SLOTS = 32
+_MAX_SNAPSHOT_AGE = timedelta(minutes=5)
+_MAX_FUTURE_SKEW = timedelta(seconds=30)
 
 
 def _numeric(value: Any) -> str | None:
@@ -46,6 +49,7 @@ def evaluate_verified_seat_scenario(
     current_snapshot: Mapping[str, Any] | None,
     task_requirements: Mapping[str, Any] | None,
     include_membership_ids: bool = False,
+    evaluated_at: datetime | None = None,
 ) -> dict:
     """Evaluate feasibility using unique people and repeated required skill slots.
 
@@ -61,8 +65,10 @@ def evaluate_verified_seat_scenario(
     An API per-skill aggregate required count is NOT proof of distinct seats:
     overlapping skill requirements must never be summed into a seat total.
 
-    Provenance and snapshot freshness must be checked by the *caller*. These
-    flags are a contract, not independent proof from this pure function.
+    The caller must provide an aware evaluated_at timestamp. Observed_at must
+    be timezone aware, at most five minutes old and no more than thirty seconds
+    in the future. The caller must separately validate source authorization,
+    data provenance and its own clock; boolean flags are not independent proof.
     """
     station, task = _numeric(station_id), _numeric(task_id)
     if station is None or task is None:
@@ -88,6 +94,20 @@ def evaluate_verified_seat_scenario(
         and current_snapshot.get("observed_at")
     ):
         return _reject("current_availability_or_eligibility_not_verified", station, task)
+
+    if not isinstance(evaluated_at, datetime) or evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
+        return _reject("evaluation_time_not_verified", station, task)
+    try:
+        observed_at = datetime.fromisoformat(current_snapshot["observed_at"].replace("Z", "+00:00"))
+        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+            return _reject("invalid_observation_timestamp", station, task)
+        age = evaluated_at - observed_at
+    except (ValueError, TypeError, OverflowError):
+        return _reject("invalid_observation_timestamp", station, task)
+    if age < -_MAX_FUTURE_SKEW:
+        return _reject("snapshot_from_unverified_future", station, task)
+    if age > _MAX_SNAPSHOT_AGE:
+        return _reject("stale_current_snapshot", station, task)
 
     # API crew_requirements[].skills[].required may encode overlapping skill
     # coverage. Requiring explicit verified seats prevents quietly summing
@@ -200,7 +220,7 @@ def evaluate_verified_seat_scenario(
         "fairness_ranking_performed": False,
         "warning": (
             "Feasibility only; input and user-identity verification flags are caller attestations. "
-            "No fairness ordering, dispatch likelihood, real-time freshness check "
-            "or physical turnout is established."
+            "A bounded timestamp freshness check is performed, but not source "
+            "provenance, clock trust, fairness ordering or physical turnout."
         ),
     }

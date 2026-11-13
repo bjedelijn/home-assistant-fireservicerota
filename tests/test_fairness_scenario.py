@@ -1,5 +1,7 @@
 """Synthetic tests only: no personal roster information or API calls."""
 
+from datetime import datetime
+
 from custom_components.fireservicerota.fairness_scenario import evaluate_verified_seat_scenario
 
 
@@ -29,7 +31,8 @@ def calculate(members, slots, **kwargs):
     return evaluate_verified_seat_scenario(
         station_id=194, task_id=7674,
         current_snapshot=snapshot(members),
-        task_requirements=requirements(slots), **kwargs,
+        task_requirements=requirements(slots),
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"), **kwargs,
     )
 
 
@@ -90,6 +93,7 @@ def test_missing_current_flags_fail_closed():
     result = evaluate_verified_seat_scenario(
         station_id=194, task_id=7674,
         current_snapshot=s, task_requirements=requirements([{"skill_id": 7, "count": 1}]),
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
     )
     assert result["scenario_status"] == "current_availability_or_eligibility_not_verified"
     assert result["staffing_feasible"] is None
@@ -101,6 +105,7 @@ def test_cross_station_and_task_scope_rejected():
     result = evaluate_verified_seat_scenario(
         station_id=194, task_id=7674,
         current_snapshot=snapshot([person(1, [7])]), task_requirements=req,
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
     )
     assert result["scenario_status"] == "station_or_task_scope_mismatch"
 
@@ -135,6 +140,7 @@ def test_raw_api_skill_requirements_are_not_distinct_seats():
         station_id=194, task_id=7674,
         current_snapshot=snapshot([person(1, [7, 1168]), person(2, [1168])]),
         task_requirements=req,
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
     )
     assert result["scenario_status"] == "distinct_seat_model_not_verified"
     assert result["staffing_feasible"] is None
@@ -148,6 +154,7 @@ def test_claimed_slot_model_without_verified_seat_distinction_is_refused():
         station_id=194, task_id=7674,
         current_snapshot=snapshot([person(1, [7])]),
         task_requirements=req,
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
     )
     assert result["scenario_status"] == "distinct_seat_model_not_verified"
 
@@ -236,3 +243,47 @@ def test_distinct_user_ids_allow_separate_assignments():
         [{"skill_id": 7, "count": 1}, {"skill_id": 1168, "count": 1}],
     )
     assert result["staffing_feasible"] is True
+
+
+def test_stale_snapshot_is_not_accepted_as_current():
+    from datetime import timedelta
+
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=requirements([{"skill_id": 7, "count": 1}]),
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:06:00+01:00"),
+    )
+    assert result["scenario_status"] == "stale_current_snapshot"
+    assert result["staffing_feasible"] is None
+
+
+def test_future_dated_snapshot_is_rejected():
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=requirements([{"skill_id": 7, "count": 1}]),
+        evaluated_at=datetime.fromisoformat("2026-11-12T11:59:00+01:00"),
+    )
+    assert result["scenario_status"] == "snapshot_from_unverified_future"
+
+
+def test_missing_evaluation_clock_fails_closed():
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=requirements([{"skill_id": 7, "count": 1}]),
+    )
+    assert result["scenario_status"] == "evaluation_time_not_verified"
+
+
+def test_naive_observation_clock_fails_closed():
+    snap = snapshot([person(1, [7])])
+    snap["observed_at"] = "2026-11-12T12:00:00"
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snap,
+        task_requirements=requirements([{"skill_id": 7, "count": 1}]),
+        evaluated_at=datetime.fromisoformat("2026-11-12T12:01:00+01:00"),
+    )
+    assert result["scenario_status"] == "invalid_observation_timestamp"
