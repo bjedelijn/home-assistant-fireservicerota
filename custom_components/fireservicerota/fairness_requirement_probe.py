@@ -268,6 +268,8 @@ def summarize_task_requirement_schedule(
     task = _id(selection.get("task_id"))
     if expected_requirement is None or task is None:
         raise ValueError("No validated historical task requirement selected")
+    if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+        raise ValueError("checked_at must be timezone-aware")
     base = {
         **selection,
         "api_get_attempted": True,
@@ -384,23 +386,39 @@ def summarize_task_requirement_schedule(
         return {**base, "probe_status": "invalid_or_unbounded_intervals"}
 
     matches = []
+    invalid_interval_count = 0
     for interval in intervals:
         if not isinstance(interval, dict):
+            invalid_interval_count += 1
             continue
         start = interval.get("start_time")
         end = interval.get("end_time")
         if not isinstance(start, str) or not isinstance(end, str):
+            invalid_interval_count += 1
             continue
         try:
             a = datetime.fromisoformat(start)
             b = datetime.fromisoformat(end)
-            if a.tzinfo is None or b.tzinfo is None or b <= a:
+            if (
+                a.tzinfo is None or a.utcoffset() is None
+                or b.tzinfo is None or b.utcoffset() is None
+                or b <= a
+            ):
+                invalid_interval_count += 1
                 continue
             if a <= checked_at < b:
                 matches.append(interval)
-        except (TypeError, ValueError):
-            continue
+        except (TypeError, ValueError, OverflowError):
+            invalid_interval_count += 1
     base["current_interval_matches"] = len(matches)
+    base["invalid_timestamped_interval_count"] = invalid_interval_count
+    # Malformed intervals may overlap the current time. Ignoring them could
+    # make one valid interval appear unique and wrongly imply current coverage.
+    if invalid_interval_count:
+        return {
+            **base,
+            "probe_status": "invalid_schedule_intervals_cannot_verify_current",
+        }
     if len(matches) != 1:
         return {
             **base,

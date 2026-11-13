@@ -483,3 +483,63 @@ def test_shared_requirement_cannot_read_other_station_or_task_exclusively():
     assert output["probe_status"] == "api_task_ids_do_not_match"
     assert output["current_aggregate_scope"] == "not_verified"
     assert output["current_aggregate_skills"] == []
+
+
+@pytest.mark.parametrize("invalid", [
+    {"start_time": "bad", "end_time": "2026-10-25T11:00:00+00:00"},
+    {"start_time": "2026-10-25T10:00:00", "end_time": "2026-10-25T11:00:00"},
+    {"start_time": "2026-10-25T11:00:00+00:00", "end_time": "2026-10-25T10:00:00+00:00"},
+    {"start_time": "2026-10-25T10:00:00+00:00"},
+    None,
+])
+def test_invalid_aggregate_interval_must_not_prove_current_coverage(invalid):
+    _, selection = chosen()
+    response = sample_schedule()
+    response["intervals"].append(invalid)
+    result = summarize_task_requirement_schedule(
+        selection, response, datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    )
+    assert result["probe_status"] == "invalid_schedule_intervals_cannot_verify_current"
+    assert result["invalid_timestamped_interval_count"] == 1
+    assert result["current_interval_matches"] == 1
+    assert result["current_aggregate_skill_coverage_checked"] is False
+    assert result["current_aggregate_skills"] == []
+    assert result["current_personnel_eligibility_verified"] is False
+    assert result["predicted_lineup"] is None
+
+
+def test_invalid_shared_aggregate_interval_fails_closed():
+    _, selection = chosen()
+    response = sample_schedule()
+    response["availability_requirement"]["task_ids"] = [7674, 7678]
+    response["intervals"].append({"start_time": "INVALID"})
+    result = summarize_task_requirement_schedule(
+        selection, response, datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc),
+        task_index=shared_ts_task_index(),
+    )
+    assert result["shared_task_station_scope_verified"] is True
+    assert result["probe_status"] == "invalid_schedule_intervals_cannot_verify_current"
+    assert result["current_aggregate_skill_coverage_checked"] is False
+    assert result["current_aggregate_skills"] == []
+    assert result["actual_vehicle_crew_verified"] is False
+
+
+def test_timezone_naive_aggregate_check_is_rejected():
+    _, selection = chosen()
+    with pytest.raises(ValueError, match="timezone-aware"):
+        summarize_task_requirement_schedule(
+            selection, sample_schedule(), datetime(2026, 10, 25, 10, 30)
+        )
+
+
+def test_invalid_only_aggregate_is_unknown_not_out_of_service():
+    _, selection = chosen()
+    response = sample_schedule()
+    response["intervals"] = [{"start_time": "not-a-date"}]
+    result = summarize_task_requirement_schedule(
+        selection, response, datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc)
+    )
+    assert result["probe_status"] == "invalid_schedule_intervals_cannot_verify_current"
+    assert result["current_aggregate_service_level"] is None
+    assert result["current_aggregate_skill_coverage_checked"] is False
+    assert result["current_personnel_eligibility_verified"] is False

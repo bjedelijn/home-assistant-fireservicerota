@@ -239,3 +239,15 @@ the current time, so silently skipping them would create false confidence.
 The diagnostic reports only an invalid interval count, never raw times or
 private availability. It still does not certify person-level operational
 availability or the complete station pool.
+
+
+### Current aggregate availability: invalid intervals must fail closed
+
+The task-aggregate (including same-station shared TS/TS-BT) schedule probe now
+rejects a positive current-coverage claim if **any** interval is malformed,
+has missing or naive timestamps, or has a reversed range. A malformed interval
+could also overlap the checked time and therefore cannot be ignored. The
+read-only diagnostic provides only the number of invalid intervals and the
+`invalid_schedule_intervals_cannot_verify_current` status; it never returns
+member schedules, identities or a forecast. The comparison timestamp must
+be timezone-aware. Current individual eligibility remains **unverified**.
