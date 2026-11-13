@@ -67,3 +67,27 @@ AVAILABILITY_MODE_DURATIONS = {
     AVAILABILITY_MODE_4H: 240,
     AVAILABILITY_MODE_8H: 480,
 }
+
+# Experimental fairness preview identifiers.
+DATA_HISTORICAL_FAIRNESS_STORE = "historical_fairness_store"
+SERVICE_IMPORT_FAIRNESS_HISTORY = "import_fairness_history"
+SERVICE_PREVIEW_FAIRNESS_HISTORY = "preview_fairness_history"
+SERVICE_PREVIEW_FAIRNESS_ADVISORY = "preview_fairness_advisory"
+SERVICE_PROBE_FAIRNESS_AVAILABILITY = "probe_fairness_availability"
+SERVICE_INSPECT_FAIRNESS_ROSTER_SCOPE = "inspect_fairness_roster_scope"
+SERVICE_PROBE_FAIRNESS_TASK_COVERAGE = "probe_fairness_task_coverage"
+SERVICE_PROBE_TASK_P2000_MAPPING = "probe_task_p2000_mapping"
+SERVICE_PROBE_TASK_P2000_AUDIT = "probe_task_p2000_audit"
+SERVICE_PROBE_TASK_WEBPAGE_P2000 = "probe_task_webpage_p2000"
+SERVICE_ANALYZE_TASK_P2000_HISTORY = "analyze_task_p2000_history"
+SERVICE_PREVIEW_STATION_TASK_P2000_HISTORY = "preview_station_task_p2000_history"
+SERVICE_INSPECT_HISTORICAL_STAFFING = "inspect_historical_staffing"
+SERVICE_SAVE_HISTORICAL_STAFFING = "save_historical_staffing"
+SERVICE_CLEAR_FAIRNESS_HISTORY = "clear_fairness_history"
+ATTR_INCIDENT_IDS = "incident_ids"
+ATTR_OFFSET = "offset"
+ATTR_PAGE = "page"
+ATTR_OVERVIEW_ONLY = "overview_only"
+ATTR_REFRESH = "refresh"
+ATTR_TASK_ID = "task_id"
+ATTR_INCLUDE_PEOPLE = "include_people"
