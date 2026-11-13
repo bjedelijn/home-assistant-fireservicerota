@@ -195,3 +195,19 @@ timezone-naive comparison time is rejected and a schedule with more than
 500 intervals fails closed instead of silently truncating. No current member
 availability is published, no complete station eligibility is inferred and
 no operational lineup prediction is produced.
+
+
+## Readiness gate: evidence is not a verified lineup
+
+The pure, unregistered `fairness_readiness.summarize_forecast_readiness`
+compares three **already sanitized** sources for one station/task:
+historical proposals, one-candidate schedule structure, and current aggregate
+coverage. It returns only missing evidence categories and never exposes names,
+memberships, schedules, ranks or proposed vehicle crew.
+
+All three may be observable while a forecast is **still blocked**:
+one successfully readable candidate is not the full station's available
+candidate pool; aggregate warning/skill counts are not person-specific,
+and task skill requirements need verified *distinct seat* interpretation.
+A held-out prediction backtest is also required. The helper makes no live
+API calls and cannot itself establish source authorization or freshness.
