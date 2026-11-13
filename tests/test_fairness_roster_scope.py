@@ -349,3 +349,42 @@ def test_agreeing_active_status_across_station_and_team_is_deduplicated():
     assert result["diagnostic_status"] == "cached_partial_scope_only"
     assert result["cached_active_related_membership_count"] == 1
     assert result["cached_active_direct_station_membership_count"] == 1
+
+
+def test_very_long_numeric_group_id_cannot_crash_diagnostic():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": "9" * 5000, "type": "station", "memberships": []},
+            {"id": 194, "type": "station", "memberships": []},
+        ], own_membership_index={}, own_membership_duty={},
+    )
+    assert result["station_discovered"] is True
+    assert result["current_station_full_roster_verified"] is False
+
+
+def test_malformed_group_entry_fails_closed_without_partial_counts():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": []},
+            {"private_name": "SHOULD NOT LEAK"},
+        ],
+        own_membership_index={}, own_membership_duty={},
+    )
+    # A mapping with unknown group data is not a known malformed row: it
+    # could be unrelated but cannot certify a complete station inventory.
+    assert result["can_build_operational_prediction"] is False
+
+
+def test_nonmapping_cached_group_row_rejects_counts():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": [
+                {"id": 11, "user_id": 1001, "status": "active"}
+            ]},
+            "PRIVATE INVALID GROUP",
+        ],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "invalid_cached_group_row"
+    assert result["cached_active_related_membership_count"] is None
+    assert "PRIVATE" not in str(result)

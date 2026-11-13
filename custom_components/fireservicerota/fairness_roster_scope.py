@@ -20,9 +20,14 @@ _MAX_OWN_MEMBERSHIPS = 500
 def _id(value: Any) -> str | None:
     if isinstance(value, bool):
         return None
-    if isinstance(value, int) and value > 0:
+    # Bounded numeric strings prevent unexpectedly huge cached IDs from
+    # raising Python's int-conversion limit errors or creating costly work.
+    if isinstance(value, int) and 0 < value <= 999999999999999999:
         return str(value)
-    if isinstance(value, str) and value.isascii() and value.isdecimal():
+    if (
+        isinstance(value, str) and 1 <= len(value) <= 18
+        and value.isascii() and value.isdecimal()
+    ):
         number = int(value)
         return str(number) if number > 0 else None
     return None
@@ -89,7 +94,9 @@ def assess_candidate_roster_source(
     total_rows = 0
     for group in groups:
         if not isinstance(group, dict):
-            continue
+            # A malformed group could be the missing target station; do not
+            # claim a trustworthy cached station-membership count.
+            return _scope_rejected(station, "invalid_cached_group_row")
         members = group.get("memberships")
         if isinstance(members, list):
             total_rows += len(members)

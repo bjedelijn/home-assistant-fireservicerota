@@ -382,3 +382,13 @@ Only recognized active, inactive and pending statuses are accepted for this
 prototype; provider status vocabulary must be verified before live use.
 The diagnostic still makes no additional API calls, returns no identities,
 and never certifies a full live candidate pool.
+
+
+### Malformed group rows and bounded identifiers
+
+The cache-only inspection rejects non-object group entries instead of
+silently ignoring potentially missing station records. Numeric identifiers
+are bounded to 18 ASCII digits to avoid oversized-input conversion errors.
+Fixed rejection responses contain neither the malformed group content nor
+partial roster counts. The authorized complete live roster is still
+unverified, and no additional API requests are made.
