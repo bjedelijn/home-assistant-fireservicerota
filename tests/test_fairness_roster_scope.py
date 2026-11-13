@@ -80,7 +80,8 @@ def test_no_groups_never_suggests_no_station_firefighters():
         194, groups=None, own_membership_index={}, own_membership_duty={},
     )
     assert result["station_discovered"] is False
-    assert result["cached_active_related_membership_count"] == 0
+    assert result["diagnostic_status"] == "groups_not_available"
+    assert result["cached_active_related_membership_count"] is None
     assert result["current_station_full_roster_verified"] is False
 
 
@@ -123,3 +124,43 @@ def test_no_new_api_calls_possible_in_pure_scope_inspector():
     assert result["can_build_operational_prediction"] is False
     assert result["predicted_lineup"] is None
     assert result["current_station_all_member_availability_verified"] is False
+
+
+def test_too_many_groups_fail_closed_without_partial_counts():
+    result = assess_candidate_roster_source(
+        194, groups=[{"id": 194, "type": "station", "memberships": []}] * 251,
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "groups_limit_exceeded"
+    assert result["cached_active_related_membership_count"] is None
+    assert result["can_build_operational_prediction"] is False
+
+
+def test_too_many_memberships_in_one_group_are_not_partially_counted():
+    result = assess_candidate_roster_source(
+        194, groups=[{"id": 194, "type": "station",
+                      "memberships": [{"id": x, "status": "active"}
+                                      for x in range(1, 502)]}],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "group_membership_limit_exceeded"
+    assert result["cached_active_related_membership_count"] is None
+
+
+def test_large_own_duty_index_fails_closed():
+    result = assess_candidate_roster_source(
+        194, groups=[], own_membership_index={},
+        own_membership_duty={x: {} for x in range(501)},
+    )
+    assert result["diagnostic_status"] == "own_membership_limit_exceeded"
+    assert result["own_memberships_with_cached_duty_at_station"] is None
+
+
+def test_invalid_groups_structure_is_not_mistaken_for_empty_station():
+    result = assess_candidate_roster_source(
+        194, groups={"memberships": [{"name": "PRIVATE"}]},
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "groups_structure_invalid"
+    assert result["cached_active_related_membership_count"] is None
+    assert "PRIVATE" not in str(result)

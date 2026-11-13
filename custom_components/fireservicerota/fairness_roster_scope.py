@@ -11,6 +11,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+_MAX_GROUPS = 250
+_MAX_MEMBERSHIPS_PER_GROUP = 500
+_MAX_TOTAL_MEMBERSHIP_ROWS = 5000
+_MAX_OWN_MEMBERSHIPS = 500
+
 
 def _id(value: Any) -> str | None:
     if isinstance(value, bool):
@@ -21,6 +26,29 @@ def _id(value: Any) -> str | None:
         number = int(value)
         return str(number) if number > 0 else None
     return None
+
+
+def _scope_rejected(station: str, status: str) -> dict[str, Any]:
+    """Avoid partial misleading counts for oversized or missing inputs."""
+    return {
+        "station_id": station,
+        "diagnostic_status": status,
+        "source": "cached_groups_plus_authenticated_user_membership_index",
+        "station_discovered": False,
+        "cached_active_related_membership_count": None,
+        "cached_membership_identity_link_issues": None,
+        "invalid_active_membership_rows": None,
+        "authenticated_user_membership_count": None,
+        "authenticated_user_duty_entries_count": None,
+        "own_memberships_in_cached_station_groups": None,
+        "own_memberships_with_cached_duty_at_station": None,
+        "current_station_full_roster_verified": False,
+        "current_station_all_member_availability_verified": False,
+        "current_station_all_member_skills_verified": False,
+        "can_build_operational_prediction": False,
+        "predicted_lineup": None,
+        "interpretation": "Input rejected; no partial roster scope conclusions are valid.",
+    }
 
 
 def assess_candidate_roster_source(
@@ -34,6 +62,37 @@ def assess_candidate_roster_source(
     station = _id(station_id)
     if station is None:
         raise ValueError("station_id must be a positive numeric ID")
+    # Never interpret a truncated cache as an exhaustive station roster.
+    # The status alone is safe to share; no raw member rows or identities.
+    if (
+        not isinstance(groups, list)
+        or len(groups) > _MAX_GROUPS
+        or (isinstance(own_membership_index, Mapping)
+            and len(own_membership_index) > _MAX_OWN_MEMBERSHIPS)
+        or (isinstance(own_membership_duty, Mapping)
+            and len(own_membership_duty) > _MAX_OWN_MEMBERSHIPS)
+    ):
+        if isinstance(groups, list) and len(groups) > _MAX_GROUPS:
+            reason = "groups_limit_exceeded"
+        elif groups is None:
+            reason = "groups_not_available"
+        elif not isinstance(groups, list):
+            reason = "groups_structure_invalid"
+        else:
+            reason = "own_membership_limit_exceeded"
+        return _scope_rejected(station, reason)
+    total_rows = 0
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        members = group.get("memberships")
+        if isinstance(members, list):
+            total_rows += len(members)
+            if len(members) > _MAX_MEMBERSHIPS_PER_GROUP:
+                return _scope_rejected(station, "group_membership_limit_exceeded")
+            if total_rows > _MAX_TOTAL_MEMBERSHIP_ROWS:
+                return _scope_rejected(station, "total_membership_limit_exceeded")
+
     station_found = False
     cached_station_members: set[str] = set()
     invalid_station_rows = 0
@@ -87,6 +146,7 @@ def assess_candidate_roster_source(
     overlap = own_ids.intersection(cached_station_members)
     return {
         "station_id": station,
+        "diagnostic_status": "cached_partial_scope_only",
         "source": "cached_groups_plus_authenticated_user_membership_index",
         "station_discovered": station_found,
         "cached_active_related_membership_count": len(cached_station_members),

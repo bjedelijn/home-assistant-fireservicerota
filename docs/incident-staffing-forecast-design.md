@@ -323,3 +323,14 @@ This service is only present in PR #20 development code. It will not appear
 in the existing stable Home Assistant installation unless that code is
 deliberately deployed after separate approval. Do not merge or install into
 production just to collect a diagnosis.
+
+
+### Bounded cache-only diagnostic inputs
+
+The development-only roster source inspector now rejects missing/invalid
+`groups` structures, more than 250 discovered groups, more than 500
+memberships per group, more than 5,000 membership rows in total, or over 500
+own memberships/duty entries. On rejection it returns a fixed reason and
+**no partial member counts** (null rather than zero). These are prototype
+diagnostic safety bounds, not operational assumptions about station size.
+No additional API call or persistence is involved.
