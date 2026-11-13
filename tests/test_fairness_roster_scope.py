@@ -304,3 +304,48 @@ def test_exact_duplicate_station_group_still_rejected():
     )
     assert result["diagnostic_status"] == "ambiguous_duplicate_station_group"
     assert result["station_discovered"] is False
+
+
+def test_conflicting_active_inactive_status_for_same_membership_fails_closed():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": [
+                {"id": 11, "user_id": 1001, "status": "active"},
+            ]},
+            {"id": 700, "type": "team", "parent_group_id": 194,
+             "memberships": [
+                {"id": 11, "user_id": 1001, "status": "inactive"},
+            ]},
+        ], own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "conflicting_membership_status"
+    assert result["cached_active_related_membership_count"] is None
+    assert result["can_build_operational_prediction"] is False
+
+
+def test_missing_or_unknown_member_status_is_not_treated_as_inactive():
+    for member in (
+        {"id": 11, "user_id": 1001},
+        {"id": 11, "user_id": 1001, "status": "unknown"},
+    ):
+        result = assess_candidate_roster_source(
+            194, groups=[{"id": 194, "type": "station",
+                          "memberships": [member]}],
+            own_membership_index={}, own_membership_duty={},
+        )
+        assert result["diagnostic_status"] == "unrecognized_membership_status"
+        assert result["cached_active_direct_station_membership_count"] is None
+
+
+def test_agreeing_active_status_across_station_and_team_is_deduplicated():
+    member = {"id": 11, "user_id": 1001, "status": "active"}
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": [member]},
+            {"id": 700, "type": "team", "parent_group_id": 194,
+             "memberships": [member]},
+        ], own_membership_index={}, own_membership_duty={},
+    )
+    assert result["diagnostic_status"] == "cached_partial_scope_only"
+    assert result["cached_active_related_membership_count"] == 1
+    assert result["cached_active_direct_station_membership_count"] == 1

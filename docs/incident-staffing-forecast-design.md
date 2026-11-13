@@ -370,3 +370,15 @@ is present but labeled with a non-station group type is also rejected.
 Instead of unioning potentially conflicting membership lists, the result
 returns a fixed rejection status with null counts and no identities.
 This does not validate the freshness or completeness of a single group.
+
+
+### Conflicting group membership statuses
+
+The cache-only diagnostic now refuses to interpret a group snapshot where
+the same membership has contradictory statuses in a station and related team
+group. Missing or unrecognized status values also cause a fixed fail-closed
+result with null counts, rather than being silently counted as inactive.
+Only recognized active, inactive and pending statuses are accepted for this
+prototype; provider status vocabulary must be verified before live use.
+The diagnostic still makes no additional API calls, returns no identities,
+and never certifies a full live candidate pool.

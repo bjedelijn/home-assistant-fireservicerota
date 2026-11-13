@@ -116,6 +116,7 @@ def assess_candidate_roster_source(
     invalid_station_rows = 0
     conflicting_identity_links = 0
     links: dict[str, set[str | None]] = {}
+    membership_statuses: dict[str, str] = {}
     for group in groups if isinstance(groups, list) else []:
         if not isinstance(group, dict):
             continue
@@ -142,11 +143,21 @@ def assess_candidate_roster_source(
             if not isinstance(member, dict):
                 invalid_station_rows += 1
                 continue
-            if member.get("status") != "active":
-                continue
+            status = member.get("status")
+            # Do not silently interpret absent/unrecognized statuses as
+            # inactive: a changed API schema could conceal active people.
+            if not isinstance(status, str) or status not in {
+                "active", "inactive", "pending",
+            }:
+                return _scope_rejected(station, "unrecognized_membership_status")
             member_id = _id(member.get("id"))
             if member_id is None:
                 invalid_station_rows += 1
+                continue
+            previous_status = membership_statuses.setdefault(member_id, status)
+            if previous_status != status:
+                return _scope_rejected(station, "conflicting_membership_status")
+            if status != "active":
                 continue
             cached_station_members.add(member_id)
             if is_station:
