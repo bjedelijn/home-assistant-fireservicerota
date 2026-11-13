@@ -91,3 +91,35 @@ def test_invalid_station_id_rejected():
         assess_candidate_roster_source(
             True, groups=[], own_membership_index={}, own_membership_duty={},
         )
+
+
+def test_unexpected_cached_group_shapes_do_not_crash_or_leak_raw_content():
+    result = assess_candidate_roster_source(
+        194,
+        groups=[
+            {"id": 194, "type": "station", "ancestor_ids": "PRIVATE",
+             "memberships": {"person": "SECRET"}},
+            {"id": 194, "type": "station", "memberships": [
+                None, {"id": 1, "user_id": 9, "status": "active", "name": "SECRET"},
+            ]},
+        ],
+        own_membership_index="SECRET",
+        own_membership_duty=None,
+    )
+    assert result["invalid_active_membership_rows"] == 2
+    assert result["cached_active_related_membership_count"] == 1
+    assert result["current_station_full_roster_verified"] is False
+    assert "SECRET" not in str(result)
+    assert "PRIVATE" not in str(result)
+
+
+def test_no_new_api_calls_possible_in_pure_scope_inspector():
+    # Fixed booleans cannot turn a cached snapshot into a live roster.
+    result = assess_candidate_roster_source(
+        194,
+        groups=[{"id": 194, "type": "station", "memberships": []}],
+        own_membership_index={}, own_membership_duty={},
+    )
+    assert result["can_build_operational_prediction"] is False
+    assert result["predicted_lineup"] is None
+    assert result["current_station_all_member_availability_verified"] is False

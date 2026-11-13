@@ -305,3 +305,21 @@ the station roster as complete, even if all *cached* rows are covered.
 The next implementation decision requires verifying a permitted current
 station-wide API source and its completeness semantics, not looping through
 historical candidate IDs. Avoid unauthorized broad person/schedule requests.
+
+
+### On-demand Home Assistant cache-only diagnostic (experimental)
+
+The draft development branch exposes
+`fireservicerota.inspect_fairness_roster_scope` with `station_id` and
+optional `entry_id`. It checks that the station belongs to the configured
+account and only analyzes data *already in memory*:
+`client.groups`, `client.membership_index`, and `client.membership_duty`.
+It performs no new BrandweerRooster GET or POST, does not enumerate
+individual schedule endpoints, and persists nothing. Output is fixed
+aggregate counts and fail-closed verification statuses; never raw names,
+identifiers, time intervals or member availability.
+
+This service is only present in PR #20 development code. It will not appear
+in the existing stable Home Assistant installation unless that code is
+deliberately deployed after separate approval. Do not merge or install into
+production just to collect a diagnosis.

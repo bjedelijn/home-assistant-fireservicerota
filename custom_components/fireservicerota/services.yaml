@@ -703,3 +703,21 @@ clear_fairness_history:
         number:
           min: 1
           mode: box
+
+inspect_fairness_roster_scope:
+  name: Inspect fairness roster source coverage (cached only)
+  description: "Experimental read-only diagnostic using already discovered cached groups and the authenticated user's membership duty. No new BrandweerRooster API calls, schedule reads, or writes. Returns only counts and fixed status fields, never personal identities, availability, or rosters. Does not establish the full station's current candidate pool."
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional unless multiple FireServiceRota entries are loaded.
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Must be an authorized station membership, for example 194 for Hardenberg.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box

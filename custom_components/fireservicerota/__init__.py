@@ -26,6 +26,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
 from .fairness_advisory import build_task_fairness_advisory
+from .fairness_roster_scope import assess_candidate_roster_source
 from .fairness_availability_probe import (
     choose_one_candidate_schedule_probe,
     summarize_one_candidate_schedule_probe,
@@ -112,6 +113,7 @@ from .const import (
     SERVICE_PREVIEW_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_ADVISORY,
     SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+    SERVICE_INSPECT_FAIRNESS_ROSTER_SCOPE,
     SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_PROBE_TASK_P2000_MAPPING,
     SERVICE_PROBE_TASK_P2000_AUDIT,
@@ -248,6 +250,9 @@ PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema(
         vol.Optional(ATTR_INCLUDE_PEOPLE, default=False): cv.boolean,
     }
 )
+
+
+INSPECT_FAIRNESS_ROSTER_SCOPE_SCHEMA = READ_FAIRNESS_HISTORY_SCHEMA
 
 
 PROBE_FAIRNESS_AVAILABILITY_SCHEMA = vol.Schema(
@@ -742,6 +747,19 @@ def _async_register_services(hass: HomeAssistant) -> None:
             groups=client.groups,
             crew_overview=coverage,
             include_people=call.data[ATTR_INCLUDE_PEOPLE],
+        )
+
+    async def async_inspect_fairness_roster_scope(call: ServiceCall) -> dict:
+        """Inspect already cached source scope; no API requests or storage writes."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        station_id = call.data[ATTR_STATION_ID]
+        _history_station(entry_data, station_id)
+        client = entry_data[DATA_CLIENT]
+        return assess_candidate_roster_source(
+            station_id,
+            groups=client.groups,
+            own_membership_index=client.membership_index,
+            own_membership_duty=client.membership_duty,
         )
 
     async def async_probe_fairness_availability(call: ServiceCall) -> dict:
@@ -1274,6 +1292,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_PREVIEW_FAIRNESS_ADVISORY,
             async_preview_fairness_advisory,
             schema=PREVIEW_FAIRNESS_ADVISORY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_INSPECT_FAIRNESS_ROSTER_SCOPE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_INSPECT_FAIRNESS_ROSTER_SCOPE,
+            async_inspect_fairness_roster_scope,
+            schema=INSPECT_FAIRNESS_ROSTER_SCOPE_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_PROBE_FAIRNESS_AVAILABILITY):

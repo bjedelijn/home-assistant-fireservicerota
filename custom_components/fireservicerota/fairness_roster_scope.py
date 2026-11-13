@@ -43,10 +43,11 @@ def assess_candidate_roster_source(
         if not isinstance(group, dict):
             continue
         group_id = _id(group.get("id"))
+        ancestor_rows = group.get("ancestor_ids")
         ancestors = {
-            value for raw in (group.get("ancestor_ids") or [])
+            value for raw in ancestor_rows
             if (value := _id(raw)) is not None
-        }
+        } if isinstance(ancestor_rows, (list, tuple)) else set()
         is_station = group_id == station and group.get("type") == "station"
         is_related = (
             is_station or station in ancestors
@@ -56,7 +57,11 @@ def assess_candidate_roster_source(
             continue
         if is_station:
             station_found = True
-        for member in group.get("memberships") or []:
+        raw_members = group.get("memberships")
+        if not isinstance(raw_members, list):
+            invalid_station_rows += 1
+            continue
+        for member in raw_members:
             if not isinstance(member, dict):
                 invalid_station_rows += 1
                 continue
@@ -72,13 +77,13 @@ def assess_candidate_roster_source(
         len(values) > 1 or None in values for values in links.values()
     )
     own_ids = {
-        value for key in (own_membership_index or {})
+        value for key in own_membership_index
         if (value := _id(key)) is not None
-    }
+    } if isinstance(own_membership_index, Mapping) else set()
     duty_ids = {
-        value for key in (own_membership_duty or {})
+        value for key in own_membership_duty
         if (value := _id(key)) is not None
-    }
+    } if isinstance(own_membership_duty, Mapping) else set()
     overlap = own_ids.intersection(cached_station_members)
     return {
         "station_id": station,
