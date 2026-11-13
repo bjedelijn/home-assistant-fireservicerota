@@ -150,3 +150,26 @@ Ms 4 cannot automatically be treated as seven unique positions, even
 though two separate chauffeur candidates were actually observed.
 The WTS regression test uses only synthetic *explicit distinct seat*
 definitions. Do not reuse API aggregate requirements as this model.
+
+
+## Presentation label policy: task ID versus vehicle callsign
+
+The fairness engine must key all evidence by `station_id` and `task_id`.
+Neither a task ID nor a task name is a callsign. In Home Assistant a verified
+current association can be displayed as `TS 04-2330` instead of task ID
+`7674`. The example numbers are illustrative and **not hardcoded**.
+
+`fairness_vehicle_display.describe_task_vehicle` is a pure, currently
+unregistered helper with synthetic tests. A future reviewed adapter must
+independently verify that a **current, unique, station-scoped** task/vehicle
+association exists. The P2000 required incident-message term by itself is
+insufficient: a matching filter does not prove physical vehicle dispatch.
+If no authoritative mapping is available, return the task label `TS`
+rather than assume `04-2330`.
+
+If there is one active station- and original-vehicle-specific replacement
+in `ReplacementVehicleStore`, show its callsign while retaining the
+original separately. In historical views use the event-time replacement
+mapping rather than today's active mapping. Ambiguous mappings or active
+replacement conflicts fail closed. The presentation does **not** change
+fairness evidence, the source P2000 message or operational dispatch.
