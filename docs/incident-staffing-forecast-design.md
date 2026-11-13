@@ -228,3 +228,14 @@ before marking aggregate diagnostic evidence observed.
 
 Shared aggregate evidence must NEVER be called verified exclusive staffing
 for a single vehicle; no person-level roster or predicted lineup follows.
+
+
+### Malformed intervals fail closed
+
+The single-person read-only schedule probe refuses a positive unique-current
+interval claim if **any** of up to 500 returned intervals has malformed,
+missing, timezone-naive or reversed timestamps. Invalid entries might overlap
+the current time, so silently skipping them would create false confidence.
+The diagnostic reports only an invalid interval count, never raw times or
+private availability. It still does not certify person-level operational
+availability or the complete station pool.

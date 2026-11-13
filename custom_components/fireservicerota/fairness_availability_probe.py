@@ -267,36 +267,45 @@ def summarize_one_candidate_schedule_probe(
 
     current_intervals: list[dict[str, Any]] = []
     valid_interval_count = 0
+    invalid_interval_count = 0
     for interval in intervals:
         if not isinstance(interval, dict):
+            invalid_interval_count += 1
             continue
         start_raw = interval.get("start_time")
         end_raw = interval.get("end_time")
         if not isinstance(start_raw, str) or not isinstance(end_raw, str):
+            invalid_interval_count += 1
             continue
         try:
             start = datetime.fromisoformat(start_raw)
             end = datetime.fromisoformat(end_raw)
-            if start.tzinfo is None or end.tzinfo is None:
-                continue
-            if end <= start:
+            if (
+                start.tzinfo is None or start.utcoffset() is None
+                or end.tzinfo is None or end.utcoffset() is None
+                or end <= start
+            ):
+                invalid_interval_count += 1
                 continue
             valid_interval_count += 1
             if start <= checked_at < end:
                 current_intervals.append(interval)
-        except (TypeError, ValueError):
-            continue
+        except (TypeError, ValueError, OverflowError):
+            invalid_interval_count += 1
 
-    # Ambiguous overlapping current intervals are never merged or guessed.
-    # Only a *unique* matching interval is eligible for field-shape testing.
+    # A malformed interval may cover the current time. Never silently
+    # disregard it and claim that the one valid interval is unique.
     field_presence = (
         _current_interval_field_presence(current_intervals[0])
-        if len(current_intervals) == 1 else None
+        if len(current_intervals) == 1 and invalid_interval_count == 0
+        else None
     )
     return {
         **base,
         "probe_status": (
-            "ambiguous_overlapping_current_intervals"
+            "invalid_schedule_intervals_cannot_verify_current"
+            if invalid_interval_count
+            else "ambiguous_overlapping_current_intervals"
             if len(current_intervals) > 1
             else "readable_schedule_current_interval"
             if len(current_intervals) == 1
@@ -305,7 +314,10 @@ def summarize_one_candidate_schedule_probe(
         "schedule_response_structure_readable": True,
         "schedule_interval_count": len(intervals),
         "valid_timestamped_interval_count": valid_interval_count,
-        "current_interval_present": bool(current_intervals),
+        "invalid_timestamped_interval_count": invalid_interval_count,
+        "current_interval_present": (
+            bool(current_intervals) if invalid_interval_count == 0 else None
+        ),
         "current_interval_matches": len(current_intervals),
         "current_interval_field_presence": field_presence,
         "interpretation": (

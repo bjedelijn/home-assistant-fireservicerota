@@ -379,3 +379,45 @@ def test_oversized_schedule_does_not_get_partially_interpreted():
     assert outcome["probe_status"] == "unexpected_schedule_response_structure"
     assert outcome["current_interval_present"] is None
     assert outcome["full_station_availability_verified"] is False
+
+
+@pytest.mark.parametrize("invalid", [
+    {"start_time": "not-a-date", "end_time": "2026-10-25T11:00:00+00:00"},
+    {"start_time": "2026-10-25T10:00:00", "end_time": "2026-10-25T11:00:00"},
+    {"start_time": "2026-10-25T11:00:00+00:00", "end_time": "2026-10-25T10:00:00+00:00"},
+    {"start_time": "2026-10-25T10:00:00+00:00"},
+    None,
+])
+def test_malformed_interval_never_makes_remaining_schedule_look_unique(invalid):
+    _member, meta = choose_one_candidate_schedule_probe(
+        history(), groups(), task_index(), 194, 7674
+    )
+    result = summarize_one_candidate_schedule_probe(meta, {
+        "intervals": [
+            {
+                "start_time": "2026-10-25T10:00:00+00:00",
+                "end_time": "2026-10-25T11:00:00+00:00",
+                "available": True,
+                "private_name": "SENSITIVE NEVER RETURN",
+            },
+            invalid,
+        ],
+    }, datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc))
+    assert result["probe_status"] == "invalid_schedule_intervals_cannot_verify_current"
+    assert result["current_interval_present"] is None
+    assert result["current_interval_field_presence"] is None
+    assert result["current_candidate_available"] is None
+    assert result["invalid_timestamped_interval_count"] == 1
+    assert "SENSITIVE NEVER RETURN" not in str(result)
+
+
+def test_invalid_only_schedule_does_not_mean_unavailable():
+    _member, meta = choose_one_candidate_schedule_probe(
+        history(), groups(), task_index(), 194, 7674
+    )
+    result = summarize_one_candidate_schedule_probe(
+        meta, {"intervals": [{}]},
+        datetime(2026, 10, 25, 10, 30, tzinfo=timezone.utc),
+    )
+    assert result["probe_status"] == "invalid_schedule_intervals_cannot_verify_current"
+    assert result["current_interval_present"] is None
