@@ -15,6 +15,8 @@ def requirements(slots):
     return {
         "station_id": 194, "task_id": 7674, "verified": True,
         "current": True, "slots": slots,
+        "coverage_model": "explicit_distinct_seat_slots",
+        "slot_model_verified": True,
     }
 
 
@@ -122,3 +124,39 @@ def test_invalid_counts_and_bool_ids_refused():
     assert result["scenario_status"] == "invalid_task_slots"
     result = calculate([person(True, [7])], [{"skill_id": 7, "count": 1}])
     assert result["scenario_status"] == "invalid_or_duplicate_membership"
+
+
+def test_raw_api_skill_requirements_are_not_distinct_seats():
+    req = requirements([{"skill_id": 7, "count": 1}, {"skill_id": 1168, "count": 2}])
+    req.pop("coverage_model")
+    req.pop("slot_model_verified")
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7, 1168]), person(2, [1168])]),
+        task_requirements=req,
+    )
+    assert result["scenario_status"] == "distinct_seat_model_not_verified"
+    assert result["staffing_feasible"] is None
+    assert result["predicted_lineup"] is None
+
+
+def test_claimed_slot_model_without_verified_seat_distinction_is_refused():
+    req = requirements([{"skill_id": 7, "count": 1}])
+    req["coverage_model"] = "aggregated_overlapping_skill_requirements"
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=req,
+    )
+    assert result["scenario_status"] == "distinct_seat_model_not_verified"
+
+
+def test_explicit_slot_model_with_unverified_flag_is_refused():
+    req = requirements([{"skill_id": 7, "count": 1}])
+    req["slot_model_verified"] = False
+    result = evaluate_verified_seat_scenario(
+        station_id=194, task_id=7674,
+        current_snapshot=snapshot([person(1, [7])]),
+        task_requirements=req,
+    )
+    assert result["scenario_status"] == "distinct_seat_model_not_verified"

@@ -1,14 +1,14 @@
 """Pure read-only seat-cover feasibility for future fairness advisory.
 
 The caller must supply an explicitly verified and complete snapshot of *current*
-memberships, individual skill IDs and current task requirement slots. This
+memberships, individual skill IDs and verified *distinct seat* definitions. This
 module never reads APIs, changes roster state or ranks people by fairness.
 A feasible combination is not a predicted dispatch or verified vehicle crew.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 _MAX_MEMBERS = 100
@@ -55,7 +55,11 @@ def evaluate_verified_seat_scenario(
       members=[{membership_id, available=True/False, skill_ids=[...]}]
     Required task structure:
       station_id, task_id, current=True, verified=True,
-      slots=[{skill_id, count}]  (regular slots only).
+      coverage_model='explicit_distinct_seat_slots', slot_model_verified=True,
+      slots=[{skill_id, count}]  (regular distinct seats only).
+
+    An API per-skill aggregate required count is NOT proof of distinct seats:
+    overlapping skill requirements must never be summed into a seat total.
 
     Provenance and snapshot freshness must be checked by the *caller*. These
     flags are a contract, not independent proof from this pure function.
@@ -84,6 +88,15 @@ def evaluate_verified_seat_scenario(
         and current_snapshot.get("observed_at")
     ):
         return _reject("current_availability_or_eligibility_not_verified", station, task)
+
+    # API crew_requirements[].skills[].required may encode overlapping skill
+    # coverage. Requiring explicit verified seats prevents quietly summing
+    # those aggregates into fictitious distinct crew positions.
+    if (
+        task_requirements.get("coverage_model") != "explicit_distinct_seat_slots"
+        or task_requirements.get("slot_model_verified") is not True
+    ):
+        return _reject("distinct_seat_model_not_verified", station, task)
 
     raw_slots = task_requirements.get("slots")
     raw_members = current_snapshot.get("members")

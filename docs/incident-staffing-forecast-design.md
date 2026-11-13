@@ -132,3 +132,21 @@ flags and no operational or predictive display should use this helper.
 Tests intentionally use synthetic memberships. By default the helper returns
 only aggregate slot coverage; an explicitly opted-in developer scenario can
 include membership IDs. That illustrative assignment is not a prediction.
+
+
+### Distinct seat model must be verified, not inferred from skill totals
+
+BrandweerRooster `crew_requirements[].skills[].required` may describe
+**overlapping skill coverage**. Do not sum these counts into a number of
+unique seats and do not infer a fixed crew layout from a historic fairness
+proposal. The pure helper now rejects task inputs unless they explicitly
+attest `coverage_model: explicit_distinct_seat_slots` and
+`slot_model_verified: true`. This is a deliberate interface guard, **not**
+independent verification: only a future reviewed adapter backed by task
+configuration proving distinct positions may set these fields.
+
+For example, the historic Hardenberg WTS requirement Bev 1, Ch 2,
+Ms 4 cannot automatically be treated as seven unique positions, even
+though two separate chauffeur candidates were actually observed.
+The WTS regression test uses only synthetic *explicit distinct seat*
+definitions. Do not reuse API aggregate requirements as this model.
