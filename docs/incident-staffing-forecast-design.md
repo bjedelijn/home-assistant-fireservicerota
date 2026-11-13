@@ -251,3 +251,15 @@ read-only diagnostic provides only the number of invalid intervals and the
 `invalid_schedule_intervals_cannot_verify_current` status; it never returns
 member schedules, identities or a forecast. The comparison timestamp must
 be timezone-aware. Current individual eligibility remains **unverified**.
+
+
+### Duplicate membership identity fail-closed guard
+
+A person can hold more than one BrandweerRooster membership. The pure scenario
+solver now requires an explicitly linked `user_id` for **every** supplied
+membership. If user identity is missing, or if the same user appears with
+multiple membership IDs, it refuses to evaluate the scenario rather than
+incorrectly assigning one firefighter to two positions. A future reviewed
+adapter may safely consolidate memberships per user when it can validate
+availability and skills per station/task; the pure helper does not guess.
+No member IDs or names are included by default.

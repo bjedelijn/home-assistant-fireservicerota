@@ -20,8 +20,9 @@ def requirements(slots):
     }
 
 
-def person(mid, skills, available=True):
-    return {"membership_id": mid, "skill_ids": skills, "available": available}
+def person(mid, skills, available=True, user_id=None):
+    return {"membership_id": mid, "user_id": mid if user_id is None else user_id,
+            "skill_ids": skills, "available": available}
 
 
 def calculate(members, slots, **kwargs):
@@ -200,3 +201,38 @@ def test_infeasible_overlapping_candidates_do_not_hang_or_predict():
     assert result["staffing_feasible"] is False
     assert result["predicted_lineup"] is None
     assert result["illustrative_assignment"] is None
+
+
+def test_one_person_with_two_memberships_never_fills_two_slots():
+    # Two station-group memberships may point to the same physical person.
+    result = calculate(
+        [person(11, [7], user_id=100), person(22, [1168], user_id=100)],
+        [{"skill_id": 7, "count": 1}, {"skill_id": 1168, "count": 1}],
+    )
+    assert result["scenario_status"] == "ambiguous_duplicate_person_memberships"
+    assert result["staffing_feasible"] is None
+    assert result["predicted_lineup"] is None
+
+
+def test_missing_member_user_identity_fails_closed():
+    members = [person(11, [7])]
+    members[0].pop("user_id")
+    result = calculate(members, [{"skill_id": 7, "count": 1}])
+    assert result["scenario_status"] == "user_identity_not_verified"
+
+
+def test_duplicate_person_even_if_one_membership_unavailable_fails_closed():
+    result = calculate(
+        [person(11, [7], user_id=100),
+         person(22, [1168], available=False, user_id=100)],
+        [{"skill_id": 7, "count": 1}],
+    )
+    assert result["scenario_status"] == "ambiguous_duplicate_person_memberships"
+
+
+def test_distinct_user_ids_allow_separate_assignments():
+    result = calculate(
+        [person(11, [7], user_id=100), person(22, [1168], user_id=200)],
+        [{"skill_id": 7, "count": 1}, {"skill_id": 1168, "count": 1}],
+    )
+    assert result["staffing_feasible"] is True

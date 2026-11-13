@@ -1,7 +1,7 @@
 """Pure read-only seat-cover feasibility for future fairness advisory.
 
 The caller must supply an explicitly verified and complete snapshot of *current*
-memberships, individual skill IDs and verified *distinct seat* definitions. This
+memberships, unambiguous user identities, skills and verified distinct seats. This
 module never reads APIs, changes roster state or ranks people by fairness.
 A feasible combination is not a predicted dispatch or verified vehicle crew.
 """
@@ -52,7 +52,7 @@ def evaluate_verified_seat_scenario(
     Required snapshot structure:
       station_id, observed_at, complete=True, current=True,
       availability_verified=True, eligibility_verified=True,
-      members=[{membership_id, available=True/False, skill_ids=[...]}]
+      members=[{membership_id, user_id, available=True/False, skill_ids=[...]}]
     Required task structure:
       station_id, task_id, current=True, verified=True,
       coverage_model='explicit_distinct_seat_slots', slot_model_verified=True,
@@ -119,10 +119,12 @@ def evaluate_verified_seat_scenario(
         slots.extend([skill] * count)
 
     members: dict[str, set[str]] = {}
+    user_ids: set[str] = set()
     for row in raw_members:
         if not isinstance(row, Mapping):
             return _reject("invalid_membership_data", station, task)
         member_id = _numeric(row.get("membership_id"))
+        user_id = _numeric(row.get("user_id"))
         raw_skills = row.get("skill_ids")
         if (
             member_id is None or member_id in members
@@ -130,6 +132,14 @@ def evaluate_verified_seat_scenario(
             or not isinstance(raw_skills, list) or len(raw_skills) > 64
         ):
             return _reject("invalid_or_duplicate_membership", station, task)
+        if user_id is None:
+            return _reject("user_identity_not_verified", station, task)
+        # The same firefighter can have multiple memberships (teams/groups).
+        # Until membership-to-user aggregation is explicitly validated, do
+        # not silently count those memberships as two separate firefighters.
+        if user_id in user_ids:
+            return _reject("ambiguous_duplicate_person_memberships", station, task)
+        user_ids.add(user_id)
         skills = [_numeric(value) for value in raw_skills]
         if None in skills:
             return _reject("invalid_skill_evidence", station, task)
@@ -189,7 +199,7 @@ def evaluate_verified_seat_scenario(
         "member_identifiers_included": bool(feasible and include_membership_ids),
         "fairness_ranking_performed": False,
         "warning": (
-            "Feasibility only; input verification flags are caller attestations. "
+            "Feasibility only; input and user-identity verification flags are caller attestations. "
             "No fairness ordering, dispatch likelihood, real-time freshness check "
             "or physical turnout is established."
         ),
