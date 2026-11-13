@@ -36,6 +36,9 @@ def _scope_rejected(station: str, status: str) -> dict[str, Any]:
         "source": "cached_groups_plus_authenticated_user_membership_index",
         "station_discovered": False,
         "cached_active_related_membership_count": None,
+        "cached_active_direct_station_membership_count": None,
+        "cached_active_related_only_membership_count": None,
+        "own_memberships_in_direct_station_group": None,
         "cached_distinct_user_count_if_fully_linked": None,
         "cached_multi_membership_user_count_if_fully_linked": None,
         "cached_membership_identity_link_issues": None,
@@ -97,6 +100,7 @@ def assess_candidate_roster_source(
 
     station_found = False
     cached_station_members: set[str] = set()
+    direct_station_members: set[str] = set()
     invalid_station_rows = 0
     conflicting_identity_links = 0
     links: dict[str, set[str | None]] = {}
@@ -133,6 +137,8 @@ def assess_candidate_roster_source(
                 invalid_station_rows += 1
                 continue
             cached_station_members.add(member_id)
+            if is_station:
+                direct_station_members.add(member_id)
             links.setdefault(member_id, set()).add(_id(member.get("user_id")))
     conflicting_identity_links = sum(
         len(values) > 1 or None in values for values in links.values()
@@ -159,12 +165,23 @@ def assess_candidate_roster_source(
         if (value := _id(key)) is not None
     } if isinstance(own_membership_duty, Mapping) else set()
     overlap = own_ids.intersection(cached_station_members)
+    direct_overlap = own_ids.intersection(direct_station_members)
     return {
         "station_id": station,
         "diagnostic_status": "cached_partial_scope_only",
         "source": "cached_groups_plus_authenticated_user_membership_index",
         "station_discovered": station_found,
         "cached_active_related_membership_count": len(cached_station_members),
+        "cached_active_direct_station_membership_count": (
+            len(direct_station_members) if station_found else None
+        ),
+        "cached_active_related_only_membership_count": (
+            len(cached_station_members - direct_station_members)
+            if station_found else None
+        ),
+        "own_memberships_in_direct_station_group": (
+            len(direct_overlap) if station_found else None
+        ),
         "cached_distinct_user_count_if_fully_linked": unique_people,
         "cached_multi_membership_user_count_if_fully_linked": multi_membership_people,
         "cached_membership_identity_link_issues": conflicting_identity_links,
@@ -184,8 +201,9 @@ def assess_candidate_roster_source(
         ),
         "interpretation": (
             "The client membership_index and membership_duty cover this account's "
-            "own affiliations only. Cached group membership entries are not a "
-            "verified exhaustive live roster. Counts do not establish which "
-            "individuals are on duty or eligible for the next task."
+            "own affiliations only. The direct station group and linked teams "
+            "are counted separately: linked team membership is not proof of "
+            "station affiliation. Cached entries are not a verified exhaustive "
+            "live roster and cannot establish individual task eligibility."
         ),
     }

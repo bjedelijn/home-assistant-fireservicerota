@@ -209,3 +209,56 @@ def test_repeated_group_membership_is_one_person_without_double_counting():
     assert result["cached_active_related_membership_count"] == 1
     assert result["cached_distinct_user_count_if_fully_linked"] == 1
     assert result["cached_multi_membership_user_count_if_fully_linked"] == 0
+
+
+def test_station_direct_and_related_team_memberships_are_separate():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": [
+                {"id": 11, "user_id": 101, "status": "active"},
+                {"id": 22, "user_id": 102, "status": "active"},
+            ]},
+            {"id": 700, "type": "team", "parent_group_id": 194,
+             "memberships": [
+                {"id": 11, "user_id": 101, "status": "active"},
+                {"id": 33, "user_id": 103, "status": "active"},
+             ]},
+        ], own_membership_index={11: {}, 33: {}},
+        own_membership_duty={11: {}, 33: {}},
+    )
+    assert result["cached_active_related_membership_count"] == 3
+    assert result["cached_active_direct_station_membership_count"] == 2
+    assert result["cached_active_related_only_membership_count"] == 1
+    assert result["own_memberships_in_direct_station_group"] == 1
+    assert result["own_memberships_with_cached_duty_at_station"] == 2
+    assert result["current_station_full_roster_verified"] is False
+
+
+def test_only_related_team_without_station_group_has_unknown_direct_count():
+    result = assess_candidate_roster_source(
+        194, groups=[{"id": 700, "type": "team", "parent_group_id": 194,
+                      "memberships": [
+                          {"id": 33, "user_id": 103, "status": "active"}
+                      ]}],
+        own_membership_index={33: {}}, own_membership_duty={33: {}},
+    )
+    assert result["station_discovered"] is False
+    assert result["cached_active_direct_station_membership_count"] is None
+    assert result["cached_active_related_only_membership_count"] is None
+    assert result["own_memberships_in_direct_station_group"] is None
+    assert result["cached_active_related_membership_count"] == 1
+
+
+def test_foreign_station_not_counted_as_direct():
+    result = assess_candidate_roster_source(
+        194, groups=[
+            {"id": 194, "type": "station", "memberships": []},
+            {"id": 3853, "type": "station", "memberships": [
+                {"id": 88, "user_id": 888, "status": "active"}
+            ]},
+        ], own_membership_index={88: {}}, own_membership_duty={88: {}},
+    )
+    assert result["cached_active_direct_station_membership_count"] == 0
+    assert result["cached_active_related_only_membership_count"] == 0
+    assert result["own_memberships_in_direct_station_group"] == 0
+    assert result["current_station_full_roster_verified"] is False

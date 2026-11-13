@@ -347,3 +347,16 @@ no malformed related membership rows, and the station group is found.
 Otherwise these numbers are `null` rather than an unsafe guess. Even fully
 linked *cached* identities do not establish a current, complete, authorized
 station roster, availability or staffing prediction.
+
+
+### Station-group versus related-team memberships
+
+The diagnostic now reports separate, deduplicated counts for active
+memberships directly inside the station group versus memberships present
+only in associated child/related teams. The latter must **never** be promoted
+to verified firefighters of the station. When the direct station group is
+missing, direct-station counts are `null` (unknown), not zero. In addition,
+the diagnostic reports how many of the authenticated user's memberships
+appear directly in the station group. These remain cached counts, not
+a complete current station roster, a permission grant, or operational
+staffing evidence. No personal identifiers are returned.
