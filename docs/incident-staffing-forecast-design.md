@@ -211,3 +211,20 @@ candidate pool; aggregate warning/skill counts are not person-specific,
 and task skill requirements need verified *distinct seat* interpretation.
 A held-out prediction backtest is also required. The helper makes no live
 API calls and cannot itself establish source authorization or freshness.
+
+
+### Current availability-requirement probe contract
+
+The readiness gate now matches the actual sanitized diagnostic keys emitted by
+`summarize_task_requirement_schedule`. For a single task, scope is
+`single_task_requirement` and `current_api_task_ids_match=True`. For a
+multi-task requirement belonging to the same station (e.g. TS and TS-BT),
+scope is `shared_requirement_same_station_not_task_specific`, the exact
+single-task equality flag is **False**, and the separately resolved
+`shared_task_station_scope_verified=True` plus
+`current_api_requested_task_included=True` are needed. Require a positive
+requirement-ID match, readable interval/status, and aggregate skill inspection
+before marking aggregate diagnostic evidence observed.
+
+Shared aggregate evidence must NEVER be called verified exclusive staffing
+for a single vehicle; no person-level roster or predicted lineup follows.

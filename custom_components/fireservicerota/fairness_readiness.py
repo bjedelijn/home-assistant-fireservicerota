@@ -67,17 +67,37 @@ def summarize_forecast_readiness(
         and isinstance(shape, Mapping)
     )
     aggregate = valid.get("aggregate", {})
-    aggregate_scopes = frozenset({
-        "single_task_verified",
-        "shared_requirement_same_station_not_task_specific",
-    })
+    # Actual output schema from fairness_requirement_probe: a shared
+    # same-station requirement has current_api_task_ids_match=False because
+    # the API reports TWO task IDs. That is valid shared aggregate evidence,
+    # but never task-exclusive coverage or individual availability.
+    scope = aggregate.get("current_aggregate_scope")
+    one_task = (
+        scope == "single_task_requirement"
+        and aggregate.get("current_api_task_ids_match") is True
+        and aggregate.get("current_api_requested_task_included") is True
+        and aggregate.get("current_api_task_mapping_status") == "single_requested_task"
+        and aggregate.get("current_api_requirement_id_matches") is True
+        and aggregate.get("probe_status")
+        == "readable_current_task_aggregate_skill_statuses"
+    )
+    shared = (
+        scope == "shared_requirement_same_station_not_task_specific"
+        and aggregate.get("current_api_task_ids_match") is False
+        and aggregate.get("current_api_requested_task_included") is True
+        and aggregate.get("current_api_task_mapping_status")
+        == "shared_same_station_tasks_verified"
+        and aggregate.get("shared_task_station_scope_verified") is True
+        and aggregate.get("current_api_requirement_id_matches") is True
+        and aggregate.get("probe_status")
+        == "readable_current_shared_requirement_skill_statuses"
+    )
     # Scope is diagnostic only; even a valid current aggregate says nothing
-    # about which individual is able to occupy which seat.
+    # about which individual can occupy each seat.
     aggregate_observed = (
         aggregate.get("api_get_attempted") is True
-        and aggregate.get("current_api_task_ids_match") is True
-        and aggregate.get("current_aggregate_scope") in aggregate_scopes
         and aggregate.get("current_aggregate_skill_coverage_checked") is True
+        and (one_task or shared)
     )
     blockers = [
         "complete_live_station_candidate_pool_unverified",
