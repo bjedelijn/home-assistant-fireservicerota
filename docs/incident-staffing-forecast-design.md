@@ -404,3 +404,13 @@ memberships of people already in the station do not inflate the related-only
 person count. This is an anonymous cached structural observation, not proof
 of full roster coverage or task eligibility; unknown identity or missing
 station group causes null person counts.
+
+### Automated cache-only Home Assistant service contract
+
+A dedicated static regression test checks the experimental service handler
+itself: it must call only the local entry/station authorization helpers and
+the pure cached roster inspector, pass only cached client fields, never await
+an I/O operation, and retain Home Assistant response-only registration.
+A synthetic-output test also rejects exposure of roster identities.
+These are development CI checks, not proof of real API completeness or a
+successful isolated Home Assistant deployment.
