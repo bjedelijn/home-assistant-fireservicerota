@@ -17,9 +17,15 @@ def inputs():
         "candidate_schedule_probe": {
             "station_id": "194", "task_id": "7674",
             "probe_status": "readable_schedule_current_interval",
+            "api_get_attempted": True,
+            "schedule_response_structure_readable": True,
+            "current_interval_present": True,
             "current_interval_matches": 1,
+            "invalid_timestamped_interval_count": 0,
             "current_interval_field_presence": {"available_is_boolean": True},
             "current_candidate_available": None,
+            "current_station_crew_eligibility_verified": False,
+            "full_station_availability_verified": False,
         },
         "aggregate_coverage_probe": {
             "station_id": "194", "task_id": "7674",
@@ -31,6 +37,12 @@ def inputs():
             "shared_task_station_scope_verified": True,
             "current_aggregate_scope": "shared_requirement_same_station_not_task_specific",
             "current_aggregate_skill_coverage_checked": True,
+            "current_interval_matches": 1,
+            "invalid_timestamped_interval_count": 0,
+            "current_aggregate_skills": [{"skill_id": "7", "reported_assigned_count": 1}],
+            "current_personnel_eligibility_verified": False,
+            "actual_vehicle_crew_verified": False,
+            "predicted_lineup": None,
             "probe_status": "readable_current_shared_requirement_skill_statuses",
             "private": {"membership_id": "123456789", "name": "SECRET"},
         },
@@ -153,3 +165,43 @@ def test_shared_requirements_are_not_exclusive_ts_coverage():
     assert result["full_station_candidate_pool_verified"] is False
     assert result["distinct_seat_model_verified"] is False
     assert result["predicted_lineup"] is None
+
+
+@pytest.mark.parametrize("field,value", [
+    ("api_get_attempted", False),
+    ("schedule_response_structure_readable", False),
+    ("current_interval_present", False),
+    ("current_interval_matches", True),
+    ("current_interval_matches", 2),
+    ("invalid_timestamped_interval_count", True),
+    ("invalid_timestamped_interval_count", 1),
+    ("current_candidate_available", True),
+    ("current_station_crew_eligibility_verified", True),
+    ("full_station_availability_verified", True),
+])
+def test_one_candidate_false_success_signals_fail_closed(field, value):
+    data = inputs()
+    data["candidate_schedule_probe"][field] = value
+    result = evaluate(**data)
+    assert result["one_candidate_schedule_format_observed"] is False
+    assert result["can_predict_next_lineup"] is False
+    assert result["predicted_lineup"] is None
+
+
+@pytest.mark.parametrize("field,value", [
+    ("current_interval_matches", True),
+    ("current_interval_matches", 2),
+    ("invalid_timestamped_interval_count", True),
+    ("invalid_timestamped_interval_count", 1),
+    ("current_aggregate_skills", []),
+    ("current_personnel_eligibility_verified", True),
+    ("actual_vehicle_crew_verified", True),
+    ("predicted_lineup", ["PRIVATE"]),
+])
+def test_aggregate_false_success_signals_fail_closed(field, value):
+    data = inputs()
+    data["aggregate_coverage_probe"][field] = value
+    result = evaluate(**data)
+    assert result["task_aggregate_coverage_observed"] is False
+    assert result["can_predict_next_lineup"] is False
+    assert "PRIVATE" not in str(result)
