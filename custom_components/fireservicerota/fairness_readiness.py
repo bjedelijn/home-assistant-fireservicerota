@@ -63,8 +63,17 @@ def summarize_forecast_readiness(
     shape = one.get("current_interval_field_presence")
     unique_interval = (
         one.get("probe_status") == "readable_schedule_current_interval"
+        and one.get("api_get_attempted") is True
+        and one.get("schedule_response_structure_readable") is True
+        and one.get("current_interval_present") is True
+        and type(one.get("current_interval_matches")) is int
         and one.get("current_interval_matches") == 1
+        and type(one.get("invalid_timestamped_interval_count")) is int
+        and one.get("invalid_timestamped_interval_count") == 0
         and isinstance(shape, Mapping)
+        and one.get("current_candidate_available") is None
+        and one.get("current_station_crew_eligibility_verified") is False
+        and one.get("full_station_availability_verified") is False
     )
     aggregate = valid.get("aggregate", {})
     # Actual output schema from fairness_requirement_probe: a shared
@@ -97,6 +106,15 @@ def summarize_forecast_readiness(
     aggregate_observed = (
         aggregate.get("api_get_attempted") is True
         and aggregate.get("current_aggregate_skill_coverage_checked") is True
+        and type(aggregate.get("current_interval_matches")) is int
+        and aggregate.get("current_interval_matches") == 1
+        and type(aggregate.get("invalid_timestamped_interval_count")) is int
+        and aggregate.get("invalid_timestamped_interval_count") == 0
+        and isinstance(aggregate.get("current_aggregate_skills"), list)
+        and bool(aggregate.get("current_aggregate_skills"))
+        and aggregate.get("current_personnel_eligibility_verified") is False
+        and aggregate.get("actual_vehicle_crew_verified") is False
+        and aggregate.get("predicted_lineup") is None
         and (one_task or shared)
     )
     blockers = [
