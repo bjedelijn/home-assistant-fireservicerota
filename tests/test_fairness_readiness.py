@@ -1,5 +1,7 @@
 """Synthetic privacy-preserving readiness diagnostics."""
 
+import pytest
+
 from custom_components.fireservicerota.fairness_readiness import (
     summarize_forecast_readiness,
 )
