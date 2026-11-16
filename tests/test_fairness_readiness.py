@@ -196,6 +196,8 @@ def test_one_candidate_false_success_signals_fail_closed(field, value):
     ("invalid_timestamped_interval_count", True),
     ("invalid_timestamped_interval_count", 1),
     ("current_aggregate_skills", []),
+    ("current_aggregate_skills", None),
+    ("current_aggregate_skills", {}),
     ("current_personnel_eligibility_verified", True),
     ("actual_vehicle_crew_verified", True),
     ("predicted_lineup", ["PRIVATE"]),
