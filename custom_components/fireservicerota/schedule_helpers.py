@@ -84,8 +84,12 @@ def next_unavailable_after(schedule: dict, boundary: datetime) -> datetime | Non
             if any(row[2] is True for row in covering):
                 return None  # Conflicting overlap.
             return cursor
-        # Advance only to an interval end whose next segment can be checked.
-        next_end = min(row[1] for row in covering)
-        if next_end <= cursor:
+        # Split at BOTH interval ends and new interval starts, so that
+        # conflicting overlap introduced part-way through a true segment
+        # cannot be skipped when choosing the earliest false time.
+        next_boundaries = [row[1] for row in covering]
+        next_boundaries.extend(row[0] for row in parsed if row[0] > cursor)
+        next_boundary = min(next_boundaries)
+        if next_boundary <= cursor:
             return None
-        cursor = next_end
+        cursor = next_boundary

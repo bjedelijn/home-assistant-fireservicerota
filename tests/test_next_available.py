@@ -119,3 +119,17 @@ def test_next_unavailable_after_invalid_availability_never_guesses():
     later = datetime(2026, 11, 17, 12, 0, tzinfo=tz)
     rows = [{"start_time": boundary.isoformat(), "end_time": later.isoformat(), "available": "yes"}]
     assert mod.next_unavailable_after({"complete": True, "intervals": rows}, boundary) is None
+
+
+def test_next_unavailable_after_rejects_conflict_starting_mid_paraat_block():
+    tz = ZoneInfo("Europe/Amsterdam")
+    morning = datetime(2026, 11, 17, 8, 30, tzinfo=tz)
+    eleven = datetime(2026, 11, 17, 11, 0, tzinfo=tz)
+    noon = datetime(2026, 11, 17, 12, 0, tzinfo=tz)
+    rows = [
+        {"start_time": morning.isoformat(), "end_time": noon.isoformat(),
+         "available": True},
+        {"start_time": eleven.isoformat(), "end_time": noon.isoformat(),
+         "available": False},
+    ]
+    assert mod.next_unavailable_after({"complete": True, "intervals": rows}, morning) is None
