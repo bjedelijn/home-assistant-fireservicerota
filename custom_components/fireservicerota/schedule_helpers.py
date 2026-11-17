@@ -43,11 +43,10 @@ def next_available_after(schedule: dict, boundary: datetime) -> datetime | None:
 
 
 def next_unavailable_after(schedule: dict, boundary: datetime) -> datetime | None:
-    """First proven non-paraat time after a temporary override ends.
+    """First verifiable non-paraat time after a temporary override expires.
 
-    Read-only informational lookup; never extends the override. A complete,
-    contiguous, unambiguous schedule is required. If the base schedule is
-    already unavailable at the boundary, return that boundary.
+    A missing/gapped/contradictory roster returns None instead of a guess.
+    This does not extend the real override's expiry.
     """
     if (
         not isinstance(schedule, dict)
@@ -59,37 +58,29 @@ def next_unavailable_after(schedule: dict, boundary: datetime) -> datetime | Non
     if not isinstance(rows, list) or not rows:
         return None
     parsed = []
-    for row in rows:
-        if not isinstance(row, dict) or type(row.get("available")) is not bool:
+    for raw in rows:
+        if not isinstance(raw, dict) or type(raw.get("available")) is not bool:
             return None
         try:
-            start = datetime.fromisoformat(row["start_time"])
-            end = datetime.fromisoformat(row["end_time"])
+            start = datetime.fromisoformat(raw["start_time"])
+            end = datetime.fromisoformat(raw["end_time"])
         except (KeyError, TypeError, ValueError):
             return None
         if start.tzinfo is None or end.tzinfo is None or end <= start:
             return None
         if end > boundary:
-            parsed.append((start, end, row["available"]))
-    parsed.sort(key=lambda item: (item[0], item[1]))
-    if not parsed:
-        return None
-
+            parsed.append((start, end, raw["available"]))
     cursor = boundary
-    while True:
-        covering = [row for row in parsed if row[0] <= cursor < row[1]]
+    for _ in range(len(parsed) * 2 + 2):
+        covering = [r for r in parsed if r[0] <= cursor < r[1]]
         if not covering:
-            return None  # A gap is unknown; never claim continuous paraat.
-        if any(row[2] is False for row in covering):
-            if any(row[2] is True for row in covering):
-                return None  # Conflicting overlap.
-            return cursor
-        # Split at BOTH interval ends and new interval starts, so that
-        # conflicting overlap introduced part-way through a true segment
-        # cannot be skipped when choosing the earliest false time.
-        next_boundaries = [row[1] for row in covering]
-        next_boundaries.extend(row[0] for row in parsed if row[0] > cursor)
-        next_boundary = min(next_boundaries)
-        if next_boundary <= cursor:
             return None
-        cursor = next_boundary
+        if any(r[2] is False for r in covering):
+            return None if any(r[2] is True for r in covering) else cursor
+        next_points = [r[1] for r in covering]
+        next_points.extend(r[0] for r in parsed if r[0] > cursor)
+        next_cursor = min(next_points)
+        if next_cursor <= cursor:
+            return None
+        cursor = next_cursor
+    return None
