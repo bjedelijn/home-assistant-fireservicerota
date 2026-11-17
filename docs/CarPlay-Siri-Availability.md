@@ -198,3 +198,22 @@ The public example speaks the subsequent verified roster non-paraat time,
 while also explicitly stating the actual temporary override's `end_time`.
 These may differ and are never conflated. Unknown/gapped schedule evidence
 produces no invented end of the paraat block.
+
+## Per-post incident opkomen / afwijzen (example only)
+
+The existing integration exposes one response switch per station membership for
+accounts with multiple posts, disabled by default in HA's entity registry.
+A separate guarded example is available in
+[CarPlay-Per-Station-Incident-Response.yaml](examples/CarPlay-Per-Station-Incident-Response.yaml).
+It creates four distinct script actions for Gramsbergen/Hardenberg. You MUST
+replace their placeholder switch IDs, verify the actual station_id attributes
+and test in a controlled situation before enabling them in CarPlay.
+
+The existing station response switch submits a **real** BWR POST.
+It uses the most recently received client incident ID (not an explicit target
+ID). Therefore the example refuses writes with multiple active incidents,
+missing/ambiguous incident IDs, a mismatched post or an unavailable response
+switch. A successful switch call still does not prove independent server-side
+read-back. Prefer the official BrandweerRooster app whenever an incident or
+post cannot be unambiguously verified. Do not activate these scripts without
+explicit permission and a backup on the single production HA instance.

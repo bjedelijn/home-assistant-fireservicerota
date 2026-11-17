@@ -1,0 +1,130 @@
+# DEVELOPMENT EXAMPLE ONLY - DO NOT LOAD INTO PRODUCTION AS-IS.
+# Replace ALL example station IDs and switch entity IDs with verified ones.
+# Existing MembershipResponseSwitch entities are DISABLED BY DEFAULT in HA.
+# The switch writes an incident response to BrandweerRooster.
+# Only use after reviewing the exact incident and station scope.
+#
+# Fail closed if multiple concurrent incidents exist: legacy switch.py uses
+# client.incident_id (the LAST event), not a passed explicit incident_id.
+# This example refuses any ambiguous target and reports only 'sent', never
+# falsely claims independent server-side read-back verification.
+#
+input_text:
+  brandweer_carplay_opkomst_laatste_resultaat:
+    name: Brandweer CarPlay opkomst laatste resultaat
+    max: 255
+
+script:
+  brandweer_carplay_reageer_post:
+    alias: Brandweer - CarPlay reactie per post (ontwikkelvoorbeeld)
+    mode: single
+    fields:
+      station_id:
+        required: true
+      station_name:
+        required: true
+      response_switch:
+        required: true
+      opkomen:
+        required: true
+    sequence:
+      - variables:
+          meldingen: "{{ state_attr('sensor.actieve_incidenten', 'incidents') or [] }}"
+          laatste_id: "{{ state_attr('sensor.actieve_incidenten', 'latest_incident_id') }}"
+          actuele_id: "{{ state_attr('sensor.incidents', 'id') }}"
+          post_ok: >-
+            {% set ns = namespace(found=false) %}
+            {% if meldingen | count == 1 %}
+              {% for post in meldingen[0].resolved_stations | default([], true) %}
+                {% if post.id | string == station_id | string %}
+                  {% set ns.found = true %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+            {{ ns.found }}
+          geldig: >-
+            {{ meldingen | count == 1
+               and laatste_id is not none
+               and actuele_id is not none
+               and laatste_id | string == actuele_id | string
+               and meldingen[0].id | string == actuele_id | string
+               and post_ok | bool
+               and state_attr(response_switch, 'station_id') | string == station_id | string
+               and states(response_switch) in ['on', 'off']
+               and meldingen[0].incident_active | default(false) == true }}
+      - if:
+          - condition: template
+            value_template: "{{ not (geldig | bool) }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.brandweer_carplay_opkomst_laatste_resultaat
+            data:
+              value: >-
+                Reactie niet verzonden: melding, post of response-switch
+                is niet eenduidig gecontroleerd. Gebruik de BrandweerRooster-app.
+          - stop: "Incident response scope not verified"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ opkomen | bool }}"
+            sequence:
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ response_switch }}"
+        default:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ response_switch }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.brandweer_carplay_opkomst_laatste_resultaat
+        data:
+          value: >-
+            Reactie voor {{ station_name }} verzonden:
+            {{ 'opkomen' if (opkomen | bool) else 'afwijzen' }}.
+            Controleer de bevestiging in BrandweerRooster.
+
+  brandweer_carplay_gramsbergen_opkomen:
+    alias: Brandweer Gramsbergen - Opkomen (voorbeeld)
+    sequence:
+      - action: script.brandweer_carplay_reageer_post
+        data:
+          station_id: 3853
+          station_name: Gramsbergen
+          response_switch: switch.VERVANG_MET_ECHTE_GRAMSBERGEN_RESPONSE_SWITCH
+          opkomen: true
+
+  brandweer_carplay_gramsbergen_afwijzen:
+    alias: Brandweer Gramsbergen - Afwijzen (voorbeeld)
+    sequence:
+      - action: script.brandweer_carplay_reageer_post
+        data:
+          station_id: 3853
+          station_name: Gramsbergen
+          response_switch: switch.VERVANG_MET_ECHTE_GRAMSBERGEN_RESPONSE_SWITCH
+          opkomen: false
+
+  brandweer_carplay_hardenberg_opkomen:
+    alias: Brandweer Hardenberg - Opkomen (voorbeeld)
+    sequence:
+      - action: script.brandweer_carplay_reageer_post
+        data:
+          station_id: 194
+          station_name: Hardenberg
+          response_switch: switch.VERVANG_MET_ECHTE_HARDENBERG_RESPONSE_SWITCH
+          opkomen: true
+
+  brandweer_carplay_hardenberg_afwijzen:
+    alias: Brandweer Hardenberg - Afwijzen (voorbeeld)
+    sequence:
+      - action: script.brandweer_carplay_reageer_post
+        data:
+          station_id: 194
+          station_name: Hardenberg
+          response_switch: switch.VERVANG_MET_ECHTE_HARDENBERG_RESPONSE_SWITCH
+          opkomen: false
+
+# When isolated HA testing is approved, expose each script above as a
+# separate CarPlay Quick Access action / button. Avoid response actions
+# when more than one incident is active; use the official app instead.
