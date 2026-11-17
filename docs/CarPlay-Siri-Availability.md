@@ -202,3 +202,31 @@ incomplete days fail closed with `null`. The sample CarPlay TTS uses the
 roster time for the requested *paraatblok ends* wording but also mentions the
 override's earlier expiry, so it never promises that the override lasts
 longer than it really does. This change is in Draft PR #20 only.
+
+## Development example: per-station opkomen / afwijzen (PR #20)
+
+The integration **already** creates separate `MembershipResponseSwitch`
+entities for accounts with more than one station membership. These entities
+are disabled by default in the HA entity registry; the generic legacy
+response switch is not suitable for ambiguous multi-station writes.
+`switch.turn_on` sends `acknowledged` and `switch.turn_off` sends
+`rejected` for that membership using the existing authenticated API.
+This is an **actual BrandweerRooster write**, unlike the read-only fairness
+diagnostics.
+
+See [the guarded CarPlay example](examples/CarPlay-Per-Station-Incident-Response.yaml)
+for four separate Gramsbergen/Hardenberg Quick Access actions. Replace the
+example entity IDs only after checking the switch `station_id` attributes.
+The example refuses to send if the active incident is ambiguous, the current
+legacy incident sensor points to a different ID, or the station is not
+explicitly present in the resolved incident stations. The legacy switch
+underneath uses `client.incident_id`, not an explicitly selected incident,
+so concurrent calls remain unsupported and must fail closed. The example
+says *sent* rather than *confirmed* because the existing response switch
+applies POST output optimistically without a separate fresh REST read-back.
+
+**Not yet ready for production CarPlay deployment.** First validate in an
+isolated HA test environment, especially whether the requested post is
+eligible to answer the live incident, whether incident data and switch IDs
+match, and whether a confirmed status is readable from BrandweerRooster.
+Do not use this convenience interface as a replacement for official paging.
