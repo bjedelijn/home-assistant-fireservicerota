@@ -113,3 +113,19 @@ Do not assume `sensor.incidents` represents the only active incident. It is the 
 ```
 
 Dashboard examples are available in [Dashboard examples](Dashboard-Examples.md).
+
+## Local manual incident closure persistence (development PR #21)
+
+The integration maintains a private, bounded HA storage journal of explicitly
+manually closed incident IDs and local end timestamps. It never sends a closure
+write to BrandweerRooster. After a HA restart, REST refresh, or historical
+history rollover, a journalled ID remains locally
+`manual_closed_pending_api` even if the provider has no `end_time`.
+The local reopen action removes the journal entry. Existing retained
+RestoreEntity snapshots marked as pending manual closure are imported once.
+
+The journal lives under a namespaced per-config-entry .storage key
+`fireservicerota.manual_closures_<entry_id>`. This is separate from the
+25-incident rolling history. It rejects malformed IDs and timestamps and
+refuses to evict prior protected IDs at capacity. Tests are synthetic;
+**do not deploy draft PR #21 to production without backup and permission**.

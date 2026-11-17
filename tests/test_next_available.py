@@ -66,3 +66,29 @@ class NextAvailableTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_next_non_paraat_boundary_across_multiple_contiguous_intervals():
+    tz = ZoneInfo("Europe/Amsterdam")
+    m = lambda h, minute=0: datetime(2026, 11, 17, h, minute, tzinfo=tz)
+    rows = [
+        {"start_time": m(8,30).isoformat(), "end_time": m(12).isoformat(), "available": True},
+        {"start_time": m(12).isoformat(), "end_time": m(17,45).isoformat(), "available": True},
+        {"start_time": m(17,45).isoformat(), "end_time": m(20).isoformat(), "available": False},
+    ]
+    assert mod.next_unavailable_after({"complete": True, "intervals": rows}, m(8,30)) == m(17,45)
+
+
+def test_next_non_paraat_does_not_guess_through_gap_or_overlap():
+    tz = ZoneInfo("Europe/Amsterdam")
+    m = lambda h: datetime(2026, 11, 17, h, tzinfo=tz)
+    gap = [
+        {"start_time": m(8).isoformat(), "end_time": m(12).isoformat(), "available": True},
+        {"start_time": m(17).isoformat(), "end_time": m(20).isoformat(), "available": False},
+    ]
+    assert mod.next_unavailable_after({"complete": True, "intervals": gap}, m(8)) is None
+    overlap = [
+        {"start_time": m(8).isoformat(), "end_time": m(12).isoformat(), "available": True},
+        {"start_time": m(11).isoformat(), "end_time": m(12).isoformat(), "available": False},
+    ]
+    assert mod.next_unavailable_after({"complete": True, "intervals": overlap}, m(8)) is None
