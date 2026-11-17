@@ -58,7 +58,7 @@ from .historical_fairness import (
 )
 from .historical_fairness_store import HistoricalFairnessStorage
 
-from .schedule_helpers import next_available_after
+from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 
 from .const import (
@@ -2268,6 +2268,25 @@ class FireServiceRotaClient:
         # A temporary override can end before the member is scheduled to be
         # available again. Never present the override end as confirmed return.
         next_scheduled_available_at = None
+        next_scheduled_unavailable_at = None
+        if confirmed and requested_available and mode == AVAILABILITY_MODE_NEXT_SCHEDULE:
+            # A confirmed temporary paraat override ends at 'end'. Separately
+            # inspect the following BASE roster, without extending the POST.
+            # This may identify a later true end of the roster paraat block.
+            try:
+                future_schedule = await self._async_get_availability_schedule(
+                    membership_id, end, days=7
+                )
+                if isinstance(future_schedule, dict):
+                    next_unavailable = next_unavailable_after(future_schedule, end)
+                    if next_unavailable is not None:
+                        next_scheduled_unavailable_at = next_unavailable.isoformat()
+            except Exception:
+                _LOGGER.warning(
+                    "Could not determine next scheduled non-paraat time for membership %s",
+                    membership_id,
+                    exc_info=True,
+                )
         if confirmed and not requested_available:
             # Optional read-only lookup: a failed schedule request must never
             # turn a successfully verified availability write into an error.
@@ -2288,6 +2307,7 @@ class FireServiceRotaClient:
 
         return {
             "next_scheduled_available_at": next_scheduled_available_at,
+            "next_scheduled_unavailable_at": next_scheduled_unavailable_at,
             "membership_id": membership_id,
             "station_id": membership.get("station_id"),
             "station_name": membership.get("station_name"),

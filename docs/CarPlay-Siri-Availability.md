@@ -188,3 +188,17 @@ The accompanying [CarPlay package example](examples/Station-Availability-CarPlay
 ### Testing checklist
 
 Check a change that returns to paraat within the same day, tomorrow, and after several schedule intervals (including intervening non-paraat intervals). Test both a successful change and a read-back failure. Verify spoken text in Home Assistant Assist on the phone before relying on CarPlay TTS. Direct script Quick Access buttons might show a notification rather than spoken feedback; use Assist prompts for the voice path.
+
+
+## Development: distinguish override end from actual roster non-paraat time
+
+A confirmed `paraat` action in `next_schedule_change` mode now has a
+second **read-only** optional result `next_scheduled_unavailable_at`. The
+existing `end_time` remains the actual exception's end and is **not**
+changed. The new timestamp is only present if the post-specific subsequent
+combined schedule has continuous, timezone-aware, explicit available intervals
+leading to a first non-paraat interval. Gaps, contradictory overlaps and
+incomplete days fail closed with `null`. The sample CarPlay TTS uses the
+roster time for the requested *paraatblok ends* wording but also mentions the
+override's earlier expiry, so it never promises that the override lasts
+longer than it really does. This change is in Draft PR #20 only.
