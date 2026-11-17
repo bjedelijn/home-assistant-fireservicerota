@@ -25,7 +25,7 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
-from .schedule_helpers import next_available_after
+from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 
 from .const import (
@@ -425,6 +425,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
         result = incident_store.mark_manual_closed(
             call.data[ATTR_INCIDENT_ID], scope=call.data.get(ATTR_SCOPE, "group")
         )
+        if result.get("changed_incident_ids"):
+            await incident_store.async_save_local_closures()
         if not result.get("found"):
             raise HomeAssistantError(f"Incident {call.data[ATTR_INCIDENT_ID]} is not retained locally")
         return result
@@ -437,6 +439,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
         result = incident_store.reopen_local_close(
             call.data[ATTR_INCIDENT_ID], scope=call.data.get(ATTR_SCOPE, "group")
         )
+        if result.get("changed_incident_ids"):
+            await incident_store.async_save_local_closures()
         if not result.get("found"):
             raise HomeAssistantError(f"Incident {call.data[ATTR_INCIDENT_ID]} is not retained locally")
         return result
@@ -1366,6 +1370,22 @@ class FireServiceRotaClient:
         # A temporary override can end before the member is scheduled to be
         # available again. Never present the override end as confirmed return.
         next_scheduled_available_at = None
+        next_scheduled_unavailable_at = None
+        if confirmed and requested_available and mode == AVAILABILITY_MODE_NEXT_SCHEDULE:
+            # Informational, read-only lookup: never alter the override.
+            try:
+                future_schedule = await self._async_get_availability_schedule(
+                    membership_id, end, days=7
+                )
+                if isinstance(future_schedule, dict):
+                    next_unavailable = next_unavailable_after(future_schedule, end)
+                    if next_unavailable is not None:
+                        next_scheduled_unavailable_at = next_unavailable.isoformat()
+            except Exception:
+                _LOGGER.warning(
+                    "Could not determine next scheduled non-paraat time for membership %s",
+                    membership_id, exc_info=True,
+                )
         if confirmed and not requested_available:
             # Optional read-only lookup: a failed schedule request must never
             # turn a successfully verified availability write into an error.
@@ -1386,6 +1406,7 @@ class FireServiceRotaClient:
 
         return {
             "next_scheduled_available_at": next_scheduled_available_at,
+            "next_scheduled_unavailable_at": next_scheduled_unavailable_at,
             "membership_id": membership_id,
             "station_id": membership.get("station_id"),
             "station_name": membership.get("station_name"),

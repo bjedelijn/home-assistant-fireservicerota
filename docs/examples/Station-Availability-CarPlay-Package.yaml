@@ -52,6 +52,21 @@ script:
           actueel: "{{ fsr_result.actual_available | default(none) }}"
           eind_raw: "{{ fsr_result.end_time | default('') }}"
           volgende_paraat_raw: "{{ fsr_result.next_scheduled_available_at | default('', true) }}"
+          volgende_niet_paraat_raw: "{{ fsr_result.next_scheduled_unavailable_at | default('', true) }}"
+          volgende_niet_paraat_tekst: >-
+            {% if volgende_niet_paraat_raw %}
+              {% set dt = as_datetime(volgende_niet_paraat_raw).astimezone() %}
+              {% if dt.date() == now().date() %}
+                vandaag om {{ dt.strftime('%H:%M') }}
+              {% elif dt.date() == now().date() + timedelta(days=1) %}
+                morgen om {{ dt.strftime('%H:%M') }}
+              {% else %}
+                {{ ['maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag','zondag'][dt.weekday()] }}
+                {{ dt.day }}-{{ dt.strftime('%m') }} om {{ dt.strftime('%H:%M') }}
+              {% endif %}
+            {% else %}
+              onbekend
+            {% endif %}
           volgende_paraat_tekst: >-
             {% if volgende_paraat_raw %}
               {% set dt = as_datetime(volgende_paraat_raw).astimezone() %}
@@ -91,7 +106,14 @@ script:
                   De tijdelijke wijziging loopt tot {{ eind_tekst }}, maar het volgende paraatmoment is niet gevonden.
                 {% endif %}
               {% else %}
-                {{ station_name }} is nu paraat tot {{ eind_tekst }}.
+                {{ station_name }} is nu paraat.
+                {% if volgende_niet_paraat_raw %}
+                  Volgens het rooster loopt je paraatblok tot {{ volgende_niet_paraat_tekst | trim }}.
+                  De tijdelijke wijziging is bevestigd tot {{ eind_tekst }}.
+                {% else %}
+                  De tijdelijke wijziging loopt tot {{ eind_tekst }}.
+                  Het einde van je paraatblok is niet geverifieerd.
+                {% endif %}
               {% endif %}
             {% elif bevestigd %}
               {{ station_name }} stond al {{ gewenst_tekst }}.

@@ -29,14 +29,14 @@ def test_recent_unverified_alerting_snapshot_can_survive_short_reload() -> None:
     assert IncidentStore.should_restore_as_active(data) is True
 
 
-def test_explicit_open_lifecycle_wins_even_for_old_snapshot() -> None:
+def test_explicit_open_lifecycle_does_not_revive_old_snapshot() -> None:
     data = {
         "id": 1003,
         "created_at": _iso_utc(timedelta(days=-2)),
         "state": "active",
     }
 
-    assert IncidentStore.should_restore_as_active(data) is True
+    assert IncidentStore.should_restore_as_active(data) is False
 
 
 def test_explicit_end_time_is_never_restored_active() -> None:
@@ -47,4 +47,14 @@ def test_explicit_end_time_is_never_restored_active() -> None:
         "end_time": _iso_utc(timedelta(minutes=-5)),
     }
 
+    assert IncidentStore.should_restore_as_active(data) is False
+
+
+def test_recent_explicit_open_snapshot_is_still_restorable() -> None:
+    data = {"id": 1005, "created_at": _iso_utc(timedelta(minutes=-30)), "state": "active"}
+    assert IncidentStore.should_restore_as_active(data) is True
+
+
+def test_43_day_old_explicit_open_snapshot_is_not_restored_active() -> None:
+    data = {"id": 3081177, "created_at": _iso_utc(timedelta(days=-43)), "state": "open"}
     assert IncidentStore.should_restore_as_active(data) is False

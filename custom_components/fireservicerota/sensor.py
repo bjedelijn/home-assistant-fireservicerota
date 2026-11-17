@@ -40,6 +40,7 @@ async def async_setup_entry(
     client = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_CLIENT]
     coordinator = hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_COORDINATOR]
     incident_store = IncidentStore(hass, client, entry.entry_id)
+    await incident_store.async_load_local_closures()
     hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
         DATA_INCIDENT_STORE
     ] = incident_store
