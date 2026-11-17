@@ -256,6 +256,23 @@ class IncidentStore:
         if cls._first_value(data, END_TIME_KEYS) is not None:
             return False
 
+        # A stale persisted incident with state=active/open can be a weeks-old
+        # BrandweerRooster record with no operational end_time. An explicit
+        # open label alone is NOT proof of current activity after a HA restart.
+        # Read-only REST/WS observations may still create a new live snapshot,
+        # but RestoreEntity must not reanimate a stale one.
+        started = _parse_datetime(
+            data.get("start_time")
+            or data.get("created_at")
+            or data.get("first_seen_at")
+        )
+        if started is not None:
+            age_seconds = (
+                datetime.now(timezone.utc) - started.astimezone(timezone.utc)
+            ).total_seconds()
+            if age_seconds > RESTORED_ACTIVE_MAX_AGE_SECONDS:
+                return False
+
         raw_status = cls._first_value(data, STATUS_KEYS)
         status_text = (
             str(raw_status).strip().lower() if raw_status is not None else ""

@@ -66,3 +66,70 @@ class NextAvailableTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_next_unavailable_after_follows_contiguous_paraat_blocks():
+    boundary = datetime(2026, 11, 17, 8, 30, tzinfo=ZoneInfo("Europe/Amsterdam"))
+    middle = datetime(2026, 11, 17, 12, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
+    final = datetime(2026, 11, 17, 17, 45, tzinfo=ZoneInfo("Europe/Amsterdam"))
+    tomorrow = datetime(2026, 11, 18, 0, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
+    schedule = {"complete": True, "intervals": [
+        {"start_time": boundary.isoformat(), "end_time": middle.isoformat(), "available": True},
+        {"start_time": middle.isoformat(), "end_time": final.isoformat(), "available": True},
+        {"start_time": final.isoformat(), "end_time": tomorrow.isoformat(), "available": False},
+    ]}
+    assert mod.next_unavailable_after(schedule, boundary) == final
+
+
+def test_next_unavailable_after_fails_closed_on_gap_or_incomplete_schedule():
+    tz = ZoneInfo("Europe/Amsterdam")
+    boundary = datetime(2026, 11, 17, 8, 30, tzinfo=tz)
+    middle = datetime(2026, 11, 17, 12, 0, tzinfo=tz)
+    evening = datetime(2026, 11, 17, 17, 45, tzinfo=tz)
+    intervals = [
+        {"start_time": boundary.isoformat(), "end_time": middle.isoformat(), "available": True},
+        {"start_time": evening.isoformat(), "end_time": evening.replace(hour=18).isoformat(), "available": False},
+    ]
+    assert mod.next_unavailable_after({"complete": True, "intervals": intervals}, boundary) is None
+    assert mod.next_unavailable_after({"complete": False, "intervals": intervals}, boundary) is None
+
+
+def test_next_unavailable_after_rejects_conflicting_overlaps():
+    tz = ZoneInfo("Europe/Amsterdam")
+    boundary = datetime(2026, 11, 17, 8, 30, tzinfo=tz)
+    later = datetime(2026, 11, 17, 12, 0, tzinfo=tz)
+    rows = [
+        {"start_time": boundary.isoformat(), "end_time": later.isoformat(), "available": True},
+        {"start_time": boundary.isoformat(), "end_time": later.isoformat(), "available": False},
+    ]
+    assert mod.next_unavailable_after({"complete": True, "intervals": rows}, boundary) is None
+
+
+def test_next_unavailable_after_returns_boundary_if_roster_immediately_not_paraat():
+    tz = ZoneInfo("Europe/Amsterdam")
+    boundary = datetime(2026, 11, 17, 8, 30, tzinfo=tz)
+    later = datetime(2026, 11, 17, 12, 0, tzinfo=tz)
+    rows = [{"start_time": boundary.isoformat(), "end_time": later.isoformat(), "available": False}]
+    assert mod.next_unavailable_after({"complete": True, "intervals": rows}, boundary) == boundary
+
+
+def test_next_unavailable_after_invalid_availability_never_guesses():
+    tz = ZoneInfo("Europe/Amsterdam")
+    boundary = datetime(2026, 11, 17, 8, 30, tzinfo=tz)
+    later = datetime(2026, 11, 17, 12, 0, tzinfo=tz)
+    rows = [{"start_time": boundary.isoformat(), "end_time": later.isoformat(), "available": "yes"}]
+    assert mod.next_unavailable_after({"complete": True, "intervals": rows}, boundary) is None
+
+
+def test_next_unavailable_after_rejects_conflict_starting_mid_paraat_block():
+    tz = ZoneInfo("Europe/Amsterdam")
+    morning = datetime(2026, 11, 17, 8, 30, tzinfo=tz)
+    eleven = datetime(2026, 11, 17, 11, 0, tzinfo=tz)
+    noon = datetime(2026, 11, 17, 12, 0, tzinfo=tz)
+    rows = [
+        {"start_time": morning.isoformat(), "end_time": noon.isoformat(),
+         "available": True},
+        {"start_time": eleven.isoformat(), "end_time": noon.isoformat(),
+         "available": False},
+    ]
+    assert mod.next_unavailable_after({"complete": True, "intervals": rows}, morning) is None

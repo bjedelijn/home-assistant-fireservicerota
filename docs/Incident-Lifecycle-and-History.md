@@ -113,3 +113,16 @@ Do not assume `sensor.incidents` represents the only active incident. It is the 
 ```
 
 Dashboard examples are available in [Dashboard examples](Dashboard-Examples.md).
+
+
+## Regression protection: stale open snapshots after HA restart
+
+A historic incident may still have an API status resembling `active` or
+`open` even when no operational end time has ever been published. During
+RestoreEntity reconstruction, an explicit open status alone no longer
+overrides the 24-hour staleness guard for persisted incidents. A 43-day-old
+`active` snapshot is archived locally rather than reappearing as a live
+incident on restart. This does **not** close the incident on BrandweerRooster,
+and does not by itself prevent a later genuinely new REST/WebSocket event
+from reporting that ID. The specific trigger for a real incident revival
+still requires HA state history/logs; no production environment was changed.
