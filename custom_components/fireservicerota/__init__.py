@@ -1222,6 +1222,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
         result = incident_store.mark_manual_closed(
             call.data[ATTR_INCIDENT_ID], scope=call.data.get(ATTR_SCOPE, "group")
         )
+        if result.get("changed_incident_ids"):
+            await incident_store.async_save_local_closures()
         if not result.get("found"):
             raise HomeAssistantError(f"Incident {call.data[ATTR_INCIDENT_ID]} is not retained locally")
         return result
@@ -1234,6 +1236,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
         result = incident_store.reopen_local_close(
             call.data[ATTR_INCIDENT_ID], scope=call.data.get(ATTR_SCOPE, "group")
         )
+        if result.get("changed_incident_ids"):
+            await incident_store.async_save_local_closures()
         if not result.get("found"):
             raise HomeAssistantError(f"Incident {call.data[ATTR_INCIDENT_ID]} is not retained locally")
         return result
