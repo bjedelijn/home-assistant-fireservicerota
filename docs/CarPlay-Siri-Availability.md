@@ -217,3 +217,30 @@ switch. A successful switch call still does not prove independent server-side
 read-back. Prefer the official BrandweerRooster app whenever an incident or
 post cannot be unambiguously verified. Do not activate these scripts without
 explicit permission and a backup on the single production HA instance.
+
+## Four guarded incident response Assist prompts (1.3.4-beta.3)
+
+See [Incident automations](Incident-Automations.md#automations-carplay-opkomenafwijzen-per-post-134-beta3)
+and the [guarded per-station example](examples/CarPlay-Per-Station-Incident-Response.yaml).
+These use the existing per-membership response switches and opt-in Home
+Assistant scripts/automations, which are **not installed by the integration**.
+
+Example prompt mapping for two configured stations:
+
+| Action | Example spoken Assist prompt |
+| --- | --- |
+| Station A acknowledge | `brandweer station a opkomen` |
+| Station A reject | `brandweer station a afwijzen` |
+| Station B acknowledge | `brandweer station b opkomen` |
+| Station B reject | `brandweer station b afwijzen` |
+
+Use conversation triggers to dispatch these to the matching wrapper script,
+and return a short result using `set_conversation_response`. Choose an
+Assist prompt in CarPlay Quick Access (not a direct Script entity) to hear
+the reply. Reject unknown, ambiguous or multi-incident scenarios; do not
+claim a server-side acknowledgement without separate verification.
+
+The `next_scheduled_unavailable_at` response field is informational and
+only returned when a complete, verifiable roster interval can be established
+for a confirmed `next_schedule_change` paraat action. It is **not**
+the temporary override's `end_time`. Speak both values accurately.

@@ -272,3 +272,42 @@ For example, a fictional vehicle `04-0001` at station `123` can be associated wi
 ```
 
 This snippet is **not a complete incident automation**: retain your own duty-status guard, DND/night policy, incident ID and new-unit deduplication, speech/lights routing, and a fallback for unavailable enrichment. Do not claim the original vehicle itself was dispatched when P2000 shows the actual replacement unit. The mapping applies only to incidents within its time window. More details: [Replacement Vehicles](Replacement-Vehicles.md) and [multi-post package example](examples/Temporary-Replacement-Vehicle-Package.yaml).
+
+## Automations: CarPlay opkomen/afwijzen per post (1.3.4-beta.3)
+
+The integration provides one `MembershipResponseSwitch` for each station
+membership when multiple station memberships exist. These switches are disabled
+by default in Home Assistant and need deliberate enabling and entity ID checks.
+
+[CarPlay guarded response YAML](examples/CarPlay-Per-Station-Incident-Response.yaml)
+is a **public example**, not an automatically installed package. It contains
+four per-station script wrappers (acknowledge/reject for two example posts)
+and one central response script. Replace placeholder entity IDs with the IDs
+from your own installation. Install the YAML under the configured
+`/config/packages/` directory **only if you do not already define the same
+script/helper IDs**; merge into an existing package otherwise. Validate YAML
+and restart Home Assistant after a full backup.
+
+For a spoken response, configure CarPlay Quick Access **Assist prompt** items
+rather than Script entity buttons. Define conversation-triggered Home Assistant
+automations that route the four exact prompts to the four wrapper scripts and
+then use `set_conversation_response` with the script's result helper.
+An Assist pipeline with TTS is required. Direct script buttons do not
+automatically speak. Keep prompts unique to avoid duplicate actions.
+
+**Write safety:** Each response switch issues a real HTTP POST to
+BrandweerRooster, using the integration client's latest incident ID. The
+sample script denies the action unless exactly one active incident is present,
+its ID matches both incident sensors, the station is included in the incident,
+and the relevant switch is in a known state and has the requested station ID.
+If these checks do not pass, the script fails closed and gives an explanation.
+A successfully invoked switch does **not** guarantee an independently verified
+server-side response; always verify the result in BrandweerRooster.
+
+A safe first test is an Assist prompt with **zero active incidents**, which
+must return a spoken blocked response. A genuine API submission can only be
+verified during a legitimate incident. Never simulate a live response to
+a real incident for testing alone.
+
+The integration does not install, alter or activate user Home Assistant
+packages, automations, dashboard cards or CarPlay settings.

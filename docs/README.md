@@ -20,6 +20,7 @@ Questions, bug reports and contributions can be handled through the GitHub repos
 - [Crew staffing and assignments](Crew-Staffing.md)
 - [Dashboard examples](Dashboard-Examples.md)
 - [Station availability / paraat](Station-Availability.md)
+- [1.3.4-beta.3 release notes](Release-Notes-1.3.4-beta.3.md)
 - [CarPlay / Siri availability and spoken incident information](CarPlay-Siri-Availability.md)
 - [Multiple temporary vehicle replacements (1.3.4-beta.2)](Replacement-Vehicles.md)
 - [Multi-post vehicle replacement package example](examples/Temporary-Replacement-Vehicle-Package.yaml)
