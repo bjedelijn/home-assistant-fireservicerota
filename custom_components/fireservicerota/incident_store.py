@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import DOMAIN as FIRESERVICEROTA_DOMAIN
+from .local_incident_closures import LocalIncidentClosures
 
 HISTORY_LIMIT = 25
 ACTIVE_INCIDENT_REFRESH_SECONDS = 120
@@ -171,6 +172,13 @@ class IncidentStore:
         self._refresh_lock = asyncio.Lock()
         self._fast_refresh_tasks: dict[str, asyncio.Task] = {}
         self._final_refresh_tasks: dict[str, asyncio.Task] = {}
+        self._local_closures = LocalIncidentClosures(hass, entry_id)
+
+    async def async_load_local_closures(self) -> None:
+        await self._local_closures.async_load()
+
+    async def async_save_local_closures(self) -> None:
+        await self._local_closures.async_save()
 
     @property
     def signal(self) -> str:
@@ -256,22 +264,13 @@ class IncidentStore:
         if cls._first_value(data, END_TIME_KEYS) is not None:
             return False
 
-        # A stale persisted incident with state=active/open can be a weeks-old
-        # BrandweerRooster record with no operational end_time. An explicit
-        # open label alone is NOT proof of current activity after a HA restart.
-        # Read-only REST/WS observations may still create a new live snapshot,
-        # but RestoreEntity must not reanimate a stale one.
         started = _parse_datetime(
-            data.get("start_time")
-            or data.get("created_at")
-            or data.get("first_seen_at")
+            data.get("start_time") or data.get("created_at") or data.get("first_seen_at")
         )
-        if started is not None:
-            age_seconds = (
-                datetime.now(timezone.utc) - started.astimezone(timezone.utc)
-            ).total_seconds()
-            if age_seconds > RESTORED_ACTIVE_MAX_AGE_SECONDS:
-                return False
+        if started is not None and (
+            datetime.now(timezone.utc) - started.astimezone(timezone.utc)
+        ).total_seconds() > RESTORED_ACTIVE_MAX_AGE_SECONDS:
+            return False
 
         raw_status = cls._first_value(data, STATUS_KEYS)
         status_text = (
@@ -1170,6 +1169,22 @@ class IncidentStore:
         previous = self._incidents.get(key)
         was_active = previous is not None and previous.get("incident_active") is not False
         snapshot = self._compact_snapshot(data, previous, source, default_active)
+        # Local manual closure always wins against a new unclosed REST record,
+        # even when the previously cached historic incident was pruned.
+        manual_end = self._local_closures.get(incident_id)
+        if manual_end is not None and snapshot.get("ended_at_source") != "api":
+            snapshot.update({
+                "incident_active": False,
+                "lifecycle_known": False,
+                "operational_status": OPERATIONAL_STATUS_MANUAL_PENDING,
+                "operational_ended_at": manual_end,
+                "operational_ended_at_source": "manual",
+                "incident_ended_at": manual_end,
+                "ended_at_source": "manual",
+                "manual_closed": True,
+                "manual_closed_at": manual_end,
+                "api_closed": False,
+            })
         self._incidents[key] = snapshot
 
         if (
@@ -1210,6 +1225,14 @@ class IncidentStore:
             if not isinstance(incident, dict) or incident.get("id") is None:
                 continue
             restored = dict(incident)
+            # One-time migration from an existing RestoreEntity snapshot.
+            if (
+                restored.get("operational_status") == OPERATIONAL_STATUS_MANUAL_PENDING
+                and self._local_closures.get(restored["id"]) is None
+            ):
+                when = restored.get("manual_closed_at") or restored.get("operational_ended_at")
+                if isinstance(when, str) and self._local_closures.record(restored["id"], when):
+                    self._hass.async_create_task(self.async_save_local_closures())
             restore_active = active and self.should_restore_as_active(restored)
             restored["incident_active"] = restore_active
             snapshot = self.upsert(
@@ -1218,7 +1241,10 @@ class IncidentStore:
                 default_active=restore_active,
                 notify=False,
             )
-            if active and not restore_active and snapshot is not None:
+            if (
+                active and not restore_active and snapshot is not None
+                and snapshot.get("operational_status") != OPERATIONAL_STATUS_MANUAL_PENDING
+            ):
                 # Do not invent an end timestamp or claim that the API closed the
                 # incident. We only archive the stale persisted active snapshot
                 # locally so it cannot reappear in sensor.active_incidents.
@@ -1354,6 +1380,7 @@ class IncidentStore:
                 target, status=OPERATIONAL_STATUS_MANUAL_PENDING,
                 ended_at=ended_at, source="manual", manual=True,
             ):
+                self._local_closures.record(target_id, ended_at)
                 changed_ids.append(target_id)
                 self._ensure_final_closed_refresh(target_id)
         if changed_ids:
@@ -1378,6 +1405,7 @@ class IncidentStore:
                 continue
             if target.get("ended_at_source") == "api" or self._first_value(target, END_TIME_KEYS) is not None:
                 continue
+            self._local_closures.forget(target_id)
             target["incident_active"] = True
             target["lifecycle_known"] = False
             target["operational_status"] = OPERATIONAL_STATUS_ACTIVE
