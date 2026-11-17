@@ -414,3 +414,17 @@ an I/O operation, and retain Home Assistant response-only registration.
 A synthetic-output test also rejects exposure of roster identities.
 These are development CI checks, not proof of real API completeness or a
 successful isolated Home Assistant deployment.
+
+
+### Unified privacy-safe readiness with cached roster scope
+
+The experimental pure `summarize_forecast_readiness` accepts an optional
+already-sanitized `roster_scope_diagnostic` from the cache-only inspector.
+It reports only one fixed category: station group observed but uncertified,
+not observed, group absent, or invalid cached input. It rejects foreign
+stations and any roster summary making unsupported claims of live
+completeness, individual verification or a proposed crew. The existing
+history, one-person schedule and aggregate-coverage readiness criteria
+remain independent, and every route remains `forecast_not_ready`.
+This is unregistered pure diagnostic code with synthetic tests, **not**
+an operational Home Assistant service or a live BrandweerRooster check.

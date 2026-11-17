@@ -209,3 +209,74 @@ def test_aggregate_false_success_signals_fail_closed(field, value):
     assert result["task_aggregate_coverage_observed"] is False
     assert result["can_predict_next_lineup"] is False
     assert "PRIVATE" not in str(result)
+
+
+def test_cached_roster_scope_is_visible_but_never_forecast_ready():
+    data = inputs()
+    result = evaluate(**data, roster_scope_diagnostic={
+        "station_id": 194,
+        "diagnostic_status": "cached_partial_scope_only",
+        "station_discovered": True,
+        "cached_distinct_user_count_if_fully_linked": 25,
+        "current_station_full_roster_verified": False,
+        "current_station_all_member_availability_verified": False,
+        "current_station_all_member_skills_verified": False,
+        "can_build_operational_prediction": False,
+        "predicted_lineup": None,
+        "name": "PRIVATE PERSON",
+    })
+    assert result["cached_roster_source_reach"] == "station_group_seen_but_not_certified"
+    assert result["full_station_candidate_pool_verified"] is False
+    assert result["can_predict_next_lineup"] is False
+    assert "PRIVATE" not in str(result)
+    assert "25" not in str(result)
+
+
+def test_roster_scope_wrong_station_is_rejected():
+    result = evaluate(**inputs(), roster_scope_diagnostic={
+        "station_id": 3853,
+        "diagnostic_status": "cached_partial_scope_only",
+    })
+    assert result["cached_roster_source_reach"] == "not_observed"
+    assert "roster_scope_station_mismatch" in result["scope_or_input_rejections"]
+
+
+@pytest.mark.parametrize("unsafe_claim", [
+    ("can_build_operational_prediction", True),
+    ("current_station_full_roster_verified", True),
+    ("current_station_all_member_availability_verified", True),
+    ("current_station_all_member_skills_verified", True),
+    ("predicted_lineup", ["PRIVATE PERSON"]),
+])
+def test_roster_scope_rejects_unsupported_operational_claim(unsafe_claim):
+    key, value = unsafe_claim
+    scope = {
+        "station_id": 194,
+        "diagnostic_status": "cached_partial_scope_only",
+        "station_discovered": True,
+        "current_station_full_roster_verified": False,
+        "current_station_all_member_availability_verified": False,
+        "current_station_all_member_skills_verified": False,
+        "can_build_operational_prediction": False,
+        "predicted_lineup": None,
+    }
+    scope[key] = value
+    result = evaluate(**inputs(), roster_scope_diagnostic=scope)
+    assert result["cached_roster_source_reach"] == "not_observed"
+    assert "roster_scope_unsafe_claim" in result["scope_or_input_rejections"]
+    assert result["predicted_lineup"] is None
+
+
+def test_roster_scope_rejected_input_does_not_get_partial_success():
+    result = evaluate(**inputs(), roster_scope_diagnostic={
+        "station_id": 194,
+        "diagnostic_status": "groups_structure_invalid",
+        "station_discovered": False,
+        "current_station_full_roster_verified": False,
+        "current_station_all_member_availability_verified": False,
+        "current_station_all_member_skills_verified": False,
+        "can_build_operational_prediction": False,
+        "predicted_lineup": None,
+    })
+    assert result["cached_roster_source_reach"] == "cache_input_unusable"
+    assert result["can_predict_next_lineup"] is False

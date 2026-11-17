@@ -29,6 +29,7 @@ def summarize_forecast_readiness(
     historical_advisory: Mapping[str, Any] | None,
     candidate_schedule_probe: Mapping[str, Any] | None,
     aggregate_coverage_probe: Mapping[str, Any] | None,
+    roster_scope_diagnostic: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return safe missing-input categories without exposing persons.
 
@@ -53,6 +54,31 @@ def summarize_forecast_readiness(
             discarded.append(name + "_scope_mismatch")
         else:
             valid[name] = item
+
+    # Station-scope evidence has no task_id by design. It describes only
+    # cached grouping and MUST NOT certify a complete current candidate pool.
+    roster_reach: str = "not_observed"
+    if roster_scope_diagnostic is not None:
+        if not isinstance(roster_scope_diagnostic, Mapping):
+            discarded.append("roster_scope_invalid")
+        elif _id(roster_scope_diagnostic.get("station_id")) != station:
+            discarded.append("roster_scope_station_mismatch")
+        elif (
+            roster_scope_diagnostic.get("can_build_operational_prediction") is not False
+            or roster_scope_diagnostic.get("current_station_full_roster_verified") is not False
+            or roster_scope_diagnostic.get("current_station_all_member_availability_verified") is not False
+            or roster_scope_diagnostic.get("current_station_all_member_skills_verified") is not False
+            or roster_scope_diagnostic.get("predicted_lineup") is not None
+        ):
+            discarded.append("roster_scope_unsafe_claim")
+        elif roster_scope_diagnostic.get("diagnostic_status") == "cached_partial_scope_only":
+            roster_reach = (
+                "station_group_seen_but_not_certified"
+                if roster_scope_diagnostic.get("station_discovered") is True
+                else "station_group_not_found_in_cache"
+            )
+        else:
+            roster_reach = "cache_input_unusable"
 
     history = valid.get("historical", {})
     sample = history.get("historical_sample")
@@ -137,6 +163,7 @@ def summarize_forecast_readiness(
         "historical_evidence_observed": history_present,
         "one_candidate_schedule_format_observed": unique_interval,
         "task_aggregate_coverage_observed": aggregate_observed,
+        "cached_roster_source_reach": roster_reach,
         "scope_or_input_rejections": discarded,
         "blocking_requirements": blockers,
         "full_station_candidate_pool_verified": False,
