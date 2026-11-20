@@ -75,14 +75,19 @@
     "step": {
       "init": {
         "title": "Extended opties",
-        "description": "P2000-verrijking is alleen beschikbaar voor BrandweerRooster Nederland. Kies P2000 online, P2000 via ether (RTL-SDR), of beide bronnen. Alle bronnen delen dezelfde ringbuffer van 60 minuten.",
+        "description": "Kies AlarmeringDroid of p2000.page WebSocket, eventueel samen met RTL-SDR. Voor p2000.page is een eigen abonnement vereist: {api_url}. Vul de sleutel alleen lokaal in.",
         "data": {
           "p2000_enabled": "P2000-verrijking inschakelen",
           "p2000_source": "P2000-bron",
-          "p2000_scan_interval": "Online polling-interval (seconden)",
-          "p2000_rtl_topic": "MQTT-attributentopic voor P2000 via ether"
+          "p2000_scan_interval": "Polling-interval voor bestaande provider / controles (seconden)",
+          "p2000_rtl_topic": "MQTT-attributentopic voor P2000 via ether",
+          "p2000_page_key": "p2000.page API-sleutel (leeg laten om bestaande sleutel te bewaren)",
+          "p2000_page_regions": "p2000.page veiligheidsregio's (bijv. 06~17)"
         }
       }
+    },
+    "error": {
+      "p2000_page_key_required": "Vul een p2000.page API-sleutel in om deze bron in te schakelen."
     }
   }
 }

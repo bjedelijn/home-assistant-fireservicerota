@@ -15,6 +15,7 @@ from homeassistant.helpers.storage import Store
 from .model import P2000Event
 from .escalation import build_escalation_summary
 from .online import P2000OnlineProvider
+from .page import P2000PageWebsocketProvider
 from .rtl import P2000RtlMqttProvider
 from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
@@ -36,6 +37,7 @@ _PERSISTENT_MATCH_LIMIT = 25
 _PERSISTENT_STORAGE_VERSION = 1
 _SOURCE_LABELS = {
     "online": "P2000 online",
+    "p2000_page": "p2000.page WebSocket",
     "rtl": "P2000 via ether",
 }
 _WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
@@ -56,6 +58,8 @@ class P2000EnrichmentManager:
         scan_interval: int = 30,
         source: str = "online",
         rtl_topic: str | None = None,
+        page_api_key: str | None = None,
+        page_regions: str = "06",
         replacement_vehicle_store=None,
     ) -> None:
         self._hass = hass
@@ -63,9 +67,15 @@ class P2000EnrichmentManager:
         self._scan_interval = max(30, int(scan_interval))
         selected = str(source or "online").strip().lower()
         self._providers = []
+        self._wake = asyncio.Event()
+        if selected in {"p2000_page", "p2000_page_rtl"}:
+            self._providers.append(P2000PageWebsocketProvider(
+                hass, api_key=page_api_key or "", regions=page_regions,
+                on_event=self._wake.set,
+            ))
         if selected in {"online", "both"}:
             self._providers.append(P2000OnlineProvider(hass))
-        if selected in {"rtl", "both"}:
+        if selected in {"rtl", "both", "p2000_page_rtl"}:
             kwargs = {"topic": rtl_topic} if rtl_topic else {}
             self._providers.append(P2000RtlMqttProvider(hass, **kwargs))
         self._vehicle_registry = BrandbaseVehicleRegistry(hass)
@@ -312,6 +322,7 @@ class P2000EnrichmentManager:
     async def async_stop(self) -> None:
         """Stop the enrichment loop and persist the latest bounded matches."""
         self._stopping = True
+        self._wake.set()
         task = self._task
         self._task = None
         if task is not None and not task.done():
@@ -337,7 +348,17 @@ class P2000EnrichmentManager:
         try:
             while not self._stopping:
                 await self._async_poll_once()
-                await asyncio.sleep(self._scan_interval)
+                # An event can arrive while a slow provider is being polled.
+                # Inspect the wake flag BEFORE sleeping so that it is not lost.
+                if self._wake.is_set():
+                    self._wake.clear()
+                    continue
+                try:
+                    await asyncio.wait_for(self._wake.wait(), timeout=self._scan_interval)
+                except asyncio.TimeoutError:
+                    pass
+                finally:
+                    self._wake.clear()
         except asyncio.CancelledError:
             raise
         except Exception:

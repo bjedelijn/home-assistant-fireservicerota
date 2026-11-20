@@ -5,16 +5,22 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_URL, CONF_USERNAME
 from homeassistant.core import callback
+from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
 from .const import (
     CONF_P2000_ENABLED,
+    CONF_P2000_PAGE_KEY,
+    CONF_P2000_PAGE_REGIONS,
     CONF_P2000_RTL_TOPIC,
     CONF_P2000_SCAN_INTERVAL,
     CONF_P2000_SOURCE,
     DOMAIN,
     P2000_DEFAULT_RTL_TOPIC,
+    P2000_DEFAULT_PAGE_REGIONS,
     P2000_DEFAULT_SCAN_INTERVAL,
     P2000_SOURCE_BOTH,
+    P2000_SOURCE_PAGE,
+    P2000_SOURCE_PAGE_RTL,
     P2000_SOURCE_ONLINE,
     P2000_SOURCE_RTL,
     URL_LIST,
@@ -152,8 +158,23 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
 
     async def async_step_init(self, user_input=None):
         """Configure Netherlands-only P2000 enrichment."""
+        errors = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            updated = {**self.config_entry.options, **user_input}
+            new_key = str(user_input.get(CONF_P2000_PAGE_KEY) or "").strip()
+            if new_key:
+                updated[CONF_P2000_PAGE_KEY] = new_key
+            elif self.config_entry.options.get(CONF_P2000_PAGE_KEY):
+                updated[CONF_P2000_PAGE_KEY] = self.config_entry.options[CONF_P2000_PAGE_KEY]
+            else:
+                updated.pop(CONF_P2000_PAGE_KEY, None)
+            chosen = updated.get(CONF_P2000_SOURCE, P2000_SOURCE_ONLINE)
+            if (updated.get(CONF_P2000_ENABLED, False)
+                    and chosen in {P2000_SOURCE_PAGE, P2000_SOURCE_PAGE_RTL}
+                    and not updated.get(CONF_P2000_PAGE_KEY)):
+                errors["base"] = "p2000_page_key_required"
+            if not errors:
+                return self.async_create_entry(title="", data=updated)
 
         if self.config_entry.data.get(CONF_URL) != "www.brandweerrooster.nl":
             return self.async_show_form(
@@ -176,9 +197,18 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     {
                         P2000_SOURCE_ONLINE: "P2000 online",
                         P2000_SOURCE_RTL: "P2000 via ether (RTL-SDR, beta)",
-                        P2000_SOURCE_BOTH: "P2000 online + ether (beta)",
+                        P2000_SOURCE_BOTH: "AlarmeringDroid + RTL-SDR (beta)",
+                        P2000_SOURCE_PAGE: "p2000.page WebSocket (eigen abonnement)",
+                        P2000_SOURCE_PAGE_RTL: "p2000.page WebSocket + RTL-SDR (beta)",
                     }
                 ),
+                vol.Optional(
+                    CONF_P2000_PAGE_KEY,
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+                vol.Optional(
+                    CONF_P2000_PAGE_REGIONS,
+                    default=str(current.get(CONF_P2000_PAGE_REGIONS, P2000_DEFAULT_PAGE_REGIONS)),
+                ): vol.All(str, vol.Match(r"^(?:0[1-9]|1[0-9]|2[0-5])(?:~(?:0[1-9]|1[0-9]|2[0-5]))*$")),
                 vol.Optional(
                     CONF_P2000_RTL_TOPIC,
                     default=str(
@@ -196,4 +226,9 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                 ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"api_url": "https://p2000.page/api"},
+        )
