@@ -82,12 +82,15 @@
           "p2000_scan_interval": "Polling-interval voor bestaande provider / controles (seconden)",
           "p2000_rtl_topic": "MQTT-attributentopic voor P2000 via ether",
           "p2000_page_key": "p2000.page API-sleutel (leeg laten om bestaande sleutel te bewaren)",
-          "p2000_page_regions": "p2000.page veiligheidsregio's (bijv. 06~17)"
+          "p2000_page_regions": "p2000.page veiligheidsregio's (bijv. 06~17)",
+          "p2000_prealert_enabled": "P2000-voormeldingen inschakelen (geen automatische spraak)",
+          "p2000_prealert_capcodes": "Persoonlijke/postcapcodes voor voormeldingen (komma-gescheiden, 7 cijfers)"
         }
       }
     },
     "error": {
-      "p2000_page_key_required": "Vul een p2000.page API-sleutel in om deze bron in te schakelen."
+      "p2000_page_key_required": "Vul een p2000.page API-sleutel in om deze bron in te schakelen.",
+      "invalid_prealert_capcodes": "Vul een of meer geldige capcodes van zeven cijfers in voor P2000-voormeldingen."
     }
   }
 }
