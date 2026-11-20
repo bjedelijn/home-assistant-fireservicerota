@@ -50,8 +50,15 @@ async def main() -> None:
                         continue
                     kind = data.get("type")
                     if kind == "welkom":
-                        print("Welkom ontvangen | verbindingen:", data.get("verbindingen"),
-                              "| regiofilter:", regions)
+                        server_filters = data.get("filters")
+                        print("Welkom ontvangen | verbindingen:", data.get("verbindingen"))
+                        print("Serverfilters bij verbinding:", server_filters)
+                        await websocket.send(json.dumps({
+                            "type": "filter", "r": regions, "d": "brandweer",
+                        }))
+                        print("Filterverzoek verstuurd: regio", regions, "dienst brandweer")
+                    elif kind == "filter":
+                        print("Server bevestigt filter:", data.get("filters", data))
                     elif kind == "melding":
                         item = data.get("melding")
                         if isinstance(item, dict):
@@ -63,6 +70,8 @@ async def main() -> None:
                                 bool(item.get("timestamp")),
                                 "| dienst:",
                                 str(item.get("dienst", ""))[:30],
+                                "| regio:",
+                                str(item.get("regios", ""))[:30],
                             )
                     elif kind == "fout":
                         print("Server meldt een fout (details bewust verborgen).")
