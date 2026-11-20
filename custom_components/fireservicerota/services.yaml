@@ -234,6 +234,13 @@ set_replacement_vehicle:
       example: "04-1034"
       selector:
         text: {}
+    vehicle_function:
+      name: Voertuigfunctie
+      description: Optioneel; voor automatische BWR-voertuigcontrole is een expliciete functie vereist (bijv. TS, WTS).
+      required: false
+      example: "TS"
+      selector:
+        text: {}
     entry_id:
       name: Configuratie-ID
       required: false
