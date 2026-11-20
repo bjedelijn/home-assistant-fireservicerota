@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from collections import deque
 from datetime import datetime, timedelta
 import logging
 import math
@@ -21,6 +22,7 @@ from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
 from ..vehicle_registry import BrandbaseVehicleRegistry
 from ....replacement_vehicles import effective_assignment
+from ....p2000_prealerts import build_prealert
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,9 +47,6 @@ _STOPWORDS = {
     "brandweer", "melding", "prio", "p", "br", "bon", "naar", "voor", "met",
     "aan", "de", "het", "een", "bij", "in", "op", "van", "en", "te",
 }
-
-
-from ....p2000_prealerts import build_prealert
 
 
 class P2000EnrichmentManager:
@@ -88,6 +87,7 @@ class P2000EnrichmentManager:
         self._prealerts_enabled = prealerts_enabled
         self._prealert_capcodes = prealert_capcodes or set()
         self._prealert_sent: set[str] = set()
+        self._prealert_order: deque[str] = deque(maxlen=2000)
         self._task: asyncio.Task | None = None
         self._first_received: dict[str, str] = {}
         self._buffer: dict[str, P2000Event] = {}
@@ -398,6 +398,9 @@ class P2000EnrichmentManager:
                     if payload is not None:
                         # One HA event per provider event. HA automations must use
                         # their existing BrandweerRooster night/TTS conditions.
+                        if len(self._prealert_order) == self._prealert_order.maxlen:
+                            self._prealert_sent.discard(self._prealert_order.popleft())
+                        self._prealert_order.append(key)
                         self._prealert_sent.add(key)
                         self._hass.bus.async_fire("fireservicerota_p2000_prealert", payload)
 
