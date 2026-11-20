@@ -23,6 +23,20 @@ _WS_ENDPOINT = "wss://api.p2000.page/api-"
 _UNIT_RE = re.compile(r"(?<![0-9])[0-9]{6}(?![0-9])")
 _REGIONS_RE = re.compile(r"^(?:0[1-9]|1[0-9]|2[0-5])(?:~(?:0[1-9]|1[0-9]|2[0-5]))*$")
 _MAX_QUEUE = 500
+_REGION_TOKEN_RE = re.compile(r"(?<![0-9])[0-2][0-9](?![0-9])")
+
+
+def matches_regions(item: Any, regions: str) -> bool:
+    """Fail closed when the API does not provide a matching region code."""
+    if not isinstance(item, dict):
+        return False
+    desired = set(regions.split("~"))
+    value = item.get("regios")
+    if not isinstance(value, str):
+        return False
+    actual = set(_REGION_TOKEN_RE.findall(value.upper()))
+    return bool(desired & actual)
+
 _STOP_CLOSE_CODES = {4401, 4403}
 _RATE_LIMIT_CLOSE_CODE = 4429
 
@@ -168,6 +182,10 @@ class P2000PageWebsocketProvider:
 
     def _accept(self, item: Any) -> None:
         now = datetime.now(timezone.utc).isoformat()
+        # The header-only handshake may not apply URL path filters.
+        # Enforce both the service (in normalize) and the region locally.
+        if not matches_regions(item, self._regions):
+            return
         event = normalize_page_event(item, now)
         if event is None or event.external_id is None:
             return
@@ -229,8 +247,21 @@ class P2000PageWebsocketProvider:
                                 if not isinstance(envelope, dict):
                                     continue
                                 kind = envelope.get("type")
-                                if kind == "melding":
+                                if kind == "welkom":
+                                    # In addition to URL filters, explicitly set filters on
+                                    # this authenticated connection; the backend sends a
+                                    # confirming "filter" envelope.
+                                    await ws.send_json({
+                                        "type": "filter",
+                                        "r": self._regions,
+                                        "d": "brandweer",
+                                    })
+                                elif kind == "melding":
                                     self._accept(envelope.get("melding"))
+                                elif kind == "filter":
+                                    # The local region/service guard stays active regardless
+                                    # of server-side filtering.
+                                    pass
                                 elif kind == "laatste":
                                     # Replay is intentionally ignored: never announce history as live.
                                     continue
