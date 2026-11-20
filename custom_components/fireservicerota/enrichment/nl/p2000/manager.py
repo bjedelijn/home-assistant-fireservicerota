@@ -348,11 +348,17 @@ class P2000EnrichmentManager:
         try:
             while not self._stopping:
                 await self._async_poll_once()
+                # An event can arrive while a slow provider is being polled.
+                # Inspect the wake flag BEFORE sleeping so that it is not lost.
+                if self._wake.is_set():
+                    self._wake.clear()
+                    continue
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=self._scan_interval)
                 except asyncio.TimeoutError:
                     pass
-                self._wake.clear()
+                finally:
+                    self._wake.clear()
         except asyncio.CancelledError:
             raise
         except Exception:
