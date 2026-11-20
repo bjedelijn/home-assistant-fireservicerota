@@ -226,4 +226,9 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                 ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"api_url": "https://p2000.page/api"},
+        )
