@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .fairness_audit import analyze_incident_fairness
 from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
+from .vehicle_evidence import incident_vehicle_evidence
 
 from .const import (
     ATTR_ADDRESS,
@@ -64,6 +65,7 @@ from .const import (
     SERVICE_SET_REPLACEMENT_VEHICLE,
     SERVICE_CLEAR_REPLACEMENT_VEHICLE,
     SERVICE_GET_REPLACEMENT_VEHICLES,
+    SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
     AVAILABILITY_MODE_DURATIONS,
     AVAILABILITY_MODE_NEXT_SCHEDULE,
     AVAILABILITY_MODE_CUSTOM,
@@ -129,6 +131,10 @@ CLEAR_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
 })
 GET_REPLACEMENT_VEHICLES_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
+})
+GET_INCIDENT_VEHICLE_EVIDENCE_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Optional(ATTR_INCIDENT_ID): vol.Coerce(str),
 })
 
 ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
@@ -238,6 +244,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SET_REPLACEMENT_VEHICLE,
             SERVICE_CLEAR_REPLACEMENT_VEHICLE,
             SERVICE_GET_REPLACEMENT_VEHICLES,
+            SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
         ):
             if hass.services.has_service(DOMAIN, service):
                 hass.services.async_remove(DOMAIN, service)
@@ -385,6 +392,18 @@ def _async_register_services(hass: HomeAssistant) -> None:
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
         return {"active": entry_data[DATA_REPLACEMENT_VEHICLES].active}
 
+    async def async_get_incident_vehicle_evidence(call: ServiceCall) -> dict:
+        """Read-only, privacy-filtered diagnostic of a BWR incident's vehicle fields."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        incident_id = call.data.get(ATTR_INCIDENT_ID) or client.incident_id
+        if incident_id is None:
+            raise HomeAssistantError("No incident ID available for vehicle diagnostics")
+        incident = await client.async_get_incident(incident_id)
+        if not isinstance(incident, dict):
+            raise HomeAssistantError("Could not retrieve incident for vehicle diagnostics")
+        return incident_vehicle_evidence(incident)
+
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
         """Inspect one incident's audit log with the existing OAuth client."""
         client = _service_client(hass, call.data.get(ATTR_ENTRY_ID))
@@ -476,6 +495,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_GET_REPLACEMENT_VEHICLES, async_get_replacement_vehicles,
             schema=GET_REPLACEMENT_VEHICLES_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE):
+        hass.services.async_register(
+            DOMAIN, SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
+            async_get_incident_vehicle_evidence,
+            schema=GET_INCIDENT_VEHICLE_EVIDENCE_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS):
