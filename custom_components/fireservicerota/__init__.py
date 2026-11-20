@@ -55,6 +55,7 @@ from .const import (
     DATA_INCIDENT_STORE,
     DATA_P2000_MANAGER,
     DATA_REPLACEMENT_VEHICLES,
+    DATA_REPLACEMENT_MONITOR,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
@@ -123,6 +124,7 @@ SET_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
     vol.Required(ATTR_STATION_ID): vol.Coerce(int),
     vol.Required("original_vehicle_number"): cv.string,
     vol.Required("vehicle_number"): cv.string,
+    vol.Optional("vehicle_function"): cv.string,
 })
 CLEAR_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -222,6 +224,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_data = hass.data[DOMAIN][entry.entry_id]
     client = entry_data[DATA_CLIENT]
     p2000_manager = entry_data.get(DATA_P2000_MANAGER)
+    replacement_monitor = entry_data.get(DATA_REPLACEMENT_MONITOR)
+    if replacement_monitor is not None:
+        replacement_monitor.stop()
     if p2000_manager is not None:
         await p2000_manager.async_stop()
     await hass.async_add_executor_job(client.websocket.stop_listener)
@@ -359,6 +364,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 station_name=str(membership.get("station_name") or station_id),
                 original_vehicle_number=call.data["original_vehicle_number"],
                 vehicle_number=call.data["vehicle_number"],
+                vehicle_function=call.data.get("vehicle_function"),
             )
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
