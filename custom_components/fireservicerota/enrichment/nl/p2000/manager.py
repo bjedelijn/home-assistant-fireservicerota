@@ -398,6 +398,20 @@ class P2000EnrichmentManager:
                 if self._prealerts_enabled and key not in self._prealert_sent:
                     payload = build_prealert(event, self._prealert_capcodes)
                     if payload is not None:
+                        # Do not generate a P2000 prealert if BWR was already
+                        # received for this practical incident. An unmatched
+                        # P2000 alert remains informational, not a dispatch.
+                        already_at_bwr = any(
+                            self._matches(incident, event)
+                            and (
+                                (bwr_seen := self._parse_datetime(incident.get("first_seen_at"))) is not None
+                                and (p_seen := self._parse_datetime(event.received_at)) is not None
+                                and bwr_seen <= p_seen
+                            )
+                            for incident in self._correlation_incidents()
+                        )
+                        if already_at_bwr:
+                            continue
                         # One HA event per provider event. HA automations must use
                         # their existing BrandweerRooster night/TTS conditions.
                         if len(self._prealert_order) == self._prealert_order.maxlen:
