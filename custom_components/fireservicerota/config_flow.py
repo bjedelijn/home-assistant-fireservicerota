@@ -11,6 +11,8 @@ from .const import (
     CONF_P2000_ENABLED,
     CONF_P2000_PAGE_KEY,
     CONF_P2000_PAGE_REGIONS,
+    CONF_P2000_PREALERT_ENABLED,
+    CONF_P2000_PREALERT_CAPCODES,
     CONF_P2000_RTL_TOPIC,
     CONF_P2000_SCAN_INTERVAL,
     CONF_P2000_SOURCE,
@@ -173,6 +175,9 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     and chosen in {P2000_SOURCE_PAGE, P2000_SOURCE_PAGE_RTL}
                     and not updated.get(CONF_P2000_PAGE_KEY)):
                 errors["base"] = "p2000_page_key_required"
+            from .p2000_prealerts import configured_capcodes
+            if updated.get(CONF_P2000_PREALERT_ENABLED) and not configured_capcodes(updated.get(CONF_P2000_PREALERT_CAPCODES, "")):
+                errors["base"] = "invalid_prealert_capcodes"
             if not errors:
                 return self.async_create_entry(title="", data=updated)
 
@@ -209,6 +214,14 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     CONF_P2000_PAGE_REGIONS,
                     default=str(current.get(CONF_P2000_PAGE_REGIONS, P2000_DEFAULT_PAGE_REGIONS)),
                 ): vol.All(str, vol.Match(r"^(?:0[1-9]|1[0-9]|2[0-5])(?:~(?:0[1-9]|1[0-9]|2[0-5]))*$")),
+                vol.Optional(
+                    CONF_P2000_PREALERT_ENABLED,
+                    default=bool(current.get(CONF_P2000_PREALERT_ENABLED, False)),
+                ): bool,
+                vol.Optional(
+                    CONF_P2000_PREALERT_CAPCODES,
+                    default=str(current.get(CONF_P2000_PREALERT_CAPCODES, "")),
+                ): str,
                 vol.Optional(
                     CONF_P2000_RTL_TOPIC,
                     default=str(
