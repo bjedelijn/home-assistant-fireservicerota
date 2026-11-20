@@ -40,6 +40,7 @@ SERVICE_SET_STATION_AVAILABILITY = "set_station_availability"
 SERVICE_SET_REPLACEMENT_VEHICLE = "set_replacement_vehicle"
 SERVICE_CLEAR_REPLACEMENT_VEHICLE = "clear_replacement_vehicle"
 SERVICE_GET_REPLACEMENT_VEHICLES = "get_replacement_vehicles"
+SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE = "get_incident_vehicle_evidence"
 
 ATTR_ENTRY_ID = "entry_id"
 ATTR_INCIDENT_ID = "incident_id"
