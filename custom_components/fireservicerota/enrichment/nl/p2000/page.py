@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Any, Callable
 
-from aiohttp import ClientError, ClientTimeout, WSMsgType, WSServerHandshakeError
+from aiohttp import ClientError, WSMsgType, WSServerHandshakeError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .model import P2000Event
@@ -213,7 +213,6 @@ class P2000PageWebsocketProvider:
                 try:
                     async with self._session.ws_connect(
                         url, headers=headers, heartbeat=40,
-                        timeout=ClientTimeout(total=20),
                         max_msg_size=1024 * 1024,
                     ) as ws:
                         self._ws = ws
