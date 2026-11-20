@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Extended opties",
-        "description": "Kies de bestaande online bron of p2000.page WebSocket, eventueel met RTL-SDR. Voor p2000.page is een persoonlijk API-abonnement nodig: https://p2000.page/api. Vul de sleutel alleen lokaal in.",
+        "description": "Kies AlarmeringDroid of p2000.page WebSocket, eventueel samen met RTL-SDR. Voor p2000.page is een eigen abonnement vereist: {api_url}. Vul de sleutel alleen lokaal in.",
         "data": {
           "p2000_enabled": "P2000-verrijking inschakelen",
           "p2000_source": "P2000-bron",
