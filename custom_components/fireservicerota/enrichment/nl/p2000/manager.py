@@ -47,6 +47,9 @@ _STOPWORDS = {
 }
 
 
+from ....p2000_prealerts import build_prealert
+
+
 class P2000EnrichmentManager:
     """Continuously buffer P2000 alerts and enrich BrandweerRooster incidents."""
 
@@ -61,6 +64,8 @@ class P2000EnrichmentManager:
         page_api_key: str | None = None,
         page_regions: str = "06",
         replacement_vehicle_store=None,
+        prealerts_enabled: bool = False,
+        prealert_capcodes: set[str] | None = None,
     ) -> None:
         self._hass = hass
         self._incident_store = incident_store
@@ -80,6 +85,9 @@ class P2000EnrichmentManager:
             self._providers.append(P2000RtlMqttProvider(hass, **kwargs))
         self._vehicle_registry = BrandbaseVehicleRegistry(hass)
         self._replacement_vehicle_store = replacement_vehicle_store
+        self._prealerts_enabled = prealerts_enabled
+        self._prealert_capcodes = prealert_capcodes or set()
+        self._prealert_sent: set[str] = set()
         self._task: asyncio.Task | None = None
         self._first_received: dict[str, str] = {}
         self._buffer: dict[str, P2000Event] = {}
@@ -385,6 +393,13 @@ class P2000EnrichmentManager:
                 event.received_at = first
                 self._buffer[key] = event
                 events.append(event)
+                if self._prealerts_enabled and key not in self._prealert_sent:
+                    payload = build_prealert(event, self._prealert_capcodes)
+                    if payload is not None:
+                        # One HA event per provider event. HA automations must use
+                        # their existing BrandweerRooster night/TTS conditions.
+                        self._prealert_sent.add(key)
+                        self._hass.bus.async_fire("fireservicerota_p2000_prealert", payload)
 
         self._prune_buffer()
         self._last_poll_at = datetime.now().astimezone().isoformat()
