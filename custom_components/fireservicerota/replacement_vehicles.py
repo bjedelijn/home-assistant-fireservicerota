@@ -21,6 +21,16 @@ def normalize_unit(value: str) -> str:
     return raw
 
 
+def normalize_vehicle_function(value: str | None) -> str | None:
+    """Normalize a named vehicle role, e.g. TS, TS-BT or WTS."""
+    if value is None or not str(value).strip():
+        return None
+    role = str(value).strip().upper()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9 -]{0,29}", role):
+        raise ValueError("Use a short vehicle function (e.g. TS or WTS)")
+    return role
+
+
 def _date(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -89,9 +99,11 @@ class ReplacementVehicleStore:
     async def async_set(
         self, *, station_id: int, station_name: str,
         original_vehicle_number: str, vehicle_number: str,
+        vehicle_function: str | None = None,
     ) -> dict:
         original = normalize_unit(original_vehicle_number)
         replacement = normalize_unit(vehicle_number)
+        function = normalize_vehicle_function(vehicle_function)
         if original == replacement:
             raise ValueError("Original and replacement vehicle must be different")
         active = self.active
@@ -106,7 +118,8 @@ class ReplacementVehicleStore:
             if item["station_id"] == station_id
             and item.get("original_vehicle_number") == original
         ]
-        if len(matching) == 1 and matching[0]["vehicle_number"] == replacement:
+        if (len(matching) == 1 and matching[0]["vehicle_number"] == replacement
+                and matching[0].get("vehicle_function") == function):
             return dict(matching[0])
         now = datetime.now(timezone.utc).isoformat()
         for record in self._records:
@@ -121,6 +134,7 @@ class ReplacementVehicleStore:
             "station_name": station_name,
             "original_vehicle_number": original,
             "vehicle_number": replacement,
+            "vehicle_function": function,
             "start_time": now,
             "end_time": None,
         }
@@ -128,7 +142,10 @@ class ReplacementVehicleStore:
         await self._store.async_save({"records": self._records})
         return dict(new)
 
-    async def async_clear(self, *, station_id: int, original_vehicle_number: str) -> bool:
+    async def async_clear(
+        self, *, station_id: int, original_vehicle_number: str,
+        end_reason: str | None = None, end_incident_id: str | int | None = None,
+    ) -> bool:
         original = normalize_unit(original_vehicle_number)
         now = datetime.now(timezone.utc).isoformat()
         changed = False
@@ -139,6 +156,10 @@ class ReplacementVehicleStore:
                 and not record.get("end_time")
             ):
                 record["end_time"] = now
+                if end_reason:
+                    record["end_reason"] = str(end_reason)[:64]
+                if end_incident_id is not None:
+                    record["end_incident_id"] = str(end_incident_id)
                 changed = True
         if changed:
             await self._store.async_save({"records": self._records})
