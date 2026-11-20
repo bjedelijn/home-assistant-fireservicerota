@@ -275,3 +275,22 @@ get_replacement_vehicles:
       required: false
       selector:
         text: {}
+
+get_incident_vehicle_evidence:
+  name: Inspecteer BWR-voertuigvelden (veilig)
+  description: >-
+    Lees de veldnamen en exacte voertuignummers uit een BrandweerRooster-incident.
+    Retourneert geen persoonsgegevens of volledige incidenttekst.
+    Diagnostiek is geen bewijs van daadwerkelijke inzet.
+  fields:
+    entry_id:
+      name: Configuratie-ID
+      required: false
+      selector:
+        text: {}
+    incident_id:
+      name: Incident-ID
+      description: Optioneel; zonder waarde wordt het laatste ontvangen incident opgehaald.
+      required: false
+      selector:
+        text: {}
