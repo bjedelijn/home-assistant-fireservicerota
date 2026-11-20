@@ -63,6 +63,7 @@ class P2000EnrichmentManager:
         page_api_key: str | None = None,
         page_regions: str = "06",
         replacement_vehicle_store=None,
+        replacement_monitor=None,
         prealerts_enabled: bool = False,
         prealert_capcodes: set[str] | None = None,
     ) -> None:
@@ -84,6 +85,7 @@ class P2000EnrichmentManager:
             self._providers.append(P2000RtlMqttProvider(hass, **kwargs))
         self._vehicle_registry = BrandbaseVehicleRegistry(hass)
         self._replacement_vehicle_store = replacement_vehicle_store
+        self._replacement_monitor = replacement_monitor
         self._prealerts_enabled = prealerts_enabled
         self._prealert_capcodes = prealert_capcodes or set()
         self._prealert_sent: set[str] = set()
@@ -462,6 +464,9 @@ class P2000EnrichmentManager:
                     matched_by_key[self._event_key(event)] = event
 
             matched = list(matched_by_key.values())
+            if matched and self._replacement_monitor is not None:
+                for incident_id in incident_ids:
+                    await self._replacement_monitor.async_handle_p2000_match(incident_id, matched)
             if not matched:
                 for incident_id in incident_ids:
                     self._incident_store.clear_p2000_enrichment(incident_id)
