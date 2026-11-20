@@ -1,7 +1,9 @@
 """Offline normalization tests for the optional p2000.page provider."""
+from collections import deque
 from datetime import datetime, timezone
 
 from custom_components.fireservicerota.enrichment.nl.p2000.page import (
+    P2000PageWebsocketProvider,
     normalize_page_event,
     valid_regions,
 )
@@ -52,3 +54,28 @@ def test_missing_vehicles_and_bad_timestamp_do_not_crash():
     assert event is not None
     assert event.event_time is None
     assert event.units == []
+
+
+def test_provider_accepts_uid_once_and_wakes_processing():
+    """Same provider UID must never cause a second live announcement."""
+    wake_calls = []
+    provider = object.__new__(P2000PageWebsocketProvider)
+    provider._pending = deque(maxlen=500)
+    provider._seen = deque(maxlen=1000)
+    provider._seen_set = set()
+    provider._on_event = lambda: wake_calls.append(True)
+    provider._received = 0
+    provider._regions = "06"
+    data = {
+        "uid": "synthetic-unique-id",
+        "dienst": "Brandweer",
+        "melding": "P 1 Brand woning 042330",
+        "timestamp": "1792751330",
+    }
+    provider._accept(data)
+    provider._accept(data)
+    assert provider._received == 1
+    assert len(provider._pending) == 1
+    assert len(wake_calls) == 1
+    assert provider.provider_debug["pending_events"] == 1
+    assert "api_key" not in provider.provider_debug
