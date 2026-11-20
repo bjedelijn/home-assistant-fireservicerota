@@ -84,13 +84,18 @@
           "p2000_page_key": "p2000.page API-sleutel (leeg laten om bestaande sleutel te bewaren)",
           "p2000_page_regions": "p2000.page veiligheidsregio's (bijv. 06~17)",
           "p2000_prealert_enabled": "P2000-voormeldingen inschakelen (geen automatische spraak)",
-          "p2000_prealert_capcodes": "Persoonlijke/postcapcodes voor voormeldingen (komma-gescheiden, 7 cijfers)"
+          "p2000_prealert_capcodes": "Persoonlijke/postcapcodes voor voormeldingen (komma-gescheiden, 7 cijfers)",
+          "replacement_alerts_enabled": "Stille waarschuwingen bij voertuigafwijking inschakelen",
+          "replacement_alert_channel": "Notificatiekanaal",
+          "replacement_alert_telegram_entity": "Telegram-notificatie-entiteit (notify.*)",
+          "replacement_alert_push_entity": "Home Assistant-pushentiteit (notify.*)"
         }
       }
     },
     "error": {
       "p2000_page_key_required": "Vul een p2000.page API-sleutel in om deze bron in te schakelen.",
-      "invalid_prealert_capcodes": "Vul een of meer geldige capcodes van zeven cijfers in voor P2000-voormeldingen."
+      "invalid_prealert_capcodes": "Vul een of meer geldige capcodes van zeven cijfers in voor P2000-voormeldingen.",
+      "replacement_notify_target_required": "Stel de notify-entiteiten (notify.*) in voor de gekozen stille waarschuwingen."
     }
   }
 }
