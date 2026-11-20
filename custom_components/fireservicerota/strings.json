@@ -74,7 +74,7 @@
     "step": {
       "init": {
         "title": "Extended options",
-        "description": "Choose the existing online provider or p2000.page WebSocket, optionally with RTL-SDR. A personal API subscription is required for p2000.page: https://p2000.page/api. Enter your key only locally.",
+        "description": "Choose AlarmeringDroid or p2000.page WebSocket, optionally with RTL-SDR. A personal subscription is required: {api_url}. Enter the API key only locally.",
         "data": {
           "p2000_enabled": "Enable P2000 enrichment",
           "p2000_source": "P2000 source",
