@@ -81,12 +81,15 @@
           "p2000_scan_interval": "Polling interval for existing provider / checks (seconds)",
           "p2000_rtl_topic": "MQTT attributes topic for P2000 via ether",
           "p2000_page_key": "p2000.page API key (leave blank to retain existing key)",
-          "p2000_page_regions": "p2000.page regions (e.g. 06~17)"
+          "p2000_page_regions": "p2000.page regions (e.g. 06~17)",
+          "p2000_prealert_enabled": "Enable early P2000 prealert events (no automatic speech)",
+          "p2000_prealert_capcodes": "Personal/station capcodes for early alerts (comma-separated, 7 digits)"
         }
       }
     },
     "error": {
-      "p2000_page_key_required": "Enter a p2000.page API key to enable this source."
+      "p2000_page_key_required": "Enter a p2000.page API key to enable this source.",
+      "invalid_prealert_capcodes": "Enter one or more valid seven-digit capcodes for early P2000 alerts."
     }
   }
 }
