@@ -260,7 +260,12 @@ class P2000PageWebsocketProvider:
                     self.last_error = "connection_failed"
                 finally:
                     self._ws = None
-                    self._status("disconnected")
+                    if self.last_error == "authorization_or_plan_denied":
+                        self._status("configuration_error")
+                    elif self.last_error == "rate_limited":
+                        self._status("rate_limited")
+                    else:
+                        self._status("disconnected")
                 if self._stop:
                     break
                 if close_code in _STOP_CLOSE_CODES:
