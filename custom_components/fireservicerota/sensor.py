@@ -12,6 +12,8 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CONF_P2000_ENABLED,
+    CONF_P2000_PAGE_KEY,
+    CONF_P2000_PAGE_REGIONS,
     CONF_P2000_RTL_TOPIC,
     CONF_P2000_SCAN_INTERVAL,
     CONF_P2000_SOURCE,
@@ -22,8 +24,11 @@ from .const import (
     DATA_REPLACEMENT_VEHICLES,
     DOMAIN as FIRESERVICEROTA_DOMAIN,
     P2000_DEFAULT_RTL_TOPIC,
+    P2000_DEFAULT_PAGE_REGIONS,
     P2000_DEFAULT_SCAN_INTERVAL,
     P2000_SOURCE_BOTH,
+    P2000_SOURCE_PAGE,
+    P2000_SOURCE_PAGE_RTL,
     P2000_SOURCE_ONLINE,
     P2000_SOURCE_RTL,
 )
@@ -60,7 +65,7 @@ async def async_setup_entry(
         entry.data.get("url") == "www.brandweerrooster.nl"
         and options.get(CONF_P2000_ENABLED, False)
         and selected_p2000_source
-        in {P2000_SOURCE_ONLINE, P2000_SOURCE_RTL, P2000_SOURCE_BOTH}
+        in {P2000_SOURCE_ONLINE, P2000_SOURCE_RTL, P2000_SOURCE_BOTH, P2000_SOURCE_PAGE, P2000_SOURCE_PAGE_RTL}
     ):
         p2000_manager = P2000EnrichmentManager(
             hass,
@@ -70,6 +75,8 @@ async def async_setup_entry(
             ),
             source=selected_p2000_source,
             rtl_topic=options.get(CONF_P2000_RTL_TOPIC, P2000_DEFAULT_RTL_TOPIC),
+            page_api_key=options.get(CONF_P2000_PAGE_KEY),
+            page_regions=options.get(CONF_P2000_PAGE_REGIONS, P2000_DEFAULT_PAGE_REGIONS),
             replacement_vehicle_store=hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id].get(DATA_REPLACEMENT_VEHICLES),
         )
         hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
