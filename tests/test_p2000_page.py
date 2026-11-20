@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from custom_components.fireservicerota.enrichment.nl.p2000.page import (
     P2000PageWebsocketProvider,
     normalize_page_event,
+    matches_regions,
     valid_regions,
 )
 
@@ -68,6 +69,7 @@ def test_provider_accepts_uid_once_and_wakes_processing():
     provider._regions = "06"
     data = {
         "uid": "synthetic-unique-id",
+        "regios": "R06",
         "dienst": "Brandweer",
         "melding": "P 1 Brand woning 042330",
         "timestamp": "1792751330",
@@ -79,3 +81,28 @@ def test_provider_accepts_uid_once_and_wakes_processing():
     assert len(wake_calls) == 1
     assert provider.provider_debug["pending_events"] == 1
     assert "api_key" not in provider.provider_debug
+
+
+def test_region_filter_rejects_wrong_and_missing_regions():
+    assert matches_regions({"regios": "R04"}, "04")
+    assert matches_regions({"regios": "R04 R06"}, "06~17")
+    assert not matches_regions({"regios": "R04"}, "06")
+    assert not matches_regions({"regios": ""}, "04")
+    assert not matches_regions({"regios": "R99"}, "04")
+    assert not matches_regions({}, "04")
+
+
+def test_wrong_region_never_enters_live_queue():
+    provider = object.__new__(P2000PageWebsocketProvider)
+    provider._pending = deque(maxlen=500)
+    provider._seen = deque(maxlen=1000)
+    provider._seen_set = set()
+    provider._on_event = None
+    provider._received = 0
+    provider._regions = "06"
+    provider._accept({
+        "uid": "wrong-region", "regios": "R04", "dienst": "Brandweer",
+        "melding": "P 1 Brand woning", "timestamp": "1792751330",
+    })
+    assert provider._received == 0
+    assert len(provider._pending) == 0
