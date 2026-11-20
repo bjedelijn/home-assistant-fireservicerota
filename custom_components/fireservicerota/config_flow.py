@@ -14,6 +14,7 @@ from .const import (
     CONF_P2000_PREALERT_ENABLED,
     CONF_P2000_PREALERT_CAPCODES,
     CONF_REPLACEMENT_ALERTS_ENABLED,
+    CONF_REPLACEMENT_AUTO_CLEAR_ENABLED,
     CONF_REPLACEMENT_ALERT_CHANNEL,
     CONF_REPLACEMENT_ALERT_TELEGRAM_ENTITY,
     CONF_REPLACEMENT_ALERT_PUSH_ENTITY,
@@ -179,7 +180,7 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     and chosen in {P2000_SOURCE_PAGE, P2000_SOURCE_PAGE_RTL}
                     and not updated.get(CONF_P2000_PAGE_KEY)):
                 errors["base"] = "p2000_page_key_required"
-            from .replacement_notifications import notify_entities, valid_notify_entity
+            from .replacement_notifications import notify_entities
             if updated.get(CONF_REPLACEMENT_ALERTS_ENABLED):
                 channel = updated.get(CONF_REPLACEMENT_ALERT_CHANNEL, "push")
                 targets = notify_entities(updated)
@@ -224,6 +225,10 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     CONF_P2000_PAGE_REGIONS,
                     default=str(current.get(CONF_P2000_PAGE_REGIONS, P2000_DEFAULT_PAGE_REGIONS)),
                 ): vol.All(str, vol.Match(r"^(?:0[1-9]|1[0-9]|2[0-5])(?:~(?:0[1-9]|1[0-9]|2[0-5]))*$")),
+                vol.Optional(
+                    CONF_REPLACEMENT_AUTO_CLEAR_ENABLED,
+                    default=bool(current.get(CONF_REPLACEMENT_AUTO_CLEAR_ENABLED, False)),
+                ): bool,
                 vol.Optional(
                     CONF_REPLACEMENT_ALERTS_ENABLED,
                     default=bool(current.get(CONF_REPLACEMENT_ALERTS_ENABLED, False)),
