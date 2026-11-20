@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Any, Callable
 
-from aiohttp import ClientError, ClientTimeout, WSMsgType
+from aiohttp import ClientError, ClientTimeout, WSMsgType, WSServerHandshakeError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .model import P2000Event
@@ -243,6 +243,17 @@ class P2000PageWebsocketProvider:
                         close_code = ws.close_code
                 except asyncio.CancelledError:
                     raise
+                except WSServerHandshakeError as err:
+                    self.last_poll_success = False
+                    if err.status in (401, 403):
+                        self.last_error = "authorization_or_plan_denied"
+                        self._status("configuration_error")
+                        return
+                    if err.status == 429:
+                        delay = max(delay, 120)
+                        self.last_error = "rate_limited"
+                    else:
+                        self.last_error = "connection_failed"
                 except (ClientError, TimeoutError, OSError, ValueError):
                     # Do not log provider exception: URLs and auth details may be embedded.
                     self.last_poll_success = False
