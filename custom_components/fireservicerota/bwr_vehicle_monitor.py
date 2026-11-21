@@ -73,6 +73,7 @@ class ReplacementVehicleMonitor:
         self._options = dict(options)
         self._pending: dict[tuple[str, int, str], tuple[dict, dict]] = {}
         self._pending_tasks: dict[tuple[str, int, str], asyncio.Task] = {}
+        self._matched_events: dict[tuple[str, int, str], dict[str, Any]] = {}
         self._seen: set[tuple[str, int, str, str]] = set()
         self._order: deque[tuple[str, int, str, str]] = deque(maxlen=500)
         self._closed = False
@@ -80,6 +81,7 @@ class ReplacementVehicleMonitor:
     def stop(self) -> None:
         self._closed = True
         self._pending.clear()
+        self._matched_events.clear()
         for task in self._pending_tasks.values():
             task.cancel()
         self._pending_tasks.clear()
@@ -145,82 +147,50 @@ class ReplacementVehicleMonitor:
                     self._pending_tasks[key] = task
 
     async def _check_later(self, key: tuple[str, int, str], role: str) -> None:
+        # Wait for additional P2000 providers and late incident updates. Never
+        # auto-clear from the first matched message: a later message may name
+        # the substitute or explain the vehicle was replaced.
         await asyncio.sleep(120)
+        await self._finalize_pending(key, role)
+
+    async def _finalize_pending(self, key: tuple[str, int, str], role: str) -> None:
+        """Finish one correlation window using ALL collected P2000 evidence."""
         if self._closed:
             return
         self._pending_tasks.pop(key, None)
         pending = self._pending.pop(key, None)
+        matches = list(self._matched_events.pop(key, {}).values())
         if pending is None:
             return
         record, dispatch = pending
         if not self._still_active(record):
             return
-        # No confirmed matching P2000 within the window: notify, do not clear.
-        decision = evaluate_replacement(
-            record, bwr_station_id=dispatch["station_id"],
-            bwr_vehicle_number=dispatch["vehicle_number"],
-            bwr_event_time=dispatch["event_time"],
-            bwr_incident_id=dispatch["incident_id"],
-            bwr_verified_live=True,
-        )
-        decision["station_name"] = record.get("station_name")
-        await self._emit_notification(decision, role)
 
-    def _still_active(self, record: dict) -> bool:
-        """Reject evidence for a manually changed or already cleared replacement."""
-        return any(
-            item.get("station_id") == record.get("station_id")
-            and item.get("original_vehicle_number") == record.get("original_vehicle_number")
-            and item.get("vehicle_number") == record.get("vehicle_number")
-            and item.get("start_time") == record.get("start_time")
-            for item in self._store.active
-        )
-
-    async def async_handle_p2000_match(self, incident_id: Any, events: list[Any]) -> None:
-        """React only to P2000 events the existing incident matcher attached."""
-        if self._closed:
-            return
-        for key, (record, dispatch) in list(self._pending.items()):
-            if str(incident_id) != key[0] or not self._still_active(record):
-                continue
-            # The incident matcher can return several P2000 messages for one
-            # practical incident. A single message naming the original unit
-            # does not prove its return if another names the replacement.
-            # P2000 text can explicitly describe "original replaced by X".
-            # In that situation both unit numbers may be present in text.
+        original = normalize_unit(record["original_vehicle_number"])
+        substitute = normalize_unit(record["vehicle_number"])
+        all_units: set[str] = set()
+        ambiguous = False
+        for event in matches:
             try:
-                original = normalize_unit(record["original_vehicle_number"])
-                substitute = normalize_unit(record["vehicle_number"])
-                all_units = {
-                    normalize_unit(unit)
-                    for event in events
-                    for unit in (getattr(event, "units", []) or [])
-                }
-            except (TypeError, ValueError, KeyError):
-                continue
-            if substitute in all_units:
-                continue
-            if original not in all_units:
-                continue
-            # Reject replacement wording across the complete incident group.
-            # We do not parse free-text replacement annotations as positive
-            # evidence; when ambiguous, keep the active mapping.
-            ambiguous = any(
-                any(marker in str(getattr(event, "message", "") or "").casefold()
-                    for marker in ("vervang", "i.p.v.", "ipv", "in plaats van",
-                                   "replacement", "replaces", "reserve voor"))
-                for event in events
-            )
-            if ambiguous:
-                continue
-            confirmations = [
-                event for event in events
-                if original in {
-                    str(unit).replace("-", "").replace(" ", "")
-                    for unit in (getattr(event, "units", []) or [])
-                }
-            ]
-            for event in confirmations:
+                all_units.update(
+                    normalize_unit(u) for u in (getattr(event, "units", []) or [])
+                )
+            except (TypeError, ValueError):
+                ambiguous = True
+            message = str(getattr(event, "message", "") or "").casefold()
+            if any(marker in message for marker in (
+                "vervang", "i.p.v.", "ipv", "in plaats van",
+                "replacement", "replaces", "reserve voor",
+            )):
+                ambiguous = True
+
+        if not ambiguous and original in all_units and substitute not in all_units:
+            for event in matches:
+                if original not in {
+                    str(u).replace("-", "").replace(" ", "")
+                    for u in (getattr(event, "units", []) or [])
+                }:
+                    continue
                 decision = evaluate_replacement(
                     record,
                     bwr_station_id=dispatch["station_id"],
@@ -234,33 +204,68 @@ class ReplacementVehicleMonitor:
                 )
                 if decision["action"] != "clear":
                     continue
-                if not self._options.get("replacement_auto_clear_enabled", False):
-                    # No mutation when opt-in is disabled. Do not generate a
-                    # mismatch notification for a positively confirmed return.
-                    self._pending.pop(key, None)
-                    timer = self._pending_tasks.pop(key, None)
-                    if timer is not None:
-                        timer.cancel()
-                    return
-                changed = await self._store.async_clear(
-                    station_id=dispatch["station_id"],
-                    original_vehicle_number=record["original_vehicle_number"],
-                    end_reason="bwr_p2000_confirmed_return",
-                    end_incident_id=dispatch["incident_id"],
-                    expected_vehicle_number=record["vehicle_number"],
-                    expected_start_time=record["start_time"],
-                )
-                if not changed:
-                    return
-                self._pending.pop(key, None)
-                timer = self._pending_tasks.pop(key, None)
-                if timer is not None:
-                    timer.cancel()
-                self._hass.bus.async_fire("fireservicerota_vehicle_replacement_cleared", {
-                    "station_id": dispatch["station_id"],
-                    "original_vehicle_number": record["original_vehicle_number"],
-                    "replacement_vehicle_number": record["vehicle_number"],
-                    "incident_id": dispatch["incident_id"],
-                    "source": "bwr_p2000",
-                })
+                if self._options.get("replacement_auto_clear_enabled", False):
+                    changed = await self._store.async_clear(
+                        station_id=dispatch["station_id"],
+                        original_vehicle_number=record["original_vehicle_number"],
+                        end_reason="bwr_p2000_confirmed_return",
+                        end_incident_id=dispatch["incident_id"],
+                        expected_vehicle_number=record["vehicle_number"],
+                        expected_start_time=record["start_time"],
+                    )
+                    if changed:
+                        self._hass.bus.async_fire(
+                            "fireservicerota_vehicle_replacement_cleared",
+                            {
+                                "station_id": dispatch["station_id"],
+                                "original_vehicle_number": record["original_vehicle_number"],
+                                "replacement_vehicle_number": record["vehicle_number"],
+                                "incident_id": dispatch["incident_id"],
+                                "source": "bwr_p2000",
+                            },
+                        )
                 return
+
+        # No reliable double confirmation: keep the replacement, optionally
+        # send a *silent* discrepancy event once per reason and incident.
+        decision = evaluate_replacement(
+            record,
+            bwr_station_id=dispatch["station_id"],
+            bwr_vehicle_number=dispatch["vehicle_number"],
+            bwr_event_time=dispatch["event_time"],
+            bwr_incident_id=dispatch["incident_id"],
+            bwr_verified_live=True,
+        )
+        decision["station_name"] = record.get("station_name")
+        if substitute in all_units:
+            decision["reason"] = "p2000_replacement_still_present"
+        elif ambiguous:
+            decision["reason"] = "p2000_ambiguous_vehicle"
+        await self._emit_notification(decision, role)
+
+    def _still_active(self, record: dict) -> bool:
+        """Reject evidence for a manually changed or already cleared replacement."""
+        return any(
+            item.get("station_id") == record.get("station_id")
+            and item.get("original_vehicle_number") == record.get("original_vehicle_number")
+            and item.get("vehicle_number") == record.get("vehicle_number")
+            and item.get("start_time") == record.get("start_time")
+            for item in self._store.active
+        )
+
+    async def async_handle_p2000_match(self, incident_id: Any, events: list[Any]) -> None:
+        """Accumulate correlated P2000 messages; never clear before window ends."""
+        if self._closed:
+            return
+        for key, (record, _dispatch) in list(self._pending.items()):
+            if str(incident_id) != key[0] or not self._still_active(record):
+                continue
+            collected = self._matched_events.setdefault(key, {})
+            for event in events:
+                source = str(getattr(event, "source", "") or "")
+                external_id = str(getattr(event, "external_id", "") or "")
+                fingerprint = (source + ":" + external_id) if external_id else str(
+                    getattr(event, "message", "") or ""
+                )
+                if fingerprint and len(collected) < 100:
+                    collected[fingerprint] = event
