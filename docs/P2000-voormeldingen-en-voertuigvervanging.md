@@ -39,7 +39,7 @@ Bij opheffen wordt de exacte actieve vervanger inclusief starttijd gecontroleerd
 - `replacement_alerts_enabled` is standaard uit.
 - `replacement_alert_channel` kiest Telegram, Home Assistant-push of beide.
 - Voor geselecteerde kanalen is een geldige `notify.*`-entiteit verplicht.
-- Verzenden gebeurt uitsluitend via Home Assistant `notify.send_message`; geen sirene, critical priority, TTS of media player.
+- Telegram Bot wordt via `telegram_bot.send_message` met `disable_notification: true` verstuurd. Mobiele Home Assistant-push gebruikt `notify.send_message` met iOS `interruption-level: passive`. Er wordt geen sirene, TTS of media player geactiveerd.
 - Per incident, post, oorspronkelijk voertuig en afwijkingsreden wordt een waarschuwing in het lopende proces gededupliceerd.
 - Bij een derde of onbekend voertuig wordt **nooit** automatisch een nieuwe vervanging ingesteld.
 
@@ -54,7 +54,7 @@ action: fireservicerota.get_incident_vehicle_evidence
 data: {}
 ```
 
-Het antwoord bevat `vehicle_fields`, `fields_found` en `incident_id`. **Een gevonden nummer is nog geen bewijs van een werkelijk ingezette eenheid.** We moeten de gevonden paden en de BWR-semantiek eerst tegen echte incidenten valideren voor de automatische controle geactiveerd kan worden.
+Het antwoord bevat `incident_id`, `rest` en `websocket`. Binnen `rest` en (indien het laatst ontvangen incident-ID gelijk is) `websocket` staan de diagnostische `vehicle_fields` en `fields_found`. **Een gevonden nummer is nog geen bewijs van een werkelijk ingezette eenheid.** We moeten de gevonden paden en de BWR-semantiek eerst tegen echte incidenten valideren voor de automatische controle geactiveerd kan worden.
 
 ## Validatie vóór release
 
@@ -65,3 +65,7 @@ Het antwoord bevat `vehicle_fields`, `fields_found` en `incident_id`. **Een gevo
 5. GitHub CI, HACS, Hassfest, CodeQL en tests groen; daarna eerst gecontroleerde beta.
 
 **PR #23 blijft Draft.** De bestaande GitHub Actions-workflows valideren uitsluitend pull requests naar `extended`. Daarom toont deze gestapelde PR tegen de P2000-featurebranch nog geen eigen CI-runs. Zodra PR #22 gemerged en PR #23 naar `extended` gericht kan worden, moeten de normale CI-, HACS-, Hassfest- en CodeQL-controles opnieuw draaien.
+
+## CI van gestapelde branch
+
+Omdat PR #23 nog op de P2000-featurebranch is gebaseerd, zijn de PR-triggered checks voor deze PR niet zichtbaar. De push-triggers voor de **feature/replacement-reconciliation-prealerts** branch zijn daarom tijdelijk aan de GitHub Actions-workflows toegevoegd. De GitHub-koppeling kan enkel pull-request-triggered runs per SHA ophalen; hierdoor kunnen push-runs nog niet zelfstandig via die route worden bevestigd. Deze extra push-triggers moeten na samenvoegen worden verwijderd.
