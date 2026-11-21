@@ -7,7 +7,7 @@ Deze branch bouwt voort op Draft PR #22. **Nog niet mergen of als productie-beta
 - De Extended-opties bevatten `p2000_prealert_enabled` (standaard uit) en `p2000_prealert_capcodes` (zevencijferige post-/persoonlijke capcodes, komma-gescheiden).
 - Een recente P2000-melding met exact ingestelde capcode publiceert het HA-event `fireservicerota_p2000_prealert` met `status: unconfirmed` en `personal_dispatch_confirmed: false`.
 - Er wordt geen persoonlijke inzet aangenomen en **geen** TTS, Telegram of HA-push vanuit dit event automatisch verzonden.
-- Als BrandweerRooster al eerder een *herkenbaar hetzelfde incident* heeft geleverd, wordt de P2000-voormelding overgeslagen. Per provider-event-ID bestaat deduplicatie tijdens de lopende sessie.
+- Als BrandweerRooster al eerder een *herkenbaar hetzelfde incident* heeft geleverd, wordt de P2000-voormelding overgeslagen. Per provider-event-ID bestaat deduplicatie tijdens de lopende sessie; daarnaast worden vrijwel gelijktijdige identieke teksten van verschillende bronnen maximaal 90 seconden samengevoegd. Dit raakt nooit de definitieve BWR-alarmering.
 
 ### Nachtelijke spraak
 
