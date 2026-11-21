@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from custom_components.fireservicerota.p2000_prealerts import (
     build_prealert, configured_capcodes, matching_capcodes, is_fresh_live_event,
+    PrealertDeduplicator,
 )
 
 
@@ -51,3 +52,16 @@ def test_no_match_never_emits():
     now = datetime(2026, 11, 20, 21, 0, 20, tzinfo=timezone.utc)
     assert build_prealert(event(), {"0611073"}, now=now) is None
     assert build_prealert(event(moment=""), {"0611072"}, now=now) is None
+
+
+def test_near_identical_prealerts_from_different_providers_emit_only_once():
+    dedup = PrealertDeduplicator(window_seconds=90)
+    at = datetime(2026, 11, 20, 21, 0, 20, tzinfo=timezone.utc)
+    first = event()
+    second = event()
+    second.source = "rtl"
+    second.external_id = "rtl:another-id"
+    second.message = "  p1   brand woning  "
+    assert dedup.should_emit(first, now=at) is True
+    assert dedup.should_emit(second, now=at) is False
+    assert dedup.should_emit(second, now=at.replace(minute=2)) is True
