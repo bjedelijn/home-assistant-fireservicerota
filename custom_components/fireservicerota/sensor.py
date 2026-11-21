@@ -34,6 +34,10 @@ from .const import (
 )
 from .incident_store import ACTIVE_INCIDENT_REFRESH_SECONDS, HISTORY_LIMIT, IncidentStore
 from .enrichment.nl.p2000 import P2000EnrichmentManager
+from .p2000_prealerts import configured_capcodes
+from .bwr_vehicle_monitor import ReplacementVehicleMonitor
+from .const import DATA_REPLACEMENT_MONITOR
+from .const import CONF_P2000_PREALERT_ENABLED, CONF_P2000_PREALERT_CAPCODES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,8 +54,16 @@ async def async_setup_entry(
         DATA_INCIDENT_STORE
     ] = incident_store
 
+    options = {**entry.data, **entry.options}
+    replacement_monitor = ReplacementVehicleMonitor(
+        hass,
+        hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_REPLACEMENT_VEHICLES],
+        options,
+    )
+    hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][DATA_REPLACEMENT_MONITOR] = replacement_monitor
+
     entities = [
-        IncidentsSensor(client, incident_store),
+        IncidentsSensor(client, incident_store, replacement_monitor),
         ActiveIncidentsSensor(client, coordinator, incident_store),
         IncidentHistorySensor(client, incident_store),
         PagerSensor(client, coordinator),
@@ -78,6 +90,9 @@ async def async_setup_entry(
             page_api_key=options.get(CONF_P2000_PAGE_KEY),
             page_regions=options.get(CONF_P2000_PAGE_REGIONS, P2000_DEFAULT_PAGE_REGIONS),
             replacement_vehicle_store=hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id].get(DATA_REPLACEMENT_VEHICLES),
+            replacement_monitor=replacement_monitor,
+            prealerts_enabled=bool(options.get(CONF_P2000_PREALERT_ENABLED, False)),
+            prealert_capcodes=configured_capcodes(options.get(CONF_P2000_PREALERT_CAPCODES, "")),
         )
         hass.data[FIRESERVICEROTA_DOMAIN][entry.entry_id][
             DATA_P2000_MANAGER
@@ -98,8 +113,9 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
     _attr_translation_key = "incidents"
     _attr_should_poll = False
 
-    def __init__(self, client, incident_store: IncidentStore):
+    def __init__(self, client, incident_store: IncidentStore, replacement_monitor=None):
         """Initialize."""
+        self._replacement_monitor = replacement_monitor
         self._client = client
         self._incident_store = incident_store
         self._entry_id = self._client.entry_id
@@ -298,6 +314,10 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
             self._state_attributes,
             source="websocket",
         )
+        if self._replacement_monitor is not None:
+            self.hass.async_create_task(
+                self._replacement_monitor.async_handle_live(data_with_changes)
+            )
         self.async_write_ha_state()
 
         if incident_id is not None:
