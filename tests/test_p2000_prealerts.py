@@ -39,6 +39,7 @@ def test_generates_informational_event_not_personal_dispatch():
     result = build_prealert(event(), {"0611072"}, now=now)
     assert result["status"] == "unconfirmed"
     assert result["personal_dispatch_confirmed"] is False
+    assert result["units"] == []
 
 
 def test_drops_old_replayed_and_future_events():
@@ -65,3 +66,11 @@ def test_near_identical_prealerts_from_different_providers_emit_only_once():
     assert dedup.should_emit(first, now=at) is True
     assert dedup.should_emit(second, now=at) is False
     assert dedup.should_emit(second, now=at.replace(minute=2)) is True
+
+
+def test_prealert_publishes_normalized_units_for_night_guard():
+    now = datetime(2026, 11, 20, 21, 0, 20, tzinfo=timezone.utc)
+    alarm = event()
+    alarm.units = ["041037", "042333"]
+    result = build_prealert(alarm, {"0611072"}, now=now)
+    assert result["units"] == ["041037", "042333"]
