@@ -4,6 +4,7 @@ from custom_components.fireservicerota.replacement_notifications import (
     async_send_discrepancy,
     discrepancy_message,
     notify_entities,
+    notify_targets,
     valid_notify_entity,
 )
 
@@ -60,3 +61,37 @@ def test_quiet_dispatch_only_uses_notify_send_message():
     assert all(domain == "notify" and service == "send_message" for domain, service, *_ in hass.services.calls)
     assert all("priority" not in data and "tts" not in data for _, _, data, *_ in hass.services.calls)
     assert "041099" in discrepancy_message(DECISION, function="TS")["message"]
+
+
+def test_native_telegram_bot_delivery_is_still_silent():
+    class NativeServices:
+        def __init__(self):
+            self.calls = []
+        async def async_call(self, domain, service, data, *, target=None, blocking=False):
+            self.calls.append((domain, service, data, target, blocking))
+    hass = Hass()
+    hass.services = NativeServices()
+    options = {
+        "replacement_alerts_enabled": True,
+        "replacement_alert_channel": "both",
+        "replacement_alert_telegram_bot_entry_id": "0123456789ABCDEF0123456789ABCDEF",
+        "replacement_alert_push_entity": "notify.mobile_app_telefoon",
+    }
+    assert notify_targets(options) == [
+        ("telegram_bot", "0123456789ABCDEF0123456789ABCDEF"),
+        ("notify", "notify.mobile_app_telefoon"),
+    ]
+    assert asyncio.run(async_send_discrepancy(hass, options, DECISION, function="TS")) == 2
+    assert hass.services.calls[0][0:2] == ("telegram_bot", "send_message")
+    assert hass.services.calls[0][2]["parse_mode"] == "plain_text"
+    assert hass.services.calls[1][0:2] == ("notify", "send_message")
+    assert "critical" not in repr(hass.services.calls)
+
+
+def test_native_telegram_entry_id_validation_rejects_injection():
+    options = {
+        "replacement_alerts_enabled": True,
+        "replacement_alert_channel": "telegram",
+        "replacement_alert_telegram_bot_entry_id": "bad\\npass",
+    }
+    assert notify_targets(options) == []
