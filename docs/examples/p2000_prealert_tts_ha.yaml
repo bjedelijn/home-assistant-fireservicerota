@@ -35,8 +35,8 @@ automation:
         value_template: >-
           {% set tijd = now().strftime('%H:%M:%S') %}
           {% set is_nacht = tijd >= '23:00:00' or tijd < '07:00:00' %}
-          {% set message = trigger.event.data.get('message', '') | string %}
-          {% set units = message | regex_findall('(?<!\\d)\\d{6}(?!\\d)') %}
+          {# Prefer normalized P2000 vehicle numbers, as in brandweer.yaml V2.2.9. #}
+          {% set units = trigger.event.data.get('units', []) or [] %}
           {% set actief = states('sensor.brandweer_gramsbergen_actief_voertuig') | trim %}
           {{
             not is_nacht
