@@ -264,8 +264,12 @@ class ReplacementVehicleMonitor:
             for event in events:
                 source = str(getattr(event, "source", "") or "")
                 external_id = str(getattr(event, "external_id", "") or "")
-                fingerprint = (source + ":" + external_id) if external_id else str(
-                    getattr(event, "message", "") or ""
-                )
+                fallback = str(getattr(event, "message", "") or "").strip()
+                if not fallback:
+                    fallback = (
+                        str(getattr(event, "event_time", "") or "")
+                        + ":" + ",".join(str(u) for u in (getattr(event, "units", []) or []))
+                    )
+                fingerprint = (source + ":" + external_id) if external_id else fallback
                 if fingerprint and len(collected) < 100:
                     collected[fingerprint] = event
