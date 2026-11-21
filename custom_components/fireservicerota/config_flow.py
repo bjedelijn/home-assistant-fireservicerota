@@ -17,6 +17,7 @@ from .const import (
     CONF_REPLACEMENT_AUTO_CLEAR_ENABLED,
     CONF_REPLACEMENT_ALERT_CHANNEL,
     CONF_REPLACEMENT_ALERT_TELEGRAM_ENTITY,
+    CONF_REPLACEMENT_ALERT_TELEGRAM_BOT_ENTRY_ID,
     CONF_REPLACEMENT_ALERT_PUSH_ENTITY,
     CONF_P2000_RTL_TOPIC,
     CONF_P2000_SCAN_INTERVAL,
@@ -180,10 +181,10 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     and chosen in {P2000_SOURCE_PAGE, P2000_SOURCE_PAGE_RTL}
                     and not updated.get(CONF_P2000_PAGE_KEY)):
                 errors["base"] = "p2000_page_key_required"
-            from .replacement_notifications import notify_entities
+            from .replacement_notifications import notify_targets
             if updated.get(CONF_REPLACEMENT_ALERTS_ENABLED):
                 channel = updated.get(CONF_REPLACEMENT_ALERT_CHANNEL, "push")
-                targets = notify_entities(updated)
+                targets = notify_targets(updated)
                 if (channel == "both" and len(targets) != 2) or (channel in {"push", "telegram"} and len(targets) != 1):
                     errors["base"] = "replacement_notify_target_required"
             from .p2000_prealerts import configured_capcodes
@@ -240,6 +241,10 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Optional(
                     CONF_REPLACEMENT_ALERT_TELEGRAM_ENTITY,
                     default=str(current.get(CONF_REPLACEMENT_ALERT_TELEGRAM_ENTITY, "")),
+                ): str,
+                vol.Optional(
+                    CONF_REPLACEMENT_ALERT_TELEGRAM_BOT_ENTRY_ID,
+                    default=str(current.get(CONF_REPLACEMENT_ALERT_TELEGRAM_BOT_ENTRY_ID, "")),
                 ): str,
                 vol.Optional(
                     CONF_REPLACEMENT_ALERT_PUSH_ENTITY,
