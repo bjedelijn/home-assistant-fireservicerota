@@ -76,13 +76,16 @@ async def async_send_discrepancy(hass, options: dict, decision: dict, *, functio
             if kind == "telegram_bot":
                 await hass.services.async_call(
                     "telegram_bot", "send_message",
-                    {"config_entry_id": target, "message": payload["title"] + chr(10) + payload["message"], "parse_mode": "plain_text"},
+                    {"config_entry_id": target, "message": payload["title"] + chr(10) + payload["message"], "parse_mode": "plain_text", "disable_notification": True},
                     blocking=False,
                 )
             else:
+                # Passive delivery is a quiet notification on iOS. No
+                # critical/time-sensitive interruption, TTS or sound requested.
+                quiet_payload = {**payload, "data": {"push": {"interruption-level": "passive"}}}
                 await hass.services.async_call(
                     "notify", "send_message",
-                    payload,
+                    quiet_payload,
                     target={"entity_id": target},
                     blocking=False,
                 )
