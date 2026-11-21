@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - extended
+      - feature/replacement-reconciliation-prealerts
   pull_request:
     branches:
       - extended
