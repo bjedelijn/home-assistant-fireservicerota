@@ -92,7 +92,7 @@ class PrealertDeduplicator:
         """Only exact normalized message duplicates in a short window."""
         instant = now or datetime.now(timezone.utc)
         message = str(getattr(event, "message", "") or "").casefold()
-        fingerprint = re.sub(r"\\s+", " ", message).strip()
+        fingerprint = re.sub(r"\s+", " ", message).strip()
         if not fingerprint or instant.tzinfo is None:
             return False
         while self._recent and instant - self._recent[0][1] > self._window:
