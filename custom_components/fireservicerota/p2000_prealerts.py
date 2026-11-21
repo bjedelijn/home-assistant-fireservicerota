@@ -68,6 +68,7 @@ def build_prealert(event: Any, capcodes: set[str], *, now: datetime | None = Non
         "event_time": event.event_time,
         "received_at": event.received_at,
         "message": event.message,
+        "units": sorted({str(unit) for unit in (getattr(event, "units", []) or []) if isinstance(unit, str)}),
         "priority": getattr(event, "priority", None),
         "capcodes": match,
         "status": "unconfirmed",
