@@ -15,23 +15,35 @@ def valid_notify_entity(value: Any) -> bool:
     return isinstance(value, str) and bool(_NOTIFY_ENTITY.fullmatch(value.strip()))
 
 
-def notify_entities(options: dict) -> list[str]:
-    """Select explicitly configured entity targets; no implicit defaults."""
+def notify_targets(options: dict) -> list[tuple[str, str]]:
+    """Return explicit, validated destinations (entity or native Telegram bot).
+
+    The native Telegram integration uses telegram_bot.send_message rather than
+    a notify entity. Do not log the config-entry identifier.
+    """
     if not options.get("replacement_alerts_enabled", False):
         return []
     channel = options.get("replacement_alert_channel", "push")
     if channel not in {"telegram", "push", "both"}:
         return []
-    targets = []
-    for name, key in (
-        ("telegram", "replacement_alert_telegram_entity"),
-        ("push", "replacement_alert_push_entity"),
-    ):
-        if channel in (name, "both"):
-            target = str(options.get(key) or "").strip()
-            if valid_notify_entity(target) and target not in targets:
-                targets.append(target)
+    targets: list[tuple[str, str]] = []
+    if channel in {"telegram", "both"}:
+        entity = str(options.get("replacement_alert_telegram_entity") or "").strip()
+        bot_entry = str(options.get("replacement_alert_telegram_bot_entry_id") or "").strip()
+        if valid_notify_entity(entity):
+            targets.append(("notify", entity))
+        elif re.fullmatch(r"[A-Za-z0-9_-]{16,64}", bot_entry):
+            targets.append(("telegram_bot", bot_entry))
+    if channel in {"push", "both"}:
+        entity = str(options.get("replacement_alert_push_entity") or "").strip()
+        if valid_notify_entity(entity) and ("notify", entity) not in targets:
+            targets.append(("notify", entity))
     return targets
+
+
+def notify_entities(options: dict) -> list[str]:
+    """Backward-compatible helper for notify-entity-only destinations."""
+    return [value for kind, value in notify_targets(options) if kind == "notify"]
 
 
 def discrepancy_message(decision: dict, *, function: str | None = None) -> dict:
@@ -54,19 +66,26 @@ def discrepancy_message(decision: dict, *, function: str | None = None) -> dict:
 
 async def async_send_discrepancy(hass, options: dict, decision: dict, *, function: str | None = None) -> int:
     """Send noncritical notifications to explicit HA notify entities only."""
-    targets = notify_entities(options)
+    targets = notify_targets(options)
     if not targets:
         return 0
     payload = discrepancy_message(decision, function=function)
     delivered = 0
-    for target in targets:
+    for kind, target in targets:
         try:
-            await hass.services.async_call(
-                "notify", "send_message",
-                payload,
-                target={"entity_id": target},
-                blocking=False,
-            )
+            if kind == "telegram_bot":
+                await hass.services.async_call(
+                    "telegram_bot", "send_message",
+                    {"config_entry_id": target, "message": payload["title"] + "\\n" + payload["message"], "parse_mode": "plain_text"},
+                    blocking=False,
+                )
+            else:
+                await hass.services.async_call(
+                    "notify", "send_message",
+                    payload,
+                    target={"entity_id": target},
+                    blocking=False,
+                )
             delivered += 1
         except Exception:
             # Avoid logging the notification contents, credentials or HA entity names.
