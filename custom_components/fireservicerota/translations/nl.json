@@ -88,7 +88,8 @@
           "replacement_alerts_enabled": "Stille waarschuwingen bij voertuigafwijking inschakelen",
           "replacement_alert_channel": "Notificatiekanaal",
           "replacement_alert_telegram_entity": "Telegram-notificatie-entiteit (notify.*)",
-          "replacement_alert_push_entity": "Home Assistant-pushentiteit (notify.*)"
+          "replacement_alert_push_entity": "Home Assistant-pushentiteit (notify.*)",
+          "replacement_alert_telegram_bot_entry_id": "Telegram-bot configuratie-ID (bij gebruik van telegram_bot.send_message)"
         }
       }
     },
