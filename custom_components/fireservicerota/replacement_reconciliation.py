@@ -85,6 +85,13 @@ def evaluate_replacement(
         p_units = {normalize_unit(unit) for unit in (p2000_vehicle_numbers or [])}
     except (ValueError, TypeError):
         return {**base, "action": "notify", "reason": "p2000_invalid"}
+    # If P2000 also explicitly lists the replacement, evidence conflicts:
+    # never conclude that the original vehicle is definitively back.
+    if replacement in p_units:
+        return {
+            **base, "action": "notify", "reason": "p2000_replacement_still_present",
+            "observed_vehicle_number": observed,
+        }
     if original not in p_units:
         return {
             **base, "action": "notify", "reason": "p2000_mismatch",
