@@ -72,6 +72,7 @@ class ReplacementVehicleMonitor:
         self._store = store
         self._options = dict(options)
         self._pending: dict[tuple[str, int, str], tuple[dict, dict]] = {}
+        self._pending_tasks: dict[tuple[str, int, str], asyncio.Task] = {}
         self._seen: set[tuple[str, int, str, str]] = set()
         self._order: deque[tuple[str, int, str, str]] = deque(maxlen=500)
         self._closed = False
@@ -79,6 +80,9 @@ class ReplacementVehicleMonitor:
     def stop(self) -> None:
         self._closed = True
         self._pending.clear()
+        for task in self._pending_tasks.values():
+            task.cancel()
+        self._pending_tasks.clear()
 
     def _mark_once(self, key: tuple[str, int, str, str]) -> bool:
         if key in self._seen:
@@ -135,17 +139,22 @@ class ReplacementVehicleMonitor:
             if decision["reason"] == "third_vehicle":
                 await self._emit_notification(decision, role)
             elif decision["reason"] == "original_unconfirmed":
-                self._pending[key] = (record, dispatch)
-                self._hass.async_create_task(self._check_later(key, role))
+                if key not in self._pending:
+                    self._pending[key] = (record, dispatch)
+                    task = self._hass.async_create_task(self._check_later(key, role))
+                    self._pending_tasks[key] = task
 
     async def _check_later(self, key: tuple[str, int, str], role: str) -> None:
         await asyncio.sleep(120)
         if self._closed:
             return
+        self._pending_tasks.pop(key, None)
         pending = self._pending.pop(key, None)
         if pending is None:
             return
         record, dispatch = pending
+        if not self._still_active(record):
+            return
         # No confirmed matching P2000 within the window: notify, do not clear.
         decision = evaluate_replacement(
             record, bwr_station_id=dispatch["station_id"],
@@ -157,12 +166,22 @@ class ReplacementVehicleMonitor:
         decision["station_name"] = record.get("station_name")
         await self._emit_notification(decision, role)
 
+    def _still_active(self, record: dict) -> bool:
+        """Reject evidence for a manually changed or already cleared replacement."""
+        return any(
+            item.get("station_id") == record.get("station_id")
+            and item.get("original_vehicle_number") == record.get("original_vehicle_number")
+            and item.get("vehicle_number") == record.get("vehicle_number")
+            and item.get("start_time") == record.get("start_time")
+            for item in self._store.active
+        )
+
     async def async_handle_p2000_match(self, incident_id: Any, events: list[Any]) -> None:
         """React only to P2000 events the existing incident matcher attached."""
         if self._closed:
             return
         for key, (record, dispatch) in list(self._pending.items()):
-            if str(incident_id) != key[0]:
+            if str(incident_id) != key[0] or not self._still_active(record):
                 continue
             for event in events:
                 decision = evaluate_replacement(
@@ -179,13 +198,20 @@ class ReplacementVehicleMonitor:
                 if decision["action"] != "clear":
                     continue
                 self._pending.pop(key, None)
+                timer = self._pending_tasks.pop(key, None)
+                if timer is not None:
+                    timer.cancel()
                 if self._options.get("replacement_auto_clear_enabled", False):
-                    await self._store.async_clear(
+                    changed = await self._store.async_clear(
                         station_id=dispatch["station_id"],
                         original_vehicle_number=record["original_vehicle_number"],
                         end_reason="bwr_p2000_confirmed_return",
                         end_incident_id=dispatch["incident_id"],
+                        expected_vehicle_number=record["vehicle_number"],
+                        expected_start_time=record["start_time"],
                     )
+                    if not changed:
+                        return
                     self._hass.bus.async_fire("fireservicerota_vehicle_replacement_cleared", {
                         "station_id": dispatch["station_id"],
                         "original_vehicle_number": record["original_vehicle_number"],
