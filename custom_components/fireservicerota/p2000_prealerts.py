@@ -5,7 +5,8 @@ It must never bypass the user's existing Home Assistant night/TTS conditions.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from collections import deque
 import re
 from typing import Any
 
@@ -72,3 +73,30 @@ def build_prealert(event: Any, capcodes: set[str], *, now: datetime | None = Non
         "status": "unconfirmed",
         "personal_dispatch_confirmed": False,
     }
+
+
+class PrealertDeduplicator:
+    """Bounded, source-independent suppression of near-identical prealerts.
+
+    This only suppresses *informational P2000 prealerts*, never the final
+    BrandweerRooster dispatch. Different transports may use different IDs
+    for the same radio message.
+    """
+
+    def __init__(self, *, window_seconds: int = 90, capacity: int = 500) -> None:
+        self._window = timedelta(seconds=window_seconds)
+        self._recent: deque[tuple[str, datetime]] = deque(maxlen=capacity)
+
+    def should_emit(self, event: Any, *, now: datetime | None = None) -> bool:
+        """Only exact normalized message duplicates in a short window."""
+        instant = now or datetime.now(timezone.utc)
+        message = str(getattr(event, "message", "") or "").casefold()
+        fingerprint = re.sub(r"\\s+", " ", message).strip()
+        if not fingerprint or instant.tzinfo is None:
+            return False
+        while self._recent and instant - self._recent[0][1] > self._window:
+            self._recent.popleft()
+        if any(key == fingerprint and abs(instant - timestamp) <= self._window for key, timestamp in self._recent):
+            return False
+        self._recent.append((fingerprint, instant))
+        return True
