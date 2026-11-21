@@ -62,4 +62,4 @@ Het antwoord bevat `vehicle_fields`, `fields_found` en `incident_id`. **Een gevo
 4. De huidige Home Assistant-automatiseringen `brandweer.yaml` / `brandweer_paraat.yaml` nalopen en hun exacte spraak- en nachtvoorwaarden hergebruiken in de eventuele voormeldings-automatisering.
 5. GitHub CI, HACS, Hassfest, CodeQL en tests groen; daarna eerst gecontroleerde beta.
 
-**PR #23 blijft Draft.** De aparte workflowfilters voor de gestapelde featurebranch zijn tijdelijk en moeten verwijderd worden zodra PR #22 gemerged is.
+**PR #23 blijft Draft.** De bestaande GitHub Actions-workflows valideren uitsluitend pull requests naar `extended`. Daarom toont deze gestapelde PR tegen de P2000-featurebranch nog geen eigen CI-runs. Zodra PR #22 gemerged en PR #23 naar `extended` gericht kan worden, moeten de normale CI-, HACS-, Hassfest- en CodeQL-controles opnieuw draaien.
