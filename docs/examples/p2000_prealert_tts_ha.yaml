@@ -1,0 +1,62 @@
+# Voorbeeld voor /config/packages/ (NIET automatisch geïnstalleerd).
+# Vereist FireServiceRota Extended met optionele p2000_prealert_enabled en
+# expliciet geconfigureerde capcodes.
+# Gebaseerd op bestaande brandweer.yaml V2.2.7-beta:
+# 07:00-23:00 overdag; 23:00-07:00 uitsluitend Gramsbergen met actief
+# voertuig + dienst_gramsbergen aan + niet_storen uit.
+#
+# Dit is uitsluitend een INFORMATIEVE voormelding. De echte BWR-alarmering
+# blijft apart, met eigen voorwaarden en volledige aankondiging.
+#
+# Controleer vóór gebruik of deze entity_id's en de TTS-scriptnaam nog
+# overeenkomen met je actuele brandweer.yaml.
+automation:
+  - id: fireservicerota_p2000_prealert_tts_guarded
+    alias: Brandweer P2000 voormelding (optionele spraak)
+    description: >-
+      P2000 voormelding alleen binnen bestaande BrandweerRooster spraakvoorwaarden.
+      Spreekt geen persoonlijke uitrukbevestiging uit.
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: event
+        event_type: fireservicerota_p2000_prealert
+    conditions:
+      - condition: template
+        alias: Alleen onverifieerde informatie, geen persoonlijke oproep
+        value_template: >-
+          {{
+            trigger.event.data.get('status') == 'unconfirmed'
+            and trigger.event.data.get('personal_dispatch_confirmed') == false
+            and trigger.event.data.get('message', '') | string | trim != ''
+          }}
+      - condition: template
+        alias: Exact dezelfde nachtafsluiting als bestaande BrandweerRooster
+        value_template: >-
+          {% set tijd = now().strftime('%H:%M:%S') %}
+          {% set is_nacht = tijd >= '23:00:00' or tijd < '07:00:00' %}
+          {% set message = trigger.event.data.get('message', '') | string %}
+          {% set units = message | regex_findall('(?<!\\d)\\d{6}(?!\\d)') %}
+          {% set actief = states('sensor.brandweer_gramsbergen_actief_voertuig') | trim %}
+          {{
+            not is_nacht
+            or (
+              actief not in ['unknown', 'unavailable', '', 'none']
+              and actief in units
+              and is_state('binary_sensor.dienst_gramsbergen', 'on')
+              and is_state('binary_sensor.niet_storen', 'off')
+            )
+          }}
+    actions:
+      - variables:
+          voormelding_tekst: >-
+            {% set t = trigger.event.data.get('message', '') | string | trim %}
+            {% set t = t | regex_replace('^P 1(?=\\s)', 'Prio 1') %}
+            {% set t = t | regex_replace('^P 2(?=\\s)', 'Prio 2') %}
+            {% set t = t | regex_replace('^P 3(?=\\s)', 'Prio 3') %}
+            P2000 voormelding, mogelijke inzet. {{ t[:180] }}
+      - action: script.brandweer_centrale_tts_wachtrij_v2_2
+        data:
+          soort: incident
+          bericht: "{{ voormelding_tekst }}"
+        continue_on_error: true
