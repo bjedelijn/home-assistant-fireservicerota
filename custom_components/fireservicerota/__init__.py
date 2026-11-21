@@ -408,7 +408,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
         incident = await client.async_get_incident(incident_id)
         if not isinstance(incident, dict):
             raise HomeAssistantError("Could not retrieve incident for vehicle diagnostics")
-        return incident_vehicle_evidence(incident)
+        api_evidence = incident_vehicle_evidence(incident)
+        raw = client.websocket.incident_data
+        # Only examine the matching live event; do not accidentally report
+        # another incident's vehicle evidence after a websocket update.
+        ws_evidence = (
+            incident_vehicle_evidence(raw)
+            if isinstance(raw, dict) and str(raw.get("id")) == str(incident_id)
+            else None
+        )
+        return {
+            "incident_id": str(incident_id),
+            "rest": api_evidence,
+            "websocket": ws_evidence,
+            "note": "Diagnostics only; verify semantics before automatic reconciliation.",
+        }
 
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
         """Inspect one incident's audit log with the existing OAuth client."""
