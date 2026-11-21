@@ -1,41 +1,65 @@
-# P2000-voormeldingen en voertuigvervanging (ontwikkeling)
+# P2000-voormeldingen en voertuigvervanging (Draft PR #23)
 
-## Status
-Deze branch bouwt voort op de p2000.page WebSocket-Draft PR #22.
-De twee onderstaande onderdelen zijn **nog niet geschikt voor een productierelease** zolang de integratietests met BrandweerRooster en de lokale Home Assistant-automatiseringen ontbreken.
+Deze branch bouwt voort op Draft PR #22. **Nog niet mergen of als productie-beta installeren** voordat de realtime BrandweerRooster-veldstructuur en de bestaande HA-nachtautomatiseringen zijn getest.
 
 ## Optionele P2000-voormelding
-In de Extended-opties:
-- Schakel **P2000-voormeldingen** in (standaard uit).
-- Vul de relevante **zevencijferige post- of persoonlijke capcodes** in, komma-gescheiden.
-- Bij een verse, passende P2000-melding maakt de integratie het Home Assistant-event `fireservicerota_p2000_prealert` aan, met `source`, `external_id`, `event_time`, `received_at`, `message`, `priority`, `capcodes`, `status: unconfirmed`, `personal_dispatch_confirmed: false`.
 
-De integratie verstuurt **geen Telegram, push of spraak** uit dit event. Hiervoor moet eerst een Home Assistant-automatisering worden gemaakt die exact dezelfde nachtvoorwaarden, paraatheidscontrole en Niet-storenregels als de bestaande BrandweerRooster-automatisering gebruikt. Een P2000-voormelding is **nooit** een bevestigde persoonlijke oproep. De definitieve BrandweerRooster-alarmering mag nooit worden onderdrukt.
+- De Extended-opties bevatten `p2000_prealert_enabled` (standaard uit) en `p2000_prealert_capcodes` (zevencijferige post-/persoonlijke capcodes, komma-gescheiden).
+- Een recente P2000-melding met exact ingestelde capcode publiceert het HA-event `fireservicerota_p2000_prealert` met `status: unconfirmed` en `personal_dispatch_confirmed: false`.
+- Er wordt geen persoonlijke inzet aangenomen en **geen** TTS, Telegram of HA-push vanuit dit event automatisch verzonden.
+- Als BrandweerRooster al eerder een *herkenbaar hetzelfde incident* heeft geleverd, wordt de P2000-voormelding overgeslagen. Per provider-event-ID bestaat deduplicatie tijdens de lopende sessie.
 
-De events zijn gededupliceerd per P2000 bron-ID in het lopende proces. Er is nog geen duurzame prealert-deduplicatie over herstarts of betrouwbare incidentbrede onderdrukking wanneer BrandweerRooster eerder was. **Daarom nog geen automatische nacht-TTS configureren.**
+### Nachtelijke spraak
 
-## Voertuigvervangingen
-Nieuwe pure functie: `replacement_reconciliation.evaluate_replacement`.
+Een eventuele HA-automatisering voor het event moet de bestaande BrandweerRooster-voorwaarden letterlijk hergebruiken: nachtperiode, eigen voertuig paraat, Niet storen en voertuigvervanging. Een voormelding mag de definitieve BrandweerRooster-oproep nooit onderdrukken. **Deze HA-automatisering is nog niet gekoppeld.** Bouw geen losse nacht-TTS op basis van het event voordat dit end-to-end is getest. Na herstarten is nog geen persistente P2000-voormeldingsdeduplicatie beschikbaar.
 
-Invoergegevens:
-- Actieve vervanging per post: oorspronkelijk en vervanger
-- Actueel, expliciet **geverifieerd BrandweerRooster-voertuig** voor dezelfde post/functie; geen taaklabel of standaardvoertuig
-- Live incident-ID en eventtijd ná start van de vervanging
-- Eventueel een aantoonbaar gecorreleerde P2000-melding met voertuignummers
+## Voertuigvervanging
 
-Beslissingen:
-- BrandweerRooster noemt de ingestelde vervanger: `ignore`.
-- BrandweerRooster noemt het oorspronkelijke voertuig én gekoppeld recent P2000 bevestigt dat nummer: `clear` (advies, nog **geen** mutatie).
-- BrandweerRooster noemt een derde voertuig: `notify` (advies, nog **geen** notificatie).
-- BrandweerRooster/P2000 spreken elkaar tegen of bewijs ontbreekt: `notify`, vervanging behouden.
-- Historische/ongeldige gegevens worden genegeerd.
+In `fireservicerota.set_replacement_vehicle` is `vehicle_function` optioneel toegevoegd (bijvoorbeeld `TS`, `TS-BT` of `WTS`). Bestaande vervangingen zonder functie blijven geldig; voor een automatische vergelijking wordt geen functie gegokt. De historische opslag legt `end_reason` en `end_incident_id` vast wanneer er na bevestiging automatisch is opgeheven.
 
-**Nog niet gekoppeld aan een realtime BrandweerRooster-voertuigveld.** De huidige `task_ids` / `resolved_tasks` bewijzen niet zelfstandig welk voertuig daadwerkelijk rijdt. Eerst moeten we uit een live BWR-incident vaststellen welk betrouwbaar veld post, functie en werkelijk voertuig koppelt. Tot die tijd nooit automatisch een vervanging opheffen.
+De monitor `bwr_vehicle_monitor.ReplacementVehicleMonitor` volgt **alleen** live BrandweerRooster-WebSocket-updates met expliciete en geverifieerde voertuiggegevens van de juiste post/functie. Historische REST-reads, `task_ids`, `resolved_tasks` en vrijetekst-nummers zijn hiervoor onvoldoende. Op dit moment verwacht de monitor een nog **niet aan de echte BWR API getoetste** structuur `dispatched_vehicles` met `confirmed: true`, `station_id`, `vehicle_number` en `vehicle_function`. Zonder deze aantoonbare gegevens doet de monitor **niets**, ook als de opties aanstaan.
 
-## Volgende vereiste stappen
-1. Live BWR-voorbeeld analyseren op voertuig-identiteit, post en taak/functie, zonder persoonsgegevens of tokens in logs.
-2. Realtime incidentmatcher aansluiten, P2000-correlation en tolerantie van tijdvensters valideren.
-3. Stille afwijkingsnotificatie met configureerbaar Telegram-/HA-pushkanaal en per incident deduplicatie realiseren.
-4. Een geverifieerde `clear` pas dan via `ReplacementVehicleStore.async_clear` uitvoeren, met auditbron en incident-ID.
-5. Bestaande nachtelijke BrandweerRooster-TTS-condities **hergebruiken** voor optionele voormeldingen, testen voor dag/nacht, niet paraat, niet storen, vervangen voertuig.
-6. End-to-end tests uitvoeren en pas dan beta vrijgeven.
+Beslissingen bij een unieke actieve vervanging voor dezelfde post/functie:
+
+| BWR daadwerkelijk voertuig | Gecorreleerde P2000 | Actie |
+| --- | --- | --- |
+| Ingestelde vervanger | Willekeurig | Geen afwijking |
+| Oorspronkelijk | Alleen oorspronkelijk, recent | Automatisch opheffen, alleen indien ingeschakeld |
+| Oorspronkelijk | Vervanger of beide vermeld | Behouden; geen automatische opheffing |
+| Oorspronkelijk | Geen bevestiging binnen 120 s | Stille waarschuwing indien ingeschakeld; behouden |
+| Derde voertuig | Willekeurig | Stille waarschuwing indien ingeschakeld; behouden |
+| Onbekend / oud / andere post / meerdere vergelijkbare voertuigen | Willekeurig | Geen automatische actie |
+
+Bij opheffen wordt de exacte actieve vervanger inclusief starttijd gecontroleerd. Een intussen handmatig gewijzigde vervanging kan daardoor niet door oude informatie worden opgeheven.
+
+### Stille notificaties
+
+- `replacement_alerts_enabled` is standaard uit.
+- `replacement_alert_channel` kiest Telegram, Home Assistant-push of beide.
+- Voor geselecteerde kanalen is een geldige `notify.*`-entiteit verplicht.
+- Verzenden gebeurt uitsluitend via Home Assistant `notify.send_message`; geen sirene, critical priority, TTS of media player.
+- Per incident, post, oorspronkelijk voertuig en afwijkingsreden wordt een waarschuwing in het lopende proces gededupliceerd.
+- Bij een derde of onbekend voertuig wordt **nooit** automatisch een nieuwe vervanging ingesteld.
+
+## Diagnose van echte BrandweerRooster-voertuigvelden
+
+Er is een read-only HA-service toegevoegd: **`fireservicerota.get_incident_vehicle_evidence`**. Die leest het nieuwste bekende incident (of een opgegeven `incident_id`) en retourneert alleen paden van voertuigachtige velden en exacte zes-cijferige nummers. Namen, telefoons, adressen, ruwe P2000-tekst en tokens worden niet meegestuurd.
+
+Gebruik in Ontwikkelaarstools → Acties:
+
+```yaml
+action: fireservicerota.get_incident_vehicle_evidence
+data: {}
+```
+
+Het antwoord bevat `vehicle_fields`, `fields_found` en `incident_id`. **Een gevonden nummer is nog geen bewijs van een werkelijk ingezette eenheid.** We moeten de gevonden paden en de BWR-semantiek eerst tegen echte incidenten valideren voor de automatische controle geactiveerd kan worden.
+
+## Validatie vóór release
+
+1. Betrouwbaar BWR-voertuigveld inclusief post en functie vaststellen via diagnostiek; daadwerkelijke WebSocket-gegevens testen, zo nodig monitor-schema aanpassen.
+2. P2000-correlation valideren voor zowel vervanger als origineel, inclusief herhaalde en onvolledige updates.
+3. Tests draaien voor rolconflicten, dubbele incidenten, gewijzigde vervangingen, tijdvenster, herstart en ontbrekende P2000-data.
+4. De huidige Home Assistant-automatiseringen `brandweer.yaml` / `brandweer_paraat.yaml` nalopen en hun exacte spraak- en nachtvoorwaarden hergebruiken in de eventuele voormeldings-automatisering.
+5. GitHub CI, HACS, Hassfest, CodeQL en tests groen; daarna eerst gecontroleerde beta.
+
+**PR #23 blijft Draft.** De aparte workflowfilters voor de gestapelde featurebranch zijn tijdelijk en moeten verwijderd worden zodra PR #22 gemerged is.
