@@ -60,6 +60,7 @@ def test_quiet_dispatch_only_uses_notify_send_message():
     assert sent == 2
     assert all(domain == "notify" and service == "send_message" for domain, service, *_ in hass.services.calls)
     assert all("priority" not in data and "tts" not in data for _, _, data, *_ in hass.services.calls)
+    assert all(data["data"]["push"]["interruption-level"] == "passive" for _, _, data, *_ in hass.services.calls)
     assert "041099" in discrepancy_message(DECISION, function="TS")["message"]
 
 
@@ -84,6 +85,8 @@ def test_native_telegram_bot_delivery_is_still_silent():
     assert asyncio.run(async_send_discrepancy(hass, options, DECISION, function="TS")) == 2
     assert hass.services.calls[0][0:2] == ("telegram_bot", "send_message")
     assert hass.services.calls[0][2]["parse_mode"] == "plain_text"
+    assert hass.services.calls[0][2]["disable_notification"] is True
+    assert hass.services.calls[1][2]["data"]["push"]["interruption-level"] == "passive"
     assert hass.services.calls[1][0:2] == ("notify", "send_message")
     assert "critical" not in repr(hass.services.calls)
 
