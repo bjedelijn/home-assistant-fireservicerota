@@ -164,3 +164,45 @@ def test_original_return_clears_only_expected_mapping():
         assert hass.bus.events[0][0] == "fireservicerota_vehicle_replacement_cleared"
         monitor.stop()
     asyncio.run(run())
+
+
+def test_mixed_p2000_group_never_clears_original():
+    async def run():
+        hass, store = Hass(), Store()
+        monitor = ReplacementVehicleMonitor(hass, store, options())
+        record = store.active[0]
+        dispatch = {
+            "incident_id": 3154000, "station_id": 3853,
+            "vehicle_number": "042333", "vehicle_function": "TS",
+            "event_time": TS,
+        }
+        monitor._pending[("3154000", 3853, "042333")] = (record, dispatch)
+        await monitor.async_handle_p2000_match(3154000, [
+            SimpleNamespace(units=["042333"], event_time=TS, message="P1 042333"),
+            SimpleNamespace(units=["041037"], event_time=TS, message="P1 041037"),
+        ])
+        assert store.clears == []
+        assert store.active
+        monitor.stop()
+    asyncio.run(run())
+
+
+def test_p2000_replacement_annotation_never_clears_original():
+    async def run():
+        hass, store = Hass(), Store()
+        monitor = ReplacementVehicleMonitor(hass, store, options())
+        record = store.active[0]
+        dispatch = {
+            "incident_id": 3154000, "station_id": 3853,
+            "vehicle_number": "042333", "vehicle_function": "TS",
+            "event_time": TS,
+        }
+        monitor._pending[("3154000", 3853, "042333")] = (record, dispatch)
+        await monitor.async_handle_p2000_match(3154000, [
+            SimpleNamespace(units=["042333"], event_time=TS,
+                            message="042333 vervanging"),
+        ])
+        assert store.clears == []
+        assert store.active
+        monitor.stop()
+    asyncio.run(run())
