@@ -243,3 +243,49 @@ def test_late_conflicting_p2000_event_before_window_blocks_clear():
         assert hass.bus.events[0][0] == "fireservicerota_vehicle_discrepancy"
         monitor.stop()
     asyncio.run(run())
+
+
+def test_original_without_correlated_p2000_keeps_replacement_and_warns_once():
+    async def run():
+        hass, store = Hass(), Store()
+        monitor = ReplacementVehicleMonitor(hass, store, options())
+        record = store.active[0]
+        key = ("3154000", 3853, "042333")
+        monitor._pending[key] = (record, {
+            "incident_id": 3154000, "station_id": 3853,
+            "vehicle_number": "042333", "vehicle_function": "TS",
+            "event_time": TS,
+        })
+        await monitor._finalize_pending(key, "TS")
+        assert store.clears == []
+        assert store.active
+        assert len(hass.services.calls) == 1
+        assert hass.bus.events[0][1]["reason"] == "original_unconfirmed"
+        await monitor._finalize_pending(key, "TS")
+        assert len(hass.services.calls) == 1
+        monitor.stop()
+    asyncio.run(run())
+
+
+def test_positive_p2000_with_auto_clear_disabled_only_finishes_observation():
+    async def run():
+        hass, store = Hass(), Store()
+        monitor = ReplacementVehicleMonitor(
+            hass, store, options(replacement_auto_clear_enabled=False)
+        )
+        key = ("3154000", 3853, "042333")
+        monitor._pending[key] = (store.active[0], {
+            "incident_id": 3154000, "station_id": 3853,
+            "vehicle_number": "042333", "vehicle_function": "TS",
+            "event_time": TS,
+        })
+        await monitor.async_handle_p2000_match(3154000, [
+            SimpleNamespace(units=["042333"], event_time=TS,
+                            message="P1 042333")
+        ])
+        await monitor._finalize_pending(key, "TS")
+        assert store.clears == []
+        assert store.active
+        assert hass.bus.events == []
+        monitor.stop()
+    asyncio.run(run())
