@@ -157,6 +157,9 @@ def test_original_return_clears_only_expected_mapping():
         await monitor.async_handle_p2000_match(3154000, [
             SimpleNamespace(units=["042333"], event_time=TS)
         ])
+        # A positive message must not clear until the correlation window closes.
+        assert store.clears == []
+        await monitor._finalize_pending(("3154000", 3853, "042333"), "TS")
         assert len(store.clears) == 1
         assert store.clears[0]["expected_vehicle_number"] == "041037"
         assert store.clears[0]["expected_start_time"] == START
@@ -182,6 +185,8 @@ def test_mixed_p2000_group_never_clears_original():
             SimpleNamespace(units=["041037"], event_time=TS, message="P1 041037"),
         ])
         assert store.clears == []
+        await monitor._finalize_pending(("3154000", 3853, "042333"), "TS")
+        assert store.clears == []
         assert store.active
         monitor.stop()
     asyncio.run(run())
@@ -203,6 +208,38 @@ def test_p2000_replacement_annotation_never_clears_original():
                             message="042333 vervanging"),
         ])
         assert store.clears == []
+        await monitor._finalize_pending(("3154000", 3853, "042333"), "TS")
+        assert store.clears == []
         assert store.active
+        monitor.stop()
+    asyncio.run(run())
+
+
+def test_late_conflicting_p2000_event_before_window_blocks_clear():
+    async def run():
+        hass, store = Hass(), Store()
+        monitor = ReplacementVehicleMonitor(hass, store, options())
+        record = store.active[0]
+        dispatch = {
+            "incident_id": 3154000, "station_id": 3853,
+            "vehicle_number": "042333", "vehicle_function": "TS",
+            "event_time": TS,
+        }
+        key = ("3154000", 3853, "042333")
+        monitor._pending[key] = (record, dispatch)
+        await monitor.async_handle_p2000_match(3154000, [
+            SimpleNamespace(source="page", external_id="a", units=["042333"],
+                            event_time=TS, message="P1 042333")
+        ])
+        # This used to remove the replacement immediately; it must not.
+        assert store.clears == []
+        await monitor.async_handle_p2000_match(3154000, [
+            SimpleNamespace(source="rtl", external_id="b", units=["041037"],
+                            event_time=TS, message="P1 041037")
+        ])
+        await monitor._finalize_pending(key, "TS")
+        assert store.clears == []
+        assert store.active
+        assert hass.bus.events[0][0] == "fireservicerota_vehicle_discrepancy"
         monitor.stop()
     asyncio.run(run())
