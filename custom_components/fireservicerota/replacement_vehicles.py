@@ -145,8 +145,11 @@ class ReplacementVehicleStore:
     async def async_clear(
         self, *, station_id: int, original_vehicle_number: str,
         end_reason: str | None = None, end_incident_id: str | int | None = None,
+        expected_vehicle_number: str | None = None,
+        expected_start_time: str | None = None,
     ) -> bool:
         original = normalize_unit(original_vehicle_number)
+        expected_vehicle = normalize_unit(expected_vehicle_number) if expected_vehicle_number is not None else None
         now = datetime.now(timezone.utc).isoformat()
         changed = False
         for record in self._records:
@@ -154,6 +157,8 @@ class ReplacementVehicleStore:
                 record["station_id"] == station_id
                 and record.get("original_vehicle_number") == original
                 and not record.get("end_time")
+                and (expected_vehicle is None or record.get("vehicle_number") == expected_vehicle)
+                and (expected_start_time is None or record.get("start_time") == expected_start_time)
             ):
                 record["end_time"] = now
                 if end_reason:
