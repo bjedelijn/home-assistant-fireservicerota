@@ -11,7 +11,9 @@ Deze branch bouwt voort op Draft PR #22. **Nog niet mergen of als productie-beta
 
 ### Nachtelijke spraak
 
-Een eventuele HA-automatisering voor het event moet de bestaande BrandweerRooster-voorwaarden letterlijk hergebruiken: nachtperiode, eigen voertuig paraat, Niet storen en voertuigvervanging. Een voormelding mag de definitieve BrandweerRooster-oproep nooit onderdrukken. **Deze HA-automatisering is nog niet gekoppeld.** Bouw geen losse nacht-TTS op basis van het event voordat dit end-to-end is getest. Na herstarten is nog geen persistente P2000-voormeldingsdeduplicatie beschikbaar.
+Een **niet automatisch geïnstalleerd** YAML-voorbeeld staat in [`docs/examples/p2000_prealert_tts_ha.yaml`](examples/p2000_prealert_tts_ha.yaml). Het volgt de bestaande lokale Brandweer V2.2.7-beta-regels: 07:00–23:00 normaal, 23:00–07:00 uitsluitend als het actuele Gramsbergen-voertuig letterlijk in de P2000-tekst staat, `binary_sensor.dienst_gramsbergen` aan is en `binary_sensor.niet_storen` uit is. De centrale `script.brandweer_centrale_tts_wachtrij_v2_2` verzorgt vervolgens dezelfde speakers en nachtvolumes. De slaapkamerhelpers blijven werkzaam via dat script.
+
+**Dit voorbeeld is niet geïnstalleerd, niet end-to-end getest en heeft nog geen persistente deduplicatie over herstarts.** Gebruik het niet als productie-alarmering; laat de bestaande definitieve BrandweerRooster-oproep ongemoeid.
 
 ## Voertuigvervanging
 
