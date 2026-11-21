@@ -87,7 +87,8 @@
           "replacement_alerts_enabled": "Enable quiet vehicle discrepancy notifications",
           "replacement_alert_channel": "Notification channel",
           "replacement_alert_telegram_entity": "Telegram notify entity (notify.*)",
-          "replacement_alert_push_entity": "Mobile push notify entity (notify.*)"
+          "replacement_alert_push_entity": "Mobile push notify entity (notify.*)",
+          "replacement_alert_telegram_bot_entry_id": "Telegram bot config entry ID (if using telegram_bot.send_message)"
         }
       }
     },
