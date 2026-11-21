@@ -26,19 +26,19 @@ Beslissingen bij een unieke actieve vervanging voor dezelfde post/functie:
 | BWR daadwerkelijk voertuig | Gecorreleerde P2000 | Actie |
 | --- | --- | --- |
 | Ingestelde vervanger | Willekeurig | Geen afwijking |
-| Oorspronkelijk | Alleen oorspronkelijk, recent | Automatisch opheffen, alleen indien ingeschakeld |
+| Oorspronkelijk | Alleen oorspronkelijk, recent, zonder latere tegenspraak | Pas na 120 seconden volledige P2000-correlatie automatisch opheffen, alleen indien ingeschakeld |
 | Oorspronkelijk | Vervanger of beide vermeld | Behouden; geen automatische opheffing |
 | Oorspronkelijk | Geen bevestiging binnen 120 s | Stille waarschuwing indien ingeschakeld; behouden |
 | Derde voertuig | Willekeurig | Stille waarschuwing indien ingeschakeld; behouden |
 | Onbekend / oud / andere post / meerdere vergelijkbare voertuigen | Willekeurig | Geen automatische actie |
 
-Bij opheffen wordt de exacte actieve vervanger inclusief starttijd gecontroleerd. Een intussen handmatig gewijzigde vervanging kan daardoor niet door oude informatie worden opgeheven.
+Binnen de correlatieperiode worden alle bij hetzelfde BWR-incident passende P2000-berichten verzameld. Een later binnenkomend bericht met de vervanger of vervangingstekst voorkomt automatische opheffing. Bij opheffen wordt de exacte actieve vervanger inclusief starttijd gecontroleerd. Een intussen handmatig gewijzigde vervanging kan daardoor niet door oude informatie worden opgeheven.
 
 ### Stille notificaties
 
 - `replacement_alerts_enabled` is standaard uit.
 - `replacement_alert_channel` kiest Telegram, Home Assistant-push of beide.
-- Voor geselecteerde kanalen is een geldige `notify.*`-entiteit verplicht.
+- Voor HA-push is een geldige `notify.*`-entiteit verplicht. Voor Telegram kan óf een `notify.*`-entiteit óf lokaal een Telegram Bot-configuratie-ID worden ingesteld.
 - Telegram Bot wordt via `telegram_bot.send_message` met `disable_notification: true` verstuurd. Mobiele Home Assistant-push gebruikt `notify.send_message` met iOS `interruption-level: passive`. Er wordt geen sirene, TTS of media player geactiveerd.
 - Per incident, post, oorspronkelijk voertuig en afwijkingsreden wordt een waarschuwing in het lopende proces gededupliceerd.
 - Bij een derde of onbekend voertuig wordt **nooit** automatisch een nieuwe vervanging ingesteld.
