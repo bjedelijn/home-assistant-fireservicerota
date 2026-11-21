@@ -63,3 +63,12 @@ def test_p2000_mismatch_wrong_incident_and_stale_event():
 
 def test_bad_vehicle_never_changes_mapping():
     assert decide(bwr_vehicle_number="unknown", **P2000)["action"] == "ignore"
+
+
+def test_p2000_mentions_both_original_and_replacement_never_clears():
+    result = decide(**{
+        **P2000,
+        "p2000_vehicle_numbers": ["042333", "041037"],
+    })
+    assert result["action"] == "notify"
+    assert result["reason"] == "p2000_replacement_still_present"
