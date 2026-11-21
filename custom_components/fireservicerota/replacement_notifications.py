@@ -76,7 +76,7 @@ async def async_send_discrepancy(hass, options: dict, decision: dict, *, functio
             if kind == "telegram_bot":
                 await hass.services.async_call(
                     "telegram_bot", "send_message",
-                    {"config_entry_id": target, "message": payload["title"] + "\\n" + payload["message"], "parse_mode": "plain_text"},
+                    {"config_entry_id": target, "message": payload["title"] + chr(10) + payload["message"], "parse_mode": "plain_text"},
                     blocking=False,
                 )
             else:
