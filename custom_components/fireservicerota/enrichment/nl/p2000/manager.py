@@ -22,7 +22,7 @@ from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
 from ..vehicle_registry import BrandbaseVehicleRegistry
 from ....replacement_vehicles import effective_assignment
-from ....p2000_prealerts import build_prealert
+from ....p2000_prealerts import build_prealert, PrealertDeduplicator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,6 +90,7 @@ class P2000EnrichmentManager:
         self._prealert_capcodes = prealert_capcodes or set()
         self._prealert_sent: set[str] = set()
         self._prealert_order: deque[str] = deque(maxlen=2000)
+        self._prealert_dedup = PrealertDeduplicator()
         self._task: asyncio.Task | None = None
         self._first_received: dict[str, str] = {}
         self._buffer: dict[str, P2000Event] = {}
@@ -411,6 +412,8 @@ class P2000EnrichmentManager:
                             for incident in self._correlation_incidents()
                         )
                         if already_at_bwr:
+                            continue
+                        if not self._prealert_dedup.should_emit(event):
                             continue
                         # One HA event per provider event. HA automations must use
                         # their existing BrandweerRooster night/TTS conditions.
