@@ -81,12 +81,21 @@
           "p2000_scan_interval": "Polling interval for existing provider / checks (seconds)",
           "p2000_rtl_topic": "MQTT attributes topic for P2000 via ether",
           "p2000_page_key": "p2000.page API key (leave blank to retain existing key)",
-          "p2000_page_regions": "p2000.page regions (e.g. 06~17)"
+          "p2000_page_regions": "p2000.page regions (e.g. 06~17)",
+          "p2000_prealert_enabled": "Enable early P2000 prealert events (no automatic speech)",
+          "p2000_prealert_capcodes": "Personal/station capcodes for early alerts (comma-separated, 7 digits)",
+          "replacement_alerts_enabled": "Enable quiet vehicle discrepancy notifications",
+          "replacement_alert_channel": "Notification channel",
+          "replacement_alert_telegram_entity": "Telegram notify entity (notify.*)",
+          "replacement_alert_push_entity": "Mobile push notify entity (notify.*)",
+          "replacement_alert_telegram_bot_entry_id": "Telegram bot config entry ID (if using telegram_bot.send_message)"
         }
       }
     },
     "error": {
-      "p2000_page_key_required": "Enter a p2000.page API key to enable this source."
+      "p2000_page_key_required": "Enter a p2000.page API key to enable this source.",
+      "invalid_prealert_capcodes": "Enter one or more valid seven-digit capcodes for early P2000 alerts.",
+      "replacement_notify_target_required": "Configure the selected notify entities (notify.*) for quiet vehicle discrepancy alerts."
     }
   }
 }

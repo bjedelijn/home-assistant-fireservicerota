@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .fairness_audit import analyze_incident_fairness
 from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
+from .vehicle_evidence import incident_vehicle_evidence
 
 from .const import (
     ATTR_ADDRESS,
@@ -54,6 +55,7 @@ from .const import (
     DATA_INCIDENT_STORE,
     DATA_P2000_MANAGER,
     DATA_REPLACEMENT_VEHICLES,
+    DATA_REPLACEMENT_MONITOR,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
@@ -64,6 +66,7 @@ from .const import (
     SERVICE_SET_REPLACEMENT_VEHICLE,
     SERVICE_CLEAR_REPLACEMENT_VEHICLE,
     SERVICE_GET_REPLACEMENT_VEHICLES,
+    SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
     AVAILABILITY_MODE_DURATIONS,
     AVAILABILITY_MODE_NEXT_SCHEDULE,
     AVAILABILITY_MODE_CUSTOM,
@@ -121,6 +124,7 @@ SET_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
     vol.Required(ATTR_STATION_ID): vol.Coerce(int),
     vol.Required("original_vehicle_number"): cv.string,
     vol.Required("vehicle_number"): cv.string,
+    vol.Optional("vehicle_function"): cv.string,
 })
 CLEAR_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -129,6 +133,10 @@ CLEAR_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
 })
 GET_REPLACEMENT_VEHICLES_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
+})
+GET_INCIDENT_VEHICLE_EVIDENCE_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Optional(ATTR_INCIDENT_ID): vol.Coerce(str),
 })
 
 ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
@@ -216,6 +224,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_data = hass.data[DOMAIN][entry.entry_id]
     client = entry_data[DATA_CLIENT]
     p2000_manager = entry_data.get(DATA_P2000_MANAGER)
+    replacement_monitor = entry_data.get(DATA_REPLACEMENT_MONITOR)
+    if replacement_monitor is not None:
+        replacement_monitor.stop()
     if p2000_manager is not None:
         await p2000_manager.async_stop()
     await hass.async_add_executor_job(client.websocket.stop_listener)
@@ -238,6 +249,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SET_REPLACEMENT_VEHICLE,
             SERVICE_CLEAR_REPLACEMENT_VEHICLE,
             SERVICE_GET_REPLACEMENT_VEHICLES,
+            SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
         ):
             if hass.services.has_service(DOMAIN, service):
                 hass.services.async_remove(DOMAIN, service)
@@ -352,6 +364,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 station_name=str(membership.get("station_name") or station_id),
                 original_vehicle_number=call.data["original_vehicle_number"],
                 vehicle_number=call.data["vehicle_number"],
+                vehicle_function=call.data.get("vehicle_function"),
             )
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
@@ -384,6 +397,32 @@ def _async_register_services(hass: HomeAssistant) -> None:
     async def async_get_replacement_vehicles(call: ServiceCall) -> dict:
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
         return {"active": entry_data[DATA_REPLACEMENT_VEHICLES].active}
+
+    async def async_get_incident_vehicle_evidence(call: ServiceCall) -> dict:
+        """Read-only, privacy-filtered diagnostic of a BWR incident's vehicle fields."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        incident_id = call.data.get(ATTR_INCIDENT_ID) or client.incident_id
+        if incident_id is None:
+            raise HomeAssistantError("No incident ID available for vehicle diagnostics")
+        incident = await client.async_get_incident(incident_id)
+        if not isinstance(incident, dict):
+            raise HomeAssistantError("Could not retrieve incident for vehicle diagnostics")
+        api_evidence = incident_vehicle_evidence(incident)
+        raw = client.websocket.incident_data
+        # Only examine the matching live event; do not accidentally report
+        # another incident's vehicle evidence after a websocket update.
+        ws_evidence = (
+            incident_vehicle_evidence(raw)
+            if isinstance(raw, dict) and str(raw.get("id")) == str(incident_id)
+            else None
+        )
+        return {
+            "incident_id": str(incident_id),
+            "rest": api_evidence,
+            "websocket": ws_evidence,
+            "note": "Diagnostics only; verify semantics before automatic reconciliation.",
+        }
 
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
         """Inspect one incident's audit log with the existing OAuth client."""
@@ -476,6 +515,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_GET_REPLACEMENT_VEHICLES, async_get_replacement_vehicles,
             schema=GET_REPLACEMENT_VEHICLES_SCHEMA, supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE):
+        hass.services.async_register(
+            DOMAIN, SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
+            async_get_incident_vehicle_evidence,
+            schema=GET_INCIDENT_VEHICLE_EVIDENCE_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS):

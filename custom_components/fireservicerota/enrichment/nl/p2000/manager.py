@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from collections import deque
 from datetime import datetime, timedelta
 import logging
 import math
@@ -21,6 +22,7 @@ from .source_timing import build_source_timing
 from .station_hints import build_station_and_unit_hints
 from ..vehicle_registry import BrandbaseVehicleRegistry
 from ....replacement_vehicles import effective_assignment
+from ....p2000_prealerts import build_prealert, PrealertDeduplicator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +63,9 @@ class P2000EnrichmentManager:
         page_api_key: str | None = None,
         page_regions: str = "06",
         replacement_vehicle_store=None,
+        replacement_monitor=None,
+        prealerts_enabled: bool = False,
+        prealert_capcodes: set[str] | None = None,
     ) -> None:
         self._hass = hass
         self._incident_store = incident_store
@@ -80,6 +85,12 @@ class P2000EnrichmentManager:
             self._providers.append(P2000RtlMqttProvider(hass, **kwargs))
         self._vehicle_registry = BrandbaseVehicleRegistry(hass)
         self._replacement_vehicle_store = replacement_vehicle_store
+        self._replacement_monitor = replacement_monitor
+        self._prealerts_enabled = prealerts_enabled
+        self._prealert_capcodes = prealert_capcodes or set()
+        self._prealert_sent: set[str] = set()
+        self._prealert_order: deque[str] = deque(maxlen=2000)
+        self._prealert_dedup = PrealertDeduplicator()
         self._task: asyncio.Task | None = None
         self._first_received: dict[str, str] = {}
         self._buffer: dict[str, P2000Event] = {}
@@ -385,6 +396,32 @@ class P2000EnrichmentManager:
                 event.received_at = first
                 self._buffer[key] = event
                 events.append(event)
+                if self._prealerts_enabled and key not in self._prealert_sent:
+                    payload = build_prealert(event, self._prealert_capcodes)
+                    if payload is not None:
+                        # Do not generate a P2000 prealert if BWR was already
+                        # received for this practical incident. An unmatched
+                        # P2000 alert remains informational, not a dispatch.
+                        already_at_bwr = any(
+                            self._matches(incident, event)
+                            and (
+                                (bwr_seen := self._parse_datetime(incident.get("first_seen_at"))) is not None
+                                and (p_seen := self._parse_datetime(event.received_at)) is not None
+                                and bwr_seen <= p_seen
+                            )
+                            for incident in self._correlation_incidents()
+                        )
+                        if already_at_bwr:
+                            continue
+                        if not self._prealert_dedup.should_emit(event):
+                            continue
+                        # One HA event per provider event. HA automations must use
+                        # their existing BrandweerRooster night/TTS conditions.
+                        if len(self._prealert_order) == self._prealert_order.maxlen:
+                            self._prealert_sent.discard(self._prealert_order.popleft())
+                        self._prealert_order.append(key)
+                        self._prealert_sent.add(key)
+                        self._hass.bus.async_fire("fireservicerota_p2000_prealert", payload)
 
         self._prune_buffer()
         self._last_poll_at = datetime.now().astimezone().isoformat()
@@ -444,6 +481,9 @@ class P2000EnrichmentManager:
                     matched_by_key[self._event_key(event)] = event
 
             matched = list(matched_by_key.values())
+            if matched and self._replacement_monitor is not None:
+                for incident_id in incident_ids:
+                    await self._replacement_monitor.async_handle_p2000_match(incident_id, matched)
             if not matched:
                 for incident_id in incident_ids:
                     self._incident_store.clear_p2000_enrichment(incident_id)

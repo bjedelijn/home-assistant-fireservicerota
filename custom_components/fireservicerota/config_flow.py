@@ -11,6 +11,14 @@ from .const import (
     CONF_P2000_ENABLED,
     CONF_P2000_PAGE_KEY,
     CONF_P2000_PAGE_REGIONS,
+    CONF_P2000_PREALERT_ENABLED,
+    CONF_P2000_PREALERT_CAPCODES,
+    CONF_REPLACEMENT_ALERTS_ENABLED,
+    CONF_REPLACEMENT_AUTO_CLEAR_ENABLED,
+    CONF_REPLACEMENT_ALERT_CHANNEL,
+    CONF_REPLACEMENT_ALERT_TELEGRAM_ENTITY,
+    CONF_REPLACEMENT_ALERT_TELEGRAM_BOT_ENTRY_ID,
+    CONF_REPLACEMENT_ALERT_PUSH_ENTITY,
     CONF_P2000_RTL_TOPIC,
     CONF_P2000_SCAN_INTERVAL,
     CONF_P2000_SOURCE,
@@ -173,6 +181,15 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     and chosen in {P2000_SOURCE_PAGE, P2000_SOURCE_PAGE_RTL}
                     and not updated.get(CONF_P2000_PAGE_KEY)):
                 errors["base"] = "p2000_page_key_required"
+            from .replacement_notifications import notify_targets
+            if updated.get(CONF_REPLACEMENT_ALERTS_ENABLED):
+                channel = updated.get(CONF_REPLACEMENT_ALERT_CHANNEL, "push")
+                targets = notify_targets(updated)
+                if (channel == "both" and len(targets) != 2) or (channel in {"push", "telegram"} and len(targets) != 1):
+                    errors["base"] = "replacement_notify_target_required"
+            from .p2000_prealerts import configured_capcodes
+            if updated.get(CONF_P2000_PREALERT_ENABLED) and not configured_capcodes(updated.get(CONF_P2000_PREALERT_CAPCODES, "")):
+                errors["base"] = "invalid_prealert_capcodes"
             if not errors:
                 return self.async_create_entry(title="", data=updated)
 
@@ -209,6 +226,38 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
                     CONF_P2000_PAGE_REGIONS,
                     default=str(current.get(CONF_P2000_PAGE_REGIONS, P2000_DEFAULT_PAGE_REGIONS)),
                 ): vol.All(str, vol.Match(r"^(?:0[1-9]|1[0-9]|2[0-5])(?:~(?:0[1-9]|1[0-9]|2[0-5]))*$")),
+                vol.Optional(
+                    CONF_REPLACEMENT_AUTO_CLEAR_ENABLED,
+                    default=bool(current.get(CONF_REPLACEMENT_AUTO_CLEAR_ENABLED, False)),
+                ): bool,
+                vol.Optional(
+                    CONF_REPLACEMENT_ALERTS_ENABLED,
+                    default=bool(current.get(CONF_REPLACEMENT_ALERTS_ENABLED, False)),
+                ): bool,
+                vol.Optional(
+                    CONF_REPLACEMENT_ALERT_CHANNEL,
+                    default=current.get(CONF_REPLACEMENT_ALERT_CHANNEL, "push"),
+                ): vol.In({"push": "Home Assistant push", "telegram": "Telegram", "both": "Beide"}),
+                vol.Optional(
+                    CONF_REPLACEMENT_ALERT_TELEGRAM_ENTITY,
+                    default=str(current.get(CONF_REPLACEMENT_ALERT_TELEGRAM_ENTITY, "")),
+                ): str,
+                vol.Optional(
+                    CONF_REPLACEMENT_ALERT_TELEGRAM_BOT_ENTRY_ID,
+                    default=str(current.get(CONF_REPLACEMENT_ALERT_TELEGRAM_BOT_ENTRY_ID, "")),
+                ): str,
+                vol.Optional(
+                    CONF_REPLACEMENT_ALERT_PUSH_ENTITY,
+                    default=str(current.get(CONF_REPLACEMENT_ALERT_PUSH_ENTITY, "")),
+                ): str,
+                vol.Optional(
+                    CONF_P2000_PREALERT_ENABLED,
+                    default=bool(current.get(CONF_P2000_PREALERT_ENABLED, False)),
+                ): bool,
+                vol.Optional(
+                    CONF_P2000_PREALERT_CAPCODES,
+                    default=str(current.get(CONF_P2000_PREALERT_CAPCODES, "")),
+                ): str,
                 vol.Optional(
                     CONF_P2000_RTL_TOPIC,
                     default=str(
