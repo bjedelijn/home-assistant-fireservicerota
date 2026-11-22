@@ -123,4 +123,4 @@ jobs:
           PY
 
       - name: Run regression tests
-        run: PYTHONPATH=. pytest -q
+        run: PYTHONPATH=. pytest -q tests
