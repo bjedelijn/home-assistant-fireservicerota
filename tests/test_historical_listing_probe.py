@@ -96,7 +96,7 @@ def test_five_page_scan_reports_counts_and_privacy():
     assert result["total_items_observed"] == 15
     assert result["distinct_incident_count"] == 15
     assert result["overlapping_incident_count"] == 0
-    assert result["per_page_requested"] == 50
+    assert result["per_page_requested"] == 25
     assert result["history_complete"] is False
     assert "SYNTHETIC_SECRET" not in str(result)
 
@@ -117,3 +117,14 @@ def test_scan_never_claims_full_history_on_empty_page():
     ])
     assert result["history_complete"] is False
     assert result["pagination_verified"] is False
+
+
+def test_unrecognized_page_stops_scan_without_claiming_end_of_history():
+    result = summarize_history_listing_scan([
+        [{"id": 812, "created_at": "2025-04-01T08:00:00+02:00"}],
+        {"error": "SYNTHETIC_PRIVATE_ERROR"},
+    ])
+    assert result["status"] == "unrecognized_page_shape"
+    assert result["stopped_on_unexpected_response"] is True
+    assert result["history_complete"] is False
+    assert "SYNTHETIC_PRIVATE_ERROR" not in str(result)
