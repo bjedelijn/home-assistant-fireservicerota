@@ -198,6 +198,8 @@ PROBE_FAIRNESS_SCHEMA = PREVIEW_FAIRNESS_ADVISORY_SCHEMA
 PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Optional("start_page", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=500)),
+    vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=5)),
 })
 REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -653,8 +655,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         """Read at most five 25-row listing pages without storing incidents."""
         _entry, client, _cache = _history_entry(call)
         pages = []
+        start_page = call.data["start_page"]
+        max_pages = call.data[ATTR_MAX_PAGES]
         try:
-            for page_number in range(1, 6):
+            for page_number in range(start_page, start_page + max_pages):
                 payload = await client.async_api_get(
                     "incidents", {"page": page_number, "per_page": 25}
                 )
@@ -681,7 +685,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "pagination_verified": False,
                 "pages_fetched": len(pages),
             }
-        result = summarize_history_listing_scan(pages)
+        result = summarize_history_listing_scan(pages, start_page=start_page)
         result["pages_fetched"] = len(pages)
         return result
 
