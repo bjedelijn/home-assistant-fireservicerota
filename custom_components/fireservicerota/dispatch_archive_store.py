@@ -223,6 +223,28 @@ class DispatchArchiveStore:
             "import": self._import,
         })
 
+    async def async_detail_probe_ids(self, limit: int) -> list[str]:
+        """Select local IDs only; never return them from a HA service.
+
+        Spread samples over the indexed range instead of always selecting
+        the latest records. No remote requests are performed here.
+        """
+        if type(limit) is not int or not 1 <= limit <= 3:
+            raise ValueError("Probe limit must be between one and three")
+        async with self._lock:
+            total = len(self._records)
+            if total == 0:
+                return []
+            positions = (
+                [0] if limit == 1
+                else [0, total - 1] if limit == 2
+                else [0, (total - 1) // 2, total - 1]
+            )
+            return list(dict.fromkeys(
+                self._records[position]["incident_id"]
+                for position in positions
+            ))
+
     async def async_index_summary(self, timezone_name: str) -> dict[str, Any]:
         """Analyze private archived metadata without BWR/network calls."""
         async with self._lock:
