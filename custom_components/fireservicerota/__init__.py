@@ -30,9 +30,18 @@ from .historical_fairness import (
     build_historical_role_preview,
     build_compact_history_evidence,
     enrich_compact_history_task_names,
+    enrich_compact_history_crew_coverage,
 )
 from .historical_fairness_store import HistoricalFairnessStorage
 from .fairness_advisory import build_task_fairness_advisory
+from .fairness_availability_probe import (
+    choose_one_candidate_schedule_probe,
+    summarize_one_candidate_schedule_probe,
+)
+from .fairness_requirement_probe import (
+    choose_historical_task_requirement,
+    summarize_task_requirement_schedule,
+)
 from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 from .vehicle_evidence import incident_vehicle_evidence
@@ -75,6 +84,8 @@ from .const import (
     SERVICE_IMPORT_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+    SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+    SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
@@ -175,6 +186,7 @@ PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema({
     vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
     vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
 })
+PROBE_FAIRNESS_SCHEMA = PREVIEW_FAIRNESS_ADVISORY_SCHEMA
 
 ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
     {
@@ -283,6 +295,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_IMPORT_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+            SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+            SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
             SERVICE_SET_STATION_AVAILABILITY,
@@ -543,6 +557,65 @@ def _async_register_services(hass: HomeAssistant) -> None:
             include_people=False,
         )
 
+
+    async def async_probe_fairness_availability(call: ServiceCall) -> dict:
+        """One authorized candidate GET, no private schedule or identities returned."""
+        _entry, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        records = await cache.async_list(station_id)
+        membership_id, selection = choose_one_candidate_schedule_probe(
+            records, client.groups, client.task_index, station_id, task_id,
+            authenticated_user_id=(
+                client.user_data.get("id") if isinstance(client.user_data, dict) else None
+            ),
+        )
+        if membership_id is None:
+            return selection
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        try:
+            schedule = await client.async_api_get(
+                f"memberships/{membership_id}/combined_schedule",
+                client._schedule_window_params(),
+            )
+        except Exception:
+            # Private identifiers and API data must never enter public logs.
+            _LOGGER.debug("Read-only fairness availability probe unavailable")
+            schedule = None
+        return summarize_one_candidate_schedule_probe(selection, schedule, now)
+
+    async def async_probe_fairness_task_coverage(call: ServiceCall) -> dict:
+        """Single known task requirement; aggregate-only current coverage."""
+        entry_data, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        records = await cache.async_list(station_id)
+        compact = _compact_fairness(records, client, station_id)
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        evidence = enrich_compact_history_crew_coverage(
+            compact,
+            incident_store.history if incident_store is not None else [],
+            station_id,
+            cached_fairness_records=records,
+        )
+        requirement_id, selection = choose_historical_task_requirement(
+            evidence, station_id, task_id, client.task_index,
+        )
+        if requirement_id is None:
+            return selection
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        try:
+            schedule = await client.async_api_get(
+                f"availability_requirements/{requirement_id}/schedule",
+                client._schedule_window_params(),
+            )
+        except Exception:
+            _LOGGER.debug("Read-only fairness task coverage probe unavailable")
+            schedule = None
+        return summarize_task_requirement_schedule(
+            selection, schedule, now, task_index=client.task_index,
+        )
+
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
         """Inspect one incident's audit log with the existing OAuth client."""
         client = _service_client(hass, call.data.get(ATTR_ENTRY_ID))
@@ -649,6 +722,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_IMPORT_FAIRNESS_HISTORY, async_import_fairness_history, IMPORT_FAIRNESS_HISTORY_SCHEMA),
         (SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history, PREVIEW_FAIRNESS_HISTORY_SCHEMA),
         (SERVICE_PREVIEW_FAIRNESS_ADVISORY, async_preview_fairness_advisory, PREVIEW_FAIRNESS_ADVISORY_SCHEMA),
+        (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
+        (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
     ):
         if not hass.services.has_service(DOMAIN, service):
             hass.services.async_register(
