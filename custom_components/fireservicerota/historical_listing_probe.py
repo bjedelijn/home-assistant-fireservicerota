@@ -122,3 +122,60 @@ def compare_history_listing_pages(first: Any, second: Any) -> dict[str, Any]:
     else:
         result["status"] = "repeated_or_overlapping_pages"
     return result
+
+
+def summarize_history_listing_scan(pages: list[Any]) -> dict[str, Any]:
+    """Report bounded page continuity without exposing incident identities."""
+    if not 1 <= len(pages) <= 5:
+        raise ValueError("invalid page count")
+    summaries = [summarize_history_listing(page) for page in pages]
+    result: dict[str, Any] = {
+        "read_only": True,
+        "incident_ids_returned": False,
+        "personal_or_post_details_returned": False,
+        "history_complete": False,
+        "date_filter_supported": None,
+        "pages_requested": len(pages),
+        "per_page_requested": 50,
+        "per_page_effective": max((p["items_inspected"] for p in summaries), default=0),
+        "total_items_observed": sum(p["items_inspected"] for p in summaries),
+        "pages": [
+            {
+                "page": index,
+                "status": item["status"],
+                "items_inspected": item["items_inspected"],
+                "earliest_visible_at": item["earliest_visible_at"],
+                "latest_visible_at": item["latest_visible_at"],
+            }
+            for index, item in enumerate(summaries, 1)
+        ],
+        "pagination_verified": False,
+        "distinct_incident_count": None,
+        "overlapping_incident_count": None,
+        "status": "unverified",
+    }
+    if any(item["status"] != "listing_shape_observed" for item in summaries):
+        result["status"] = "unrecognized_page_shape"
+        return result
+    seen: set[str] = set()
+    overlaps = 0
+    for payload in pages:
+        rows = payload if isinstance(payload, list) else payload["data"]
+        local: set[str] = set()
+        for row in rows:
+            identifier = row.get("id")
+            if isinstance(identifier, bool) or not isinstance(identifier, (str, int)):
+                result["status"] = "identifiers_not_comparable"
+                return result
+            identifier = str(identifier)
+            if not identifier.isdecimal() or len(identifier) > 24 or identifier in local:
+                result["status"] = "identifiers_not_comparable"
+                return result
+            local.add(identifier)
+        overlaps += len(seen & local)
+        seen.update(local)
+    result["distinct_incident_count"] = len(seen)
+    result["overlapping_incident_count"] = overlaps
+    result["pagination_verified"] = len(pages) > 1 and overlaps == 0 and bool(summaries[1]["items_inspected"])
+    result["status"] = "distinct_pages_observed" if result["pagination_verified"] else "overlap_or_empty_pages"
+    return result
