@@ -94,6 +94,7 @@ from .const import (
     SERVICE_INSPECT_TURNOUT_AUDIT,
     SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
     SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
+    SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
     SERVICE_PROBE_FAIRNESS_AVAILABILITY,
     SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_MARK_INCIDENT_CLOSED,
@@ -335,6 +336,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_INSPECT_TURNOUT_AUDIT,
             SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
             SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
+            SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_MARK_INCIDENT_CLOSED,
@@ -657,6 +659,27 @@ def _async_register_services(hass: HomeAssistant) -> None:
         )
 
 
+    async def async_get_dispatch_archive_status(call: ServiceCall) -> dict:
+        """Return private archive status without emitting incident identities."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        return {
+            **archive.status(),
+            "retention": entry_data[DATA_CLIENT]._entry.options.get(
+                "dispatch_archive_retention", "all"
+            ),
+            "store_incident_details": bool(
+                entry_data[DATA_CLIENT]._entry.options.get(
+                    "dispatch_archive_details", True
+                )
+            ),
+            "store_yearly_statistics": bool(
+                entry_data[DATA_CLIENT]._entry.options.get(
+                    "dispatch_yearly_stats", True
+                )
+            ),
+        }
+
     async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
         """Read at most five 25-row listing pages without storing incidents."""
         _entry, client, _cache = _history_entry(call)
@@ -926,6 +949,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_INSPECT_TURNOUT_AUDIT, async_inspect_turnout_audit, INSPECT_TURNOUT_AUDIT_SCHEMA),
         (SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY, async_refresh_turnout_audit_history, REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA),
         (SERVICE_PROBE_HISTORICAL_INCIDENT_LIST, async_probe_historical_incident_list, PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA),
+        (SERVICE_GET_DISPATCH_ARCHIVE_STATUS, async_get_dispatch_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
     ):
