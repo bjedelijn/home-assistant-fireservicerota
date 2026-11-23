@@ -11,6 +11,8 @@ from typing import Any
 
 from homeassistant.helpers.storage import Store
 
+from .dispatch_archive_analysis import summarize_indexed_incident_months
+
 from .const import (
     CONF_DISPATCH_ARCHIVE_RETENTION,
     CONF_DISPATCH_ARCHIVE_DETAILS,
@@ -220,6 +222,15 @@ class DispatchArchiveStore:
             "yearly": self._yearly,
             "import": self._import,
         })
+
+    async def async_index_summary(self, timezone_name: str) -> dict[str, Any]:
+        """Analyze private archived metadata without BWR/network calls."""
+        async with self._lock:
+            return summarize_indexed_incident_months(
+                self._records,
+                timezone_name=timezone_name,
+                listing_exhausted=self._import["status"] == "complete",
+            )
 
     def status(self) -> dict[str, Any]:
         """Return only counts and dates; no operational identifiers."""
