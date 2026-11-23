@@ -128,3 +128,15 @@ def test_unrecognized_page_stops_scan_without_claiming_end_of_history():
     assert result["stopped_on_unexpected_response"] is True
     assert result["history_complete"] is False
     assert "SYNTHETIC_PRIVATE_ERROR" not in str(result)
+
+
+def test_scan_start_page_numbering_and_next_checkpoint():
+    result = summarize_history_listing_scan([
+        [{"id": 900, "created_at": "2025-03-02T10:00:00+01:00"}],
+        [{"id": 899, "created_at": "2025-03-01T10:00:00+01:00"}],
+    ], start_page=6)
+    assert result["start_page"] == 6
+    assert result["next_start_page"] == 8
+    assert [row["page"] for row in result["pages"]] == [6, 7]
+    assert result["pagination_verified"] is True
+    assert result["history_complete"] is False
