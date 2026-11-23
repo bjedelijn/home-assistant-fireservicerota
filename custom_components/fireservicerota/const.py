@@ -15,6 +15,12 @@ DATA_HISTORICAL_FAIRNESS_STORE = "historical_fairness_store"
 DATA_P2000_MANAGER = "p2000_manager"
 DATA_REPLACEMENT_VEHICLES = "replacement_vehicles"
 DATA_REPLACEMENT_MONITOR = "replacement_monitor"
+DATA_DISPATCH_ARCHIVE = "dispatch_archive"
+
+CONF_DISPATCH_ARCHIVE_RETENTION = "dispatch_archive_retention"
+CONF_DISPATCH_ARCHIVE_DETAILS = "dispatch_archive_details"
+CONF_DISPATCH_YEARLY_STATS = "dispatch_yearly_stats"
+DISPATCH_RETENTION_OPTIONS = ("all", "2", "5", "10")
 
 CONF_P2000_ENABLED = "p2000_enabled"
 CONF_P2000_SOURCE = "p2000_source"
