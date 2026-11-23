@@ -650,14 +650,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
 
     async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
-        """Two bounded read-only BWR requests; no private result fields."""
+        """Two read-only BWR listing pages, 25 requested rows per page."""
         _entry, client, _cache = _history_entry(call)
         try:
             page_1 = await client.async_api_get(
-                "incidents", {"page": 1, "per_page": 5}
+                "incidents", {"page": 1, "per_page": 25}
             )
             page_2 = await client.async_api_get(
-                "incidents", {"page": 2, "per_page": 5}
+                "incidents", {"page": 2, "per_page": 25}
             )
         except Exception as err:
             _LOGGER.debug(
@@ -671,7 +671,16 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "history_complete": False,
                 "pagination_verified": False,
             }
-        return compare_history_listing_pages(page_1, page_2)
+        result = compare_history_listing_pages(page_1, page_2)
+        result["per_page_requested"] = 25
+        result["per_page_effective"] = max(
+            result["page_1"]["items_inspected"],
+            result["page_2"]["items_inspected"],
+        )
+        result["requested_page_size_observed"] = (
+            result["page_1"]["items_inspected"] == 25
+        )
+        return result
 
     async def async_refresh_turnout_audit_history(call: ServiceCall) -> dict:
         """Bounded opt-in HA-scheduled review of cached past incidents only."""
