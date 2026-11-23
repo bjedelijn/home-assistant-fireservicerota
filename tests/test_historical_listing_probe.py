@@ -1,5 +1,5 @@
 """Synthetic listing capability tests; no live incident or station records."""
-from custom_components.fireservicerota.historical_listing_probe import summarize_history_listing
+from custom_components.fireservicerota.historical_listing_probe import summarize_history_listing, compare_history_listing_pages
 
 
 def test_list_metadata_never_exposes_private_data():
@@ -35,3 +35,44 @@ def test_data_envelope_and_invalid_source_date():
     assert result["items_inspected"] == 1
     assert result["earliest_visible_at"] is None
     assert "SYNTHETIC_PRIVATE_DATE" not in str(result)
+
+
+def test_distinct_pages_are_compared_without_echoing_ids():
+    first = [
+        {"id": 101, "created_at": "2025-05-02T10:00:00+02:00",
+         "description": "SYNTHETIC_PRIVATE_PERSON"},
+        {"id": 102, "created_at": "2025-05-01T10:00:00+02:00"},
+    ]
+    second = [
+        {"id": 103, "created_at": "2025-04-30T10:00:00+02:00"},
+        {"id": 104, "created_at": "2025-04-29T10:00:00+02:00"},
+    ]
+    result = compare_history_listing_pages(first, second)
+    assert result["pagination_verified"] is True
+    assert result["page_2_older_than_page_1"] is True
+    assert result["distinct_incident_count"] == 4
+    assert result["overlapping_incident_count"] == 0
+    assert "SYNTHETIC_PRIVATE_PERSON" not in str(result)
+    assert result["history_complete"] is False
+
+
+def test_repeated_page_is_not_pagination_proof():
+    page = [{"id": 201, "created_at": "2025-05-02T10:00:00+02:00"}]
+    result = compare_history_listing_pages(page, page)
+    assert result["status"] == "repeated_or_overlapping_pages"
+    assert result["pagination_verified"] is False
+
+
+def test_empty_page_is_not_claimed_complete_archive():
+    page = [{"id": 202, "created_at": "2025-05-02T10:00:00+02:00"}]
+    result = compare_history_listing_pages(page, [])
+    assert result["status"] == "second_page_empty"
+    assert result["history_complete"] is False
+
+
+def test_non_numeric_identifier_is_not_echoed():
+    result = compare_history_listing_pages(
+        [{"id": "SYNTHETIC_SECRET_ID"}], [{"id": 203}]
+    )
+    assert result["status"] == "identifiers_not_comparable"
+    assert "SYNTHETIC_SECRET_ID" not in str(result)
