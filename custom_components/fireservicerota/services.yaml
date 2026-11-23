@@ -301,3 +301,67 @@ get_incident_vehicle_evidence:
       required: false
       selector:
         text: {}
+
+
+import_fairness_history:
+  name: Import historical fairness (private)
+  description: >-
+    On-demand import of up to five authorized incident audits into private
+    Home Assistant storage. No personnel or station audit records are sent to GitHub.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_ids:
+      name: Incident IDs (1 to 5)
+      required: true
+      selector:
+        text:
+          multiple: true
+    max_pages:
+      name: Maximum audit pages
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+
+preview_fairness_history:
+  name: Preview historical fairness (anonymous)
+  description: >-
+    Read only a compact aggregated historical overview from private Home Assistant
+    storage. Does not infer the actual crew or make predictions.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+preview_fairness_advisory:
+  name: Preview fairness by task (anonymous)
+  description: >-
+    Read-only task-specific historical observations. No individual names or
+    memberships returned. Does not predict a future crew.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
