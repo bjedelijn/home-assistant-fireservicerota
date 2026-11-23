@@ -6,7 +6,7 @@ event alone cannot establish a manual correction or actual attendance.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .fairness_revision_summary import _safe_timestamp
@@ -27,6 +27,10 @@ def summarize_turnout_audit(analysis: dict[str, Any]) -> dict[str, Any]:
         "turnout_status_audit_events_seen": 0,
         "turnout_status_audit_timeline": [],
         "events_after_last_fairness_proposal": None,
+        "late_registration_event_count": None,
+        "late_registration_rounds": [],
+        "late_registration_round_count": None,
+        "late_registration_threshold_hours": 1,
         "first_turnout_status_event_at": None,
         "latest_turnout_status_event_at": None,
         "last_fairness_proposal_at": None,
@@ -92,5 +96,32 @@ def summarize_turnout_audit(analysis: dict[str, Any]) -> dict[str, Any]:
         result["events_after_last_fairness_proposal"] = sum(
             date > last_proposal for date in dates
         )
+    if last_proposal is not None:
+        # A one-hour threshold separates immediate dispatch churn from late
+        # registration; a ten-minute gap starts a new possible batch.
+        # Neither rule proves a manual correction.
+        late = [
+            date for date in dates if date > last_proposal + timedelta(hours=1)
+        ]
+        rounds: list[dict[str, Any]] = []
+        for date in late:
+            if rounds and date - rounds[-1]["_last"] <= timedelta(minutes=10):
+                rounds[-1]["_last"] = date
+                rounds[-1]["event_count"] += 1
+            else:
+                rounds.append({
+                    "_first": date, "_last": date, "event_count": 1,
+                })
+        result["late_registration_event_count"] = len(late)
+        result["late_registration_round_count"] = len(rounds)
+        result["late_registration_rounds"] = [
+            {
+                "first_event_at": item["_first"].isoformat(),
+                "last_event_at": item["_last"].isoformat(),
+                "event_count": item["event_count"],
+                "classification": "possible_later_registration_not_verified_correction",
+            }
+            for item in rounds
+        ]
     result["comparison_status"] = "audit_markers_observed"
     return result
