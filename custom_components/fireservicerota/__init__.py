@@ -28,6 +28,7 @@ from .fairness_audit import analyze_incident_fairness
 from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 from .vehicle_evidence import incident_vehicle_evidence
+from .task_vehicle_evidence import task_evidence, matched_p2000_evidence
 
 from .const import (
     ATTR_ADDRESS,
@@ -417,11 +418,23 @@ def _async_register_services(hass: HomeAssistant) -> None:
             if isinstance(raw, dict) and str(raw.get("id")) == str(incident_id)
             else None
         )
+        manager = entry_data.get(DATA_P2000_MANAGER)
         return {
             "incident_id": str(incident_id),
             "rest": api_evidence,
             "websocket": ws_evidence,
-            "note": "Diagnostics only; verify semantics before automatic reconciliation.",
+            "tasks": {
+                "rest": task_evidence(incident, client.task_index),
+                "websocket": (
+                    task_evidence(raw, client.task_index) if ws_evidence is not None else None
+                ),
+            },
+            "p2000": (
+                matched_p2000_evidence(manager.persistent_matches, incident_id)
+                if manager is not None
+                else {"status": "p2000_manager_unavailable", "units": [], "sources": []}
+            ),
+            "note": "Task/P2000 context only: no evidence of a physical vehicle turnout or crew.",
         }
 
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
