@@ -140,7 +140,7 @@ def merge_bwr_p2000(
         "records": records,
         "summary": {
             "bwr_incidents": sum(record["bwr_present"] for record in records),
-            "p2000_only_incidents": unmatched,
+            "p2000_only_events": unmatched,
             "verified_linked_p2000_events": matched,
             "rejected_or_unresolved_links": rejected_links,
             "skipped_duplicate_or_invalid_records": skipped,
