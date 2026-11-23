@@ -57,11 +57,34 @@ using their current source-selection rules. A future historical adapter must
 be explicitly isolated from the live-source selection and fail closed when
 p2000.page history is unavailable.
 
+## Current BWR detail capability diagnostic (opt-in)
+
+The action below inspects at most two locally indexed BWR detail records by
+default (range 1-3). It uses the existing **shared BWR daily request budget**
+and pauses on API errors or exhaustion. No bulk detail enrichment is started.
+
+```yaml
+action: fireservicerota.probe_historical_incident_detail
+data:
+  station_id: YOUR_AUTHORIZED_STATION_ID
+  limit: 2
+```
+
+The samples span recent and old locally indexed records. The response
+contains only reviewed candidate **field-presence counts**. No incident
+IDs, times, message bodies, vehicle numbers, staff names or unknown API
+keys are exposed. A missing field might simply have a different API name,
+so the output is a capability hint, not a confirmed mapping. It must **not**
+be used to prove an actual vehicle departure, linked station, complete
+historical year or fairness audit correctness. This action consumes at most
+the selected number of BWR request attempts; it performs no listing
+requests and does not modify archived records.
+
 ## Integration steps still pending
 
-1. Determine the exact normalized fields available from actual BWR incident
-   detail, with a small manually approved and shared-budget-constrained
-   diagnostic. Do not fetch all 392 incident details without this test.
+1. Use the opt-in shared-budget detail diagnostic above to identify candidate
+   fields, then separately validate their semantics before mapping them.
+   Do not fetch all 392 incident details without that validation.
 2. Check **p2000.page API only** for historical scope, authorization, retention and
    pagination. The current live-event connection does not prove access to
    historical raw events. Build bounded retrieval and provider-specific
