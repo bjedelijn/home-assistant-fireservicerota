@@ -42,12 +42,27 @@ validated metadata produced by an approved adapter, not raw provider output.
   eligibility**, not proof that audit evidence or member turnout exists.
   BWR incident audit must still validate before fairness counts are made.
 
+## Historical P2000 source restrictions
+
+**Only the authenticated p2000.page API is a candidate source for historical
+P2000 backfill/enrichment**, and only if its actual API supports the required
+historical range, authorization and event fields. This is not yet verified.
+Historical P2000 import MUST NOT use the generic P2000 online feed or
+RTL-SDR, which are live event sources, nor infer that locally cached live
+events constitute complete historical coverage.
+
+This restriction applies **only to historical enrichment**. Existing live
+P2000 online, p2000.page and RTL-SDR features are unchanged and continue
+using their current source-selection rules. A future historical adapter must
+be explicitly isolated from the live-source selection and fail closed when
+p2000.page history is unavailable.
+
 ## Integration steps still pending
 
 1. Determine the exact normalized fields available from actual BWR incident
    detail, with a small manually approved and shared-budget-constrained
    diagnostic. Do not fetch all 392 incident details without this test.
-2. Check p2000.page historical API scope, authorization, retention and
+2. Check **p2000.page API only** for historical scope, authorization, retention and
    pagination. The current live-event connection does not prove access to
    historical raw events. Build bounded retrieval and provider-specific
    limits only when its historical API is confirmed.
