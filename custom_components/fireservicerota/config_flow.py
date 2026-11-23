@@ -8,6 +8,9 @@ from homeassistant.core import callback
 from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
 from .const import (
+    CONF_DISPATCH_ARCHIVE_RETENTION,
+    CONF_DISPATCH_ARCHIVE_DETAILS,
+    CONF_DISPATCH_YEARLY_STATS,
     CONF_P2000_ENABLED,
     CONF_P2000_PAGE_KEY,
     CONF_P2000_PAGE_REGIONS,
@@ -203,6 +206,23 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
         current = {**self.config_entry.data, **self.config_entry.options}
         schema = vol.Schema(
             {
+                vol.Optional(
+                    CONF_DISPATCH_ARCHIVE_RETENTION,
+                    default=str(current.get(CONF_DISPATCH_ARCHIVE_RETENTION, "all")),
+                ): vol.In({
+                    "all": "Onbeperkt (standaard)",
+                    "2": "2 jaar",
+                    "5": "5 jaar",
+                    "10": "10 jaar",
+                }),
+                vol.Optional(
+                    CONF_DISPATCH_ARCHIVE_DETAILS,
+                    default=bool(current.get(CONF_DISPATCH_ARCHIVE_DETAILS, True)),
+                ): bool,
+                vol.Optional(
+                    CONF_DISPATCH_YEARLY_STATS,
+                    default=bool(current.get(CONF_DISPATCH_YEARLY_STATS, True)),
+                ): bool,
                 vol.Optional(
                     CONF_P2000_ENABLED,
                     default=bool(current.get(CONF_P2000_ENABLED, False)),
