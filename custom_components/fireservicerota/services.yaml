@@ -440,3 +440,32 @@ inspect_fairness_revisions:
           min: 1
           max: 10
           mode: box
+
+inspect_turnout_audit:
+  name: Inspect retrospective turnout audit markers (anonymous)
+  description: >-
+    Read one authorized incident audit on demand and return only the times and
+    count of observed 'Werkelijke opkomststatus' change markers. Does not reveal
+    people, audit descriptions or actor details and does not establish that a
+    manual correction or real vehicle turnout took place.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_id:
+      name: Incident ID
+      required: true
+      selector:
+        text: {}
+    max_pages:
+      name: Maximum audit pages
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
