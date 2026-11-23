@@ -59,6 +59,29 @@ This action should not be used to infer real turnout or personal fairness
 from listing records. Audit extraction and role-level fairness aggregation
 remain a separate bounded design task.
 
+## Conservative BWR request safeguards
+
+The historical **listing probe** and **archive import** share a persisted
+per-integration budget: maximum **40 attempted requests per UTC day** and
+at least **2 seconds** between requests. The count is reserved **before**
+each request and survives Home Assistant restarts. Exhaustion halts the
+operation and preserves the archive checkpoint. There are **no automatic
+retries**. After an HTTP 403/429 (or recognized throttling exception), these
+historical requests are paused until the following UTC day. A blocked or
+unknown response must never be interpreted as end-of-history.
+
+The configured ceiling is deliberately conservative; the **actual BWR
+quota is unknown** and no numeric ceiling guarantees the provider will not
+throttle or block an account. This budget **does not cover** normal BWR
+polling, WebSocket traffic, manual audit/fairness actions, or calls from other
+clients. Those actions need their own audit before a shared provider-wide
+budget is possible. Future historical enrichment must use this same gate.
+
+`get_dispatch_archive_status` includes the UTC budget date, attempts used
+and remaining, and the paused flag. The 392 already imported index rows
+remain local and do not require reimporting. Avoid unnecessary new tests
+against the production account.
+
 ## Status action
 
 ```yaml
