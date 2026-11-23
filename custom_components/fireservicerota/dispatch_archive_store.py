@@ -1,7 +1,7 @@
 """Private, bounded-shape dispatch archive. Never saves raw BWR API payloads.
 
 This store is deliberately separate from the operational 25-record cache and
-fairness evidence. Historical source ingestion is not wired up yet.
+fairness evidence. Import resumes from a persisted page checkpoint; only validated listing rows enter storage.
 """
 from __future__ import annotations
 
@@ -110,6 +110,7 @@ class DispatchArchiveStore:
         self._records: list[dict] = []
         self._yearly: list[dict] = []
         self._loaded = False
+        self._import = {"status": "not_started", "next_page": 1, "pages_processed": 0, "rows_seen": 0}
 
     async def async_load(self, options: dict) -> None:
         async with self._lock:
@@ -118,6 +119,14 @@ class DispatchArchiveStore:
                 data = {}
             self._records = list(data.get("records", []))
             self._yearly = list(data.get("yearly", []))
+            state = data.get("import")
+            if isinstance(state, dict):
+                self._import = {
+                    "status": "interrupted" if state.get("status") == "running" else state.get("status", "not_started"),
+                    "next_page": max(1, min(int(state.get("next_page", 1)), 5000)),
+                    "pages_processed": max(0, int(state.get("pages_processed", 0))),
+                    "rows_seen": max(0, int(state.get("rows_seen", 0))),
+                }
             self._loaded = True
             await self._apply_options_locked(options)
 
@@ -161,10 +170,55 @@ class DispatchArchiveStore:
             await self._save_locked()
             return len(set(item["incident_id"] for item in self._records) - previous.keys())
 
+    async def async_update_import(self, status: str, *, reset: bool = False) -> None:
+        """Persist a sanitized, non-sensitive import state transition."""
+        if status not in {"running", "interrupted", "failed", "complete", "not_started"}:
+            raise ValueError("Invalid import state")
+        async with self._lock:
+            if reset:
+                self._import = {"status": "not_started", "next_page": 1, "pages_processed": 0, "rows_seen": 0}
+            self._import["status"] = status
+            await self._save_locked()
+
+    async def async_commit_listing_page(self, records: list[dict], options: dict, *, page: int) -> None:
+        """Atomically store one validated listing page and advance checkpoint."""
+        if not 1 <= page <= 5000 or len(records) > 25:
+            raise ValueError("Invalid listing page")
+        async with self._lock:
+            if self._import["next_page"] != page:
+                raise ValueError("Unexpected import checkpoint")
+            previous = {item["incident_id"]: item for item in self._records}
+            include_details = bool(options.get(CONF_DISPATCH_ARCHIVE_DETAILS, True))
+            for row in records:
+                cleaned = normalize_archive_record(row, include_details=include_details)
+                if cleaned is None:
+                    raise ValueError("Unrecognized incident in listing page")
+                previous[cleaned["incident_id"]] = cleaned
+            self._records = prune_archive_records(
+                list(previous.values()),
+                now=datetime.now(timezone.utc),
+                retention=options.get(CONF_DISPATCH_ARCHIVE_RETENTION, "all"),
+                include_details=include_details,
+            )
+            self._import["next_page"] = page + 1
+            self._import["pages_processed"] += 1
+            self._import["rows_seen"] += len(records)
+            self._import["status"] = "running"
+            await self._save_locked()
+
+    @property
+    def import_next_page(self) -> int:
+        return self._import["next_page"]
+
+    @property
+    def import_status(self) -> str:
+        return self._import["status"]
+
     async def _save_locked(self) -> None:
         await self._store.async_save({
             "records": self._records,
             "yearly": self._yearly,
+            "import": self._import,
         })
 
     def status(self) -> dict[str, Any]:
@@ -178,5 +232,9 @@ class DispatchArchiveStore:
             "newest_incident_date": (
                 self._records[0]["occurred_at"][:10] if self._records else None
             ),
-            "historical_import_implemented": False,
+            "historical_import_implemented": True,
+            "historical_import_status": self._import["status"],
+            "next_page": self._import["next_page"],
+            "pages_processed": self._import["pages_processed"],
+            "rows_seen": self._import["rows_seen"],
         }
