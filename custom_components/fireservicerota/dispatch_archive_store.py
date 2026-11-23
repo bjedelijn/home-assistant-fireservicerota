@@ -19,10 +19,6 @@ from .const import (
 )
 
 _VERSION = 1
-_ALLOWED_FIELDS = frozenset({
-    "incident_id", "occurred_at", "title", "station_key",
-    "priority", "vehicle_keys", "specialisms", "evidence",
-})
 _ALLOWED_EVIDENCE = frozenset({"alerted", "reported_departure", "verified_departure", "unknown"})
 
 
@@ -84,7 +80,7 @@ def normalize_archive_record(row: Any, *, include_details: bool) -> dict | None:
                 if isinstance(value, str) and 0 < len(value.strip()) <= 50
             })[:40]
     evidence = row.get("evidence")
-    if evidence in _ALLOWED_EVIDENCE:
+    if isinstance(evidence, str) and evidence in _ALLOWED_EVIDENCE:
         result["evidence"] = evidence
     return result
 
