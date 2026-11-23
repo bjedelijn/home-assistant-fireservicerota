@@ -50,6 +50,10 @@ from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 from .dispatch_archive_store import DispatchArchiveStore
 from .dispatch_history_import import normalize_listing_page
+from .historical_request_budget import (
+    HistoricalRequestBudget,
+    HistoricalRequestBudgetExceeded,
+)
 from .vehicle_evidence import incident_vehicle_evidence
 from .task_vehicle_evidence import task_evidence, matched_p2000_evidence
 
@@ -84,6 +88,7 @@ from .const import (
     DATA_P2000_MANAGER,
     DATA_REPLACEMENT_VEHICLES,
     DATA_DISPATCH_ARCHIVE,
+    DATA_HISTORICAL_REQUEST_BUDGET,
     DATA_REPLACEMENT_MONITOR,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
@@ -288,12 +293,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     dispatch_archive = DispatchArchiveStore(hass, entry.entry_id)
     await dispatch_archive.async_load(dict(entry.options))
+    history_budget = HistoricalRequestBudget(hass, entry.entry_id)
+    await history_budget.async_load()
 
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_CLIENT: client,
         DATA_COORDINATOR: coordinator,
         DATA_REPLACEMENT_VEHICLES: replacement_store,
         DATA_DISPATCH_ARCHIVE: dispatch_archive,
+        DATA_HISTORICAL_REQUEST_BUDGET: history_budget,
     }
 
     _async_register_services(hass)
@@ -673,6 +681,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         archive = entry_data[DATA_DISPATCH_ARCHIVE]
         return {
             **archive.status(),
+            **entry_data[DATA_HISTORICAL_REQUEST_BUDGET].status(),
             "retention": entry_data[DATA_CLIENT]._entry.options.get(
                 "dispatch_archive_retention", "all"
             ),
@@ -692,6 +701,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         """Opt-in, bounded archive import; resume from persisted page checkpoint."""
         entry_data, client, _fairness_store = _history_entry(call)
         archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
         lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
         if lock.locked():
             raise HomeAssistantError("Historical archive import is already running")
@@ -707,16 +717,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     await archive.async_update_import("failed")
                     return {**archive.status(), "status": "page_limit_reached"}
                 try:
-                    payload = await client.async_api_get(
-                        "incidents", {"page": page, "per_page": 25}
+                    payload = await budget.async_get(
+                        client, "incidents", {"page": page, "per_page": 25}
                     )
                     rows = normalize_listing_page(payload)
+                except HistoricalRequestBudgetExceeded:
+                    await archive.async_update_import("interrupted")
+                    return {**archive.status(), **budget.status(),
+                            "status": "daily_budget_exhausted"}
                 except Exception as err:
                     _LOGGER.debug(
                         "BWR dispatch archive import stopped (%s)", type(err).__name__
                     )
                     await archive.async_update_import("interrupted")
-                    return {**archive.status(), "status": "interrupted_unexpected_response"}
+                    return {**archive.status(), **budget.status(),
+                            "status": "interrupted_unexpected_response"}
                 if not rows:
                     await archive.async_update_import("complete")
                     return {**archive.status(), "status": "listing_exhausted",
@@ -736,14 +751,15 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
         """Read at most five 25-row listing pages without storing incidents."""
-        _entry, client, _cache = _history_entry(call)
+        entry_data, client, _cache = _history_entry(call)
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
         pages = []
         start_page = call.data["start_page"]
         max_pages = call.data[ATTR_MAX_PAGES]
         try:
             for page_number in range(start_page, start_page + max_pages):
-                payload = await client.async_api_get(
-                    "incidents", {"page": page_number, "per_page": 25}
+                payload = await budget.async_get(
+                    client, "incidents", {"page": page_number, "per_page": 25}
                 )
                 pages.append(payload)
                 # Only continue when this page has a known, bounded list shape.
@@ -755,6 +771,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     break
                 if not isinstance(rows, list) or len(rows) > 25 or not rows:
                     break
+        except HistoricalRequestBudgetExceeded:
+            return {
+                "status": "daily_budget_exhausted", "read_only": True,
+                "incident_ids_returned": False,
+                "personal_or_post_details_returned": False,
+                "history_complete": False, "pages_fetched": len(pages),
+                **budget.status(),
+            }
         except Exception as err:
             _LOGGER.debug(
                 "Historical listing depth probe unavailable (%s)",
