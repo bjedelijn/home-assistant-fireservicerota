@@ -1,5 +1,5 @@
 """Synthetic listing capability tests; no live incident or station records."""
-from custom_components.fireservicerota.historical_listing_probe import summarize_history_listing, compare_history_listing_pages
+from custom_components.fireservicerota.historical_listing_probe import summarize_history_listing, compare_history_listing_pages, summarize_history_listing_scan
 
 
 def test_list_metadata_never_exposes_private_data():
@@ -76,3 +76,44 @@ def test_non_numeric_identifier_is_not_echoed():
     )
     assert result["status"] == "identifiers_not_comparable"
     assert "SYNTHETIC_SECRET_ID" not in str(result)
+
+
+def test_five_page_scan_reports_counts_and_privacy():
+    pages = [
+        [
+            {
+                "id": 500 + page * 10 + item,
+                "created_at": f"2025-01-{20-page:02d}T12:00:00+01:00",
+                "person": "SYNTHETIC_SECRET_PERSON",
+            }
+            for item in range(3)
+        ]
+        for page in range(5)
+    ]
+    result = summarize_history_listing_scan(pages)
+    assert result["status"] == "distinct_pages_observed"
+    assert result["pages_requested"] == 5
+    assert result["total_items_observed"] == 15
+    assert result["distinct_incident_count"] == 15
+    assert result["overlapping_incident_count"] == 0
+    assert result["per_page_requested"] == 50
+    assert result["history_complete"] is False
+    assert "SYNTHETIC_SECRET" not in str(result)
+
+
+def test_scan_rejects_duplicate_incident_identifiers():
+    pages = [
+        [{"id": 701, "created_at": "2025-01-01T10:00:00+01:00"}],
+        [{"id": 701, "created_at": "2024-01-01T10:00:00+01:00"}],
+    ]
+    result = summarize_history_listing_scan(pages)
+    assert result["pagination_verified"] is False
+    assert result["overlapping_incident_count"] == 1
+
+
+def test_scan_never_claims_full_history_on_empty_page():
+    result = summarize_history_listing_scan([
+        [{"id": 701}], []
+    ])
+    assert result["history_complete"] is False
+    assert result["pagination_verified"] is False
