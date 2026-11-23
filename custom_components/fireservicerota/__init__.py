@@ -50,6 +50,7 @@ from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 from .dispatch_archive_store import DispatchArchiveStore
 from .dispatch_history_import import normalize_listing_page
+from .historical_detail_probe import summarize_incident_detail_capabilities
 from .historical_request_budget import (
     HistoricalRequestBudget,
     HistoricalRequestBudgetExceeded,
@@ -100,6 +101,7 @@ from .const import (
     SERVICE_INSPECT_TURNOUT_AUDIT,
     SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
     SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
+    SERVICE_PROBE_HISTORICAL_INCIDENT_DETAIL,
     SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
     SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
     SERVICE_IMPORT_DISPATCH_HISTORY,
@@ -210,6 +212,11 @@ IMPORT_DISPATCH_HISTORY_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
     vol.Optional(ATTR_MAX_PAGES, default=25): vol.All(vol.Coerce(int), vol.Range(min=1, max=25)),
+})
+PROBE_HISTORICAL_INCIDENT_DETAIL_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Optional(ATTR_LIMIT, default=2): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)),
 })
 PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -352,6 +359,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_INSPECT_TURNOUT_AUDIT,
             SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
             SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
+            SERVICE_PROBE_HISTORICAL_INCIDENT_DETAIL,
             SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
             SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
             SERVICE_IMPORT_DISPATCH_HISTORY,
@@ -758,6 +766,44 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "archive_years_verified_complete": False,
             }
 
+    async def async_probe_historical_incident_detail(call: ServiceCall) -> dict:
+        """Inspect at most three locally indexed BWR detail response shapes.
+
+        Explicit opt-in only. Uses the same persisted daily request gate as
+        the archive listing. No IDs, personnel or free text are returned.
+        """
+        entry_data, client, _cache = _history_entry(call)
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        ids = await archive.async_detail_probe_ids(call.data[ATTR_LIMIT])
+        inspected = []
+        stopped_reason = None
+        for identifier in ids:
+            try:
+                response = await budget.async_get(
+                    client, f"incidents/{identifier}", {}
+                )
+            except HistoricalRequestBudgetExceeded:
+                stopped_reason = "daily_budget_exhausted"
+                break
+            except Exception as err:
+                _LOGGER.debug(
+                    "Historical incident detail shape probe stopped (%s)",
+                    type(err).__name__,
+                )
+                stopped_reason = "api_error"
+                break
+            inspected.append(response)
+            if not isinstance(response, dict):
+                stopped_reason = "unexpected_response_shape"
+                break
+        return {
+            **summarize_incident_detail_capabilities(inspected),
+            "requested_samples": len(ids),
+            "stopped_reason": stopped_reason,
+            **budget.status(),
+        }
+
     async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
         """Read at most five 25-row listing pages without storing incidents."""
         entry_data, client, _cache = _history_entry(call)
@@ -1036,6 +1082,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_INSPECT_TURNOUT_AUDIT, async_inspect_turnout_audit, INSPECT_TURNOUT_AUDIT_SCHEMA),
         (SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY, async_refresh_turnout_audit_history, REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA),
         (SERVICE_PROBE_HISTORICAL_INCIDENT_LIST, async_probe_historical_incident_list, PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA),
+        (SERVICE_PROBE_HISTORICAL_INCIDENT_DETAIL, async_probe_historical_incident_detail, PROBE_HISTORICAL_INCIDENT_DETAIL_SCHEMA),
         (SERVICE_GET_DISPATCH_ARCHIVE_STATUS, async_get_dispatch_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
