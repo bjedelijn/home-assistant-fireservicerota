@@ -490,7 +490,7 @@ probe_historical_incident_list:
   name: Probe BWR historical incident listing (read-only)
   description: >-
     Make two authorized, read-only GETs for incident-list pages 1 and 2,
-    at most five rows each. Compare pages anonymously without returning incident
+    requesting up to 25 rows each. Compare pages anonymously without returning incident
     identifiers or private details. Does not prove historical depth, date
     filters or a complete archive.
   fields:
