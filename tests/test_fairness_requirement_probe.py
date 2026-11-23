@@ -317,7 +317,7 @@ def test_shared_current_requirement_reports_all_numeric_tasks_without_crew():
     assert result["current_api_requirement_id_matches"] is True
     assert result["current_api_task_ids_match"] is False
     assert result["current_api_requested_task_included"] is True
-    assert result["api_reported_task_ids"] == ["9002", "7689"]
+    assert result["api_reported_task_ids"] == ["7689", "9002"]
     assert result["api_reported_task_ids_count"] == 2
     assert result["current_api_task_mapping_status"] == "shared_across_tasks"
     assert result["current_aggregate_skills"] == []
