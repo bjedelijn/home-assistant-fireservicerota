@@ -60,7 +60,6 @@ def aggregate_yearly_dispatch_counts(
         if (
             not isinstance(incident, str) or not incident or len(incident) > 100
             or not isinstance(station, str) or not station or len(station) > 100
-            or (station_key is not None and station != station_key)
             or type(priority) is not int or priority not in PRIORITIES
             or evidence not in EVIDENCE or date is None
         ):
