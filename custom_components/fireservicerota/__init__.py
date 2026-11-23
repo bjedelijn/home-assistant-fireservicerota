@@ -25,6 +25,14 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
+from .historical_fairness import (
+    summarize_incident_for_history,
+    build_historical_role_preview,
+    build_compact_history_evidence,
+    enrich_compact_history_task_names,
+)
+from .historical_fairness_store import HistoricalFairnessStorage
+from .fairness_advisory import build_task_fairness_advisory
 from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 from .vehicle_evidence import incident_vehicle_evidence
@@ -36,6 +44,9 @@ from .const import (
     ATTR_CONFIRMATION,
     ATTR_ENTRY_ID,
     ATTR_INCIDENT_ID,
+    ATTR_INCIDENT_IDS,
+    ATTR_TASK_ID,
+    ATTR_INCLUDE_PEOPLE,
     ATTR_MEMBERSHIP_ID,
     ATTR_STATION_ID,
     ATTR_AVAILABLE,
@@ -54,12 +65,16 @@ from .const import (
     DATA_CLIENT,
     DATA_COORDINATOR,
     DATA_INCIDENT_STORE,
+    DATA_HISTORICAL_FAIRNESS_STORE,
     DATA_P2000_MANAGER,
     DATA_REPLACEMENT_VEHICLES,
     DATA_REPLACEMENT_MONITOR,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
+    SERVICE_IMPORT_FAIRNESS_HISTORY,
+    SERVICE_PREVIEW_FAIRNESS_HISTORY,
+    SERVICE_PREVIEW_FAIRNESS_ADVISORY,
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
@@ -138,6 +153,27 @@ GET_REPLACEMENT_VEHICLES_SCHEMA = vol.Schema({
 GET_INCIDENT_VEHICLE_EVIDENCE_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Optional(ATTR_INCIDENT_ID): vol.Coerce(str),
+})
+
+
+# Explicitly invoked local analysis; no background audit fetch or personnel output.
+IMPORT_FAIRNESS_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Required(ATTR_INCIDENT_IDS): vol.All(
+        cv.ensure_list, [vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$"))],
+        vol.Length(min=1, max=5),
+    ),
+    vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+})
+PREVIEW_FAIRNESS_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+})
+PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
 })
 
 ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
@@ -244,6 +280,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SEND_PAGER_MESSAGE,
             SERVICE_BACKFILL_HISTORY_STAFFING,
             SERVICE_ANALYZE_INCIDENT_FAIRNESS,
+            SERVICE_IMPORT_FAIRNESS_HISTORY,
+            SERVICE_PREVIEW_FAIRNESS_HISTORY,
+            SERVICE_PREVIEW_FAIRNESS_ADVISORY,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
             SERVICE_SET_STATION_AVAILABILITY,
@@ -437,6 +476,73 @@ def _async_register_services(hass: HomeAssistant) -> None:
             "note": "Task/P2000 context only: no evidence of a physical vehicle turnout or crew.",
         }
 
+
+    def _history_entry(call: ServiceCall):
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower():
+            raise HomeAssistantError("Historical fairness is only supported for BrandweerRooster NL")
+        station_id = call.data[ATTR_STATION_ID]
+        permitted = {str(x.get("id")) for x in client.own_stations if isinstance(x, dict)}
+        if str(station_id) not in permitted:
+            raise HomeAssistantError("No authorized station membership for this request")
+        cache = entry_data.get(DATA_HISTORICAL_FAIRNESS_STORE)
+        if cache is None:
+            cache = HistoricalFairnessStorage(hass, client.entry_id)
+            entry_data[DATA_HISTORICAL_FAIRNESS_STORE] = cache
+        return entry_data, client, cache
+
+    def _compact_fairness(rows, client, station_id):
+        preview = build_historical_role_preview(rows, station_id)
+        compact = build_compact_history_evidence(preview)
+        return enrich_compact_history_task_names(compact, client.task_index, station_id)
+
+    async def async_import_fairness_history(call: ServiceCall) -> dict:
+        """Bounded on-demand BWR audit import to private HA storage."""
+        entry_data, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        cached = {str(item["incident_id"]) for item in await cache.async_list(station_id)}
+        result = {"requested": 0, "imported": 0, "already_cached": 0, "skipped": 0, "failed": 0,
+                  "privacy": "personal_and_post_records_remain_in_private_ha_storage"}
+        for incident_id in dict.fromkeys(call.data[ATTR_INCIDENT_IDS]):
+            result["requested"] += 1
+            if incident_id in cached:
+                result["already_cached"] += 1
+                continue
+            try:
+                audit = await analyze_incident_fairness(
+                    client.async_api_get, incident_id,
+                    max_pages=call.data[ATTR_MAX_PAGES], groups=client.groups,
+                )
+                converted = summarize_incident_for_history(audit, station_id)
+                if converted.get("status") != "skipped":
+                    await cache.async_upsert(converted["record"])
+                    result["imported"] += 1
+                else:
+                    result["skipped"] += 1
+            except Exception:
+                # Never write real incident IDs, response bodies or names to logs.
+                _LOGGER.warning("Private fairness import failed for one incident")
+                result["failed"] += 1
+        return result
+
+    async def async_preview_fairness_history(call: ServiceCall) -> dict:
+        """Anonymous descriptive historical overview, not a crew prediction."""
+        _entry, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        return _compact_fairness(await cache.async_list(station_id), client, station_id)
+
+    async def async_preview_fairness_advisory(call: ServiceCall) -> dict:
+        """Task-scoped, anonymous fairness evidence; no predicted deployment."""
+        _entry, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        records = await cache.async_list(station_id)
+        return build_task_fairness_advisory(
+            records, station_id, call.data[ATTR_TASK_ID],
+            task_index=client.task_index, groups=client.groups,
+            include_people=False,
+        )
+
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
         """Inspect one incident's audit log with the existing OAuth client."""
         client = _service_client(hass, call.data.get(ATTR_ENTRY_ID))
@@ -537,6 +643,18 @@ def _async_register_services(hass: HomeAssistant) -> None:
             schema=GET_INCIDENT_VEHICLE_EVIDENCE_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
+
+
+    for service, handler, schema in (
+        (SERVICE_IMPORT_FAIRNESS_HISTORY, async_import_fairness_history, IMPORT_FAIRNESS_HISTORY_SCHEMA),
+        (SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history, PREVIEW_FAIRNESS_HISTORY_SCHEMA),
+        (SERVICE_PREVIEW_FAIRNESS_ADVISORY, async_preview_fairness_advisory, PREVIEW_FAIRNESS_ADVISORY_SCHEMA),
+    ):
+        if not hass.services.has_service(DOMAIN, service):
+            hass.services.async_register(
+                DOMAIN, service, handler, schema=schema,
+                supports_response=SupportsResponse.ONLY,
+            )
 
     if not hass.services.has_service(DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS):
         hass.services.async_register(
