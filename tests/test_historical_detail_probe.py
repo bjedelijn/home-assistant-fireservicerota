@@ -54,3 +54,24 @@ def test_unknown_keys_are_never_echoed():
     ])
     assert key not in str(result)
     assert result["dict_responses"] == 1
+
+
+def test_reviewed_keys_and_nested_structure_never_leak_values():
+    result = summarize_incident_detail_capabilities([{
+        "priority": 2,
+        "task_ids": [9],
+        "incident_responses": [{
+            "membership_id": 99999,
+            "reported_status": "SYNTHETIC_SENSITIVE_STATUS",
+            "private_person_name": "SYNTHETIC_PRIVATE_NAME",
+        }],
+        "responding": [{"response_people": [{"name": "SYNTHETIC_PRIVATE_NAME"}]}],
+        "unrecognized_field": {"secret": "SYNTHETIC_SECRET"},
+    }])
+    assert result["reviewed_keys_present_count"]["priority"]["priority"] == 1
+    assert result["reviewed_keys_present_count"]["task_reference"]["task_ids"] == 1
+    assert result["reviewed_nested_keys_present_count"]["incident_responses"]["membership_id"] == 1
+    assert result["reviewed_nested_keys_present_count"]["incident_responses"]["reported_status"] == 1
+    assert result["reviewed_nested_keys_present_count"]["responding"]["response_people"] == 1
+    assert "SYNTHETIC_" not in str(result)
+    assert "99999" not in str(result)
