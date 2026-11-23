@@ -6,6 +6,7 @@ membership IDs, addresses, or full audit rows are retained or returned.
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 from typing import Any
 
 
@@ -31,6 +32,40 @@ def _proposal_tokens(proposal: dict[str, Any]) -> tuple[Counter, dict[str, int],
     return tokens, roles, True
 
 
+def _safe_timestamp(raw: Any) -> str | None:
+    """Accept actual ISO timestamps only, never arbitrary audit strings."""
+    if not isinstance(raw, str) or len(raw) > 50:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.isoformat()
+
+
+def _role_change_counts(previous: Counter, current: Counter) -> list[dict[str, Any]]:
+    """Group additions/removals by role, with identities confined to memory."""
+    removed = previous - current
+    added = current - previous
+    roles = {role for _name, role in removed} | {role for _name, role in added}
+    return [
+        {
+            "role": role,
+            "added_role_assignments": sum(
+                count for (_name, candidate_role), count in added.items()
+                if candidate_role == role
+            ),
+            "removed_role_assignments": sum(
+                count for (_name, candidate_role), count in removed.items()
+                if candidate_role == role
+            ),
+        }
+        for role in sorted(roles)
+    ]
+
+
 def summarize_proposal_revisions(analysis: dict[str, Any]) -> dict[str, Any]:
     """Report counts only; never infer correctness, availability or actual crew."""
     result = {
@@ -44,6 +79,9 @@ def summarize_proposal_revisions(analysis: dict[str, Any]) -> dict[str, Any]:
         "added_role_assignments": None,
         "removed_role_assignments": None,
         "distinct_revisions": None,
+        "net_role_assignment_changes": [],
+        "transition_role_change_totals": [],
+        "revision_timeline": [],
         "comparison_status": "unavailable",
         "current_duty_verified": False,
         "historical_eligibility_verified": False,
@@ -77,8 +115,12 @@ def summarize_proposal_revisions(analysis: dict[str, Any]) -> dict[str, Any]:
         return result
     initial, initial_roles, _ = parsed[0]
     latest, latest_roles, _ = parsed[-1]
-    result["first_proposal_at"] = proposals[0].get("at")
-    result["latest_proposal_at"] = proposals[-1].get("at")
+    safe_times = [_safe_timestamp(item.get("at")) for item in proposals]
+    if any(at is None for at in safe_times):
+        result["comparison_status"] = "invalid_proposal_timestamp"
+        return result
+    result["first_proposal_at"] = safe_times[0]
+    result["latest_proposal_at"] = safe_times[-1]
     result["initial_role_counts"] = [
         {"role": role, "proposed_seats": count}
         for role, count in sorted(initial_roles.items())
@@ -92,5 +134,32 @@ def summarize_proposal_revisions(analysis: dict[str, Any]) -> dict[str, Any]:
     result["distinct_revisions"] = sum(
         parsed[i][0] != parsed[i - 1][0] for i in range(1, len(parsed))
     )
+    result["net_role_assignment_changes"] = _role_change_counts(initial, latest)
+    cumulative: dict[str, dict[str, int]] = {}
+    transitions = []
+    for index in range(1, len(parsed)):
+        before = parsed[index - 1][0]
+        after = parsed[index][0]
+        if before == after:
+            continue
+        changes = _role_change_counts(before, after)
+        for change in changes:
+            role = change["role"]
+            counts = cumulative.setdefault(
+                role, {"added_role_assignments": 0, "removed_role_assignments": 0}
+            )
+            counts["added_role_assignments"] += change["added_role_assignments"]
+            counts["removed_role_assignments"] += change["removed_role_assignments"]
+        transitions.append(
+            {
+                "proposal_index": index + 1,
+                "at": safe_times[index],
+                "changes_by_role": changes,
+            }
+        )
+    result["transition_role_change_totals"] = [
+        {"role": role, **counts} for role, counts in sorted(cumulative.items())
+    ]
+    result["revision_timeline"] = transitions
     result["comparison_status"] = "textual_snapshots_compared"
     return result
