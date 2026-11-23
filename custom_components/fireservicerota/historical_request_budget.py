@@ -63,7 +63,7 @@ class HistoricalRequestBudget:
             "historical_min_gap_seconds": HISTORICAL_MIN_REQUEST_INTERVAL_SECONDS,
             "provider_quota_known": False,
             "historical_requests_paused_today": self._blocked_today,
-            "coverage": "archive_import_and_listing_probe_only",
+            "coverage": "archive_import_listing_and_detail_probes_only",
         }
 
     async def async_get(self, client, endpoint: str, params: dict):
