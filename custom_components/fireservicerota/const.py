@@ -16,6 +16,7 @@ DATA_P2000_MANAGER = "p2000_manager"
 DATA_REPLACEMENT_VEHICLES = "replacement_vehicles"
 DATA_REPLACEMENT_MONITOR = "replacement_monitor"
 DATA_DISPATCH_ARCHIVE = "dispatch_archive"
+DATA_HISTORICAL_REQUEST_BUDGET = "historical_request_budget"
 
 CONF_DISPATCH_ARCHIVE_RETENTION = "dispatch_archive_retention"
 CONF_DISPATCH_ARCHIVE_DETAILS = "dispatch_archive_details"
