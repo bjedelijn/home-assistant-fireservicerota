@@ -48,6 +48,7 @@ from .fairness_requirement_probe import (
 )
 from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
+from .dispatch_archive_store import DispatchArchiveStore
 from .vehicle_evidence import incident_vehicle_evidence
 from .task_vehicle_evidence import task_evidence, matched_p2000_evidence
 
@@ -81,6 +82,7 @@ from .const import (
     DATA_HISTORICAL_FAIRNESS_STORE,
     DATA_P2000_MANAGER,
     DATA_REPLACEMENT_VEHICLES,
+    DATA_DISPATCH_ARCHIVE,
     DATA_REPLACEMENT_MONITOR,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
@@ -276,10 +278,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     replacement_store = ReplacementVehicleStore(hass, entry.entry_id)
     await replacement_store.async_load()
 
+    dispatch_archive = DispatchArchiveStore(hass, entry.entry_id)
+    await dispatch_archive.async_load(dict(entry.options))
+
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_CLIENT: client,
         DATA_COORDINATOR: coordinator,
         DATA_REPLACEMENT_VEHICLES: replacement_store,
+        DATA_DISPATCH_ARCHIVE: dispatch_archive,
     }
 
     _async_register_services(hass)
