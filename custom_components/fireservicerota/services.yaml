@@ -415,8 +415,9 @@ inspect_fairness_revisions:
   name: Inspect fairness proposal revisions (anonymous)
   description: >-
     Read a bounded historical incident audit, compare the first and latest
-    fairness proposals and count textual role changes. The service returns no
-    names or membership IDs, cannot explain why somebody was selected, and
+    fairness proposals, count changes per role, and report the timestamps of
+    modified proposal snapshots. The service returns no names or membership IDs,
+    cannot explain why somebody was selected, and
     never modifies BWR, HA storage, rosters, or alarms.
   fields:
     station_id:
