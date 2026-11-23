@@ -469,3 +469,19 @@ inspect_turnout_audit:
           min: 1
           max: 10
           mode: box
+
+refresh_turnout_audit_history:
+  name: Review historical turnout status records (bounded)
+  description: >-
+    Read-only BWR review of at most two already-cached incidents per invocation.
+    Recent incidents are revisited daily and older ones weekly for up to 45 days.
+    Only anonymous counts and last-seen audit timestamps are saved privately
+    in Home Assistant. No automatic scheduling until you create a HA automation.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
