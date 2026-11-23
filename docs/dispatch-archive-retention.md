@@ -82,6 +82,32 @@ and remaining, and the paused flag. The 392 already imported index rows
 remain local and do not require reimporting. Avoid unnecessary new tests
 against the production account.
 
+## Local month-by-month index analysis (no BWR requests)
+
+Once the index has been imported, call:
+
+```yaml
+action: fireservicerota.get_dispatch_archive_monthly_index
+data: {}
+```
+
+The action reads the **already stored** incident metadata; it makes zero
+BWR API requests and does not affect the historical request budget.
+It returns 12 month buckets for every year with a stored record using the
+Home Assistant time zone, deduplicated by incident ID. The buckets reflect
+the **BWR created_at** timestamp used during the initial listing import,
+not a verified incident-start, pager-alert, physical turnout or fairness
+timestamp. Every year remains `coverage: unknown` even if its twelve
+months have indexed records, and zero is *not* proof that no incidents
+occurred. The action never exposes raw incident IDs, titles or crew names.
+
+These results are a coverage/discovery diagnostic, **not** the official
+post, priority, unit or specialism dispatch statistics. Later enrichment
+must validate BWR field semantics, determine the station scope of listed
+incidents, and use the same shared conservative request budget. Keep
+fairness histories separately and do not infer person-level fairness
+from the index alone.
+
 ## Status action
 
 ```yaml
