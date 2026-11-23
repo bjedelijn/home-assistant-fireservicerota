@@ -61,6 +61,9 @@ class HistoricalFairnessStorage:
             existing = records.get(key)
             updated = dict(record)
             if isinstance(existing, dict):
+                review = existing.get("turnout_audit_review")
+                if isinstance(review, dict):
+                    updated["turnout_audit_review"] = review
                 saved = existing.get("saved_staffing_evidence")
                 if (
                     isinstance(saved, dict)
@@ -134,6 +137,40 @@ class HistoricalFairnessStorage:
                 "stored_requirement_count": len(requirements),
                 "checked_at": evidence.get("checked_at"),
             }
+
+    async def async_save_turnout_review(
+        self, station_id: int | str, incident_id: int | str,
+        review: dict[str, Any],
+    ) -> None:
+        """Save only a strictly allowlisted numeric/timestamp status summary."""
+        if review.get("status") != "audit_markers_observed":
+            raise ValueError("refusing incomplete turnout audit review")
+        allowed = {
+            "status", "checked_at", "late_registration_event_count",
+            "late_registration_round_count", "latest_turnout_status_event_at",
+        }
+        if set(review) != allowed:
+            raise ValueError("unexpected private turnout review fields")
+        if not isinstance(review["checked_at"], str):
+            raise ValueError("invalid review time")
+        for field in ("late_registration_event_count", "late_registration_round_count"):
+            count = review[field]
+            if not isinstance(count, int) or isinstance(count, bool) or not 0 <= count <= 500:
+                raise ValueError("invalid event count")
+        latest = review["latest_turnout_status_event_at"]
+        if latest is not None and not isinstance(latest, str):
+            raise ValueError("invalid source time")
+        key = f"{station_id}:{incident_id}"
+        async with self._lock:
+            records = await self._load_unlocked()
+            existing = records.get(key)
+            if not isinstance(existing, dict):
+                raise ValueError("unknown locally cached incident")
+            updated = dict(existing)
+            updated["turnout_audit_review"] = dict(review)
+            records[key] = updated
+            await self._store.async_save({"records": list(records.values())})
+
 
     async def async_delete_station(self, station_id: int | str) -> int:
         """Remove all locally stored historical proposal evidence for a station."""
