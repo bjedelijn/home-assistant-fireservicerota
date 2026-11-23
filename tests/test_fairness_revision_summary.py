@@ -63,3 +63,60 @@ def test_no_proposals_preserves_uncertainty():
     assert result["comparison_status"] == "no_proposals_or_limit_exceeded"
     assert result["selection_reason_verified"] is False
     assert result["physical_vehicle_crew_verified"] is False
+
+
+def test_revision_timeline_and_per_role_counts_are_anonymous():
+    result = summarize_proposal_revisions(
+        _audit(
+            [("SYNTH_PERSON_A", "Role A"), ("SYNTH_PERSON_B", "Role B")],
+            [("SYNTH_PERSON_A", "Role A"), ("SYNTH_PERSON_C", "Role B")],
+            [("SYNTH_PERSON_D", "Role A"), ("SYNTH_PERSON_C", "Role B")],
+        )
+    )
+    assert result["net_role_assignment_changes"] == [
+        {"role": "Role A", "added_role_assignments": 1, "removed_role_assignments": 1},
+        {"role": "Role B", "added_role_assignments": 1, "removed_role_assignments": 1},
+    ]
+    assert result["transition_role_change_totals"] == [
+        {"role": "Role A", "added_role_assignments": 1, "removed_role_assignments": 1},
+        {"role": "Role B", "added_role_assignments": 1, "removed_role_assignments": 1},
+    ]
+    assert result["revision_timeline"] == [
+        {"proposal_index": 2, "at": "2024-01-01T12:00:01+00:00",
+         "changes_by_role": [{"role": "Role B",
+                              "added_role_assignments": 1,
+                              "removed_role_assignments": 1}]},
+        {"proposal_index": 3, "at": "2024-01-01T12:00:02+00:00",
+         "changes_by_role": [{"role": "Role A",
+                              "added_role_assignments": 1,
+                              "removed_role_assignments": 1}]},
+    ]
+    assert "SYNTH_PERSON" not in str(result)
+
+
+def test_transient_swap_is_counted_but_net_change_zero():
+    result = summarize_proposal_revisions(
+        _audit(
+            [("SYNTH_PERSON_A", "Role A")],
+            [("SYNTH_PERSON_B", "Role A")],
+            [("SYNTH_PERSON_A", "Role A")],
+        )
+    )
+    assert result["distinct_revisions"] == 2
+    assert result["added_role_assignments"] == 0
+    assert result["removed_role_assignments"] == 0
+    assert result["net_role_assignment_changes"] == []
+    assert result["transition_role_change_totals"] == [
+        {"role": "Role A", "added_role_assignments": 2, "removed_role_assignments": 2}
+    ]
+
+
+def test_malformed_timestamp_is_not_echoed():
+    result = summarize_proposal_revisions({
+        "audit_complete": True,
+        "fairness_suggestions": [{"at": "SECRET_TIMESTAMP_CONTENT", "members": [
+            {"name": "SYNTH_PERSON_A", "role": "Role A"}
+        ]}],
+    })
+    assert result["comparison_status"] == "invalid_proposal_timestamp"
+    assert "SECRET_TIMESTAMP_CONTENT" not in str(result)
