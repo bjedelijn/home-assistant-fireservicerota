@@ -136,7 +136,7 @@ def summarize_history_listing_scan(pages: list[Any]) -> dict[str, Any]:
         "history_complete": False,
         "date_filter_supported": None,
         "pages_requested": len(pages),
-        "per_page_requested": 50,
+        "per_page_requested": 25,
         "per_page_effective": max((p["items_inspected"] for p in summaries), default=0),
         "total_items_observed": sum(p["items_inspected"] for p in summaries),
         "pages": [
@@ -153,9 +153,11 @@ def summarize_history_listing_scan(pages: list[Any]) -> dict[str, Any]:
         "distinct_incident_count": None,
         "overlapping_incident_count": None,
         "status": "unverified",
+        "stopped_on_unexpected_response": False,
     }
     if any(item["status"] != "listing_shape_observed" for item in summaries):
         result["status"] = "unrecognized_page_shape"
+        result["stopped_on_unexpected_response"] = True
         return result
     seen: set[str] = set()
     overlaps = 0
@@ -176,6 +178,9 @@ def summarize_history_listing_scan(pages: list[Any]) -> dict[str, Any]:
         seen.update(local)
     result["distinct_incident_count"] = len(seen)
     result["overlapping_incident_count"] = overlaps
-    result["pagination_verified"] = len(pages) > 1 and overlaps == 0 and bool(summaries[1]["items_inspected"])
+    result["pagination_verified"] = (
+        len(pages) > 1 and overlaps == 0
+        and all(item["items_inspected"] > 0 for item in summaries)
+    )
     result["status"] = "distinct_pages_observed" if result["pagination_verified"] else "overlap_or_empty_pages"
     return result
