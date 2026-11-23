@@ -365,3 +365,48 @@ preview_fairness_advisory:
         number:
           min: 1
           mode: box
+
+
+probe_fairness_availability:
+  name: Inspect fairness availability (anonymous)
+  description: >-
+    Inspect at most one authorized historical candidate via a read-only schedule
+    request. Returns only limited diagnostic status and no identities, schedule
+    intervals or personal availability values.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+probe_fairness_task_coverage:
+  name: Inspect fairness task requirement coverage (aggregate)
+  description: >-
+    Verify the current aggregate coverage for one uniquely identified task
+    requirement. Read-only and privacy-filtered; it cannot infer crew selection,
+    personal qualifications or actual deployment.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
