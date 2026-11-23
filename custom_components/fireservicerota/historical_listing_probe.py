@@ -124,10 +124,10 @@ def compare_history_listing_pages(first: Any, second: Any) -> dict[str, Any]:
     return result
 
 
-def summarize_history_listing_scan(pages: list[Any]) -> dict[str, Any]:
+def summarize_history_listing_scan(pages: list[Any], *, start_page: int = 1) -> dict[str, Any]:
     """Report bounded page continuity without exposing incident identities."""
-    if not 1 <= len(pages) <= 5:
-        raise ValueError("invalid page count")
+    if not 1 <= len(pages) <= 5 or not 1 <= start_page <= 500:
+        raise ValueError("invalid page range")
     summaries = [summarize_history_listing(page) for page in pages]
     result: dict[str, Any] = {
         "read_only": True,
@@ -136,12 +136,14 @@ def summarize_history_listing_scan(pages: list[Any]) -> dict[str, Any]:
         "history_complete": False,
         "date_filter_supported": None,
         "pages_requested": len(pages),
+        "start_page": start_page,
+        "next_start_page": start_page + len(pages),
         "per_page_requested": 25,
         "per_page_effective": max((p["items_inspected"] for p in summaries), default=0),
         "total_items_observed": sum(p["items_inspected"] for p in summaries),
         "pages": [
             {
-                "page": index,
+                "page": start_page + index - 1,
                 "status": item["status"],
                 "items_inspected": item["items_inspected"],
                 "earliest_visible_at": item["earliest_visible_at"],
