@@ -60,3 +60,21 @@ def test_offsets_compare_chronologically_not_as_strings():
         [{"at": "2024-01-01T11:30:00+00:00"}],
     ))
     assert result["events_after_last_fairness_proposal"] == 0
+
+
+def test_late_registration_rounds_grouped_without_claiming_correction():
+    result = summarize_turnout_audit(_audit([
+        {"at": "2024-01-01T09:00:02+01:00", "description": "SYNTHETIC_PRIVATE"},
+        {"at": "2024-01-12T10:00:00+01:00", "description": "SYNTHETIC_PRIVATE"},
+        {"at": "2024-01-12T10:00:03+01:00", "description": "SYNTHETIC_PRIVATE"},
+        {"at": "2024-01-13T11:00:00+01:00", "description": "SYNTHETIC_PRIVATE"},
+    ]))
+    assert result["late_registration_event_count"] == 3
+    assert result["late_registration_round_count"] == 2
+    assert [item["event_count"] for item in result["late_registration_rounds"]] == [2, 1]
+    assert all(
+        item["classification"] == "possible_later_registration_not_verified_correction"
+        for item in result["late_registration_rounds"]
+    )
+    assert result["manual_corrections_verified"] is False
+    assert "SYNTHETIC_PRIVATE" not in str(result)
