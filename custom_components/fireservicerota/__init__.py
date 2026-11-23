@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .fairness_audit import analyze_incident_fairness
 from .fairness_revision_summary import summarize_proposal_revisions
 from .turnout_audit_summary import summarize_turnout_audit
+from .turnout_recheck_selection import select_turnout_rechecks
 from .historical_fairness import (
     summarize_incident_for_history,
     build_historical_role_preview,
@@ -88,6 +89,7 @@ from .const import (
     SERVICE_PREVIEW_FAIRNESS_ADVISORY,
     SERVICE_INSPECT_FAIRNESS_REVISIONS,
     SERVICE_INSPECT_TURNOUT_AUDIT,
+    SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
     SERVICE_PROBE_FAIRNESS_AVAILABILITY,
     SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_MARK_INCIDENT_CLOSED,
@@ -191,6 +193,10 @@ PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema({
     vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
 })
 PROBE_FAIRNESS_SCHEMA = PREVIEW_FAIRNESS_ADVISORY_SCHEMA
+REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+})
 INSPECT_TURNOUT_AUDIT_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
@@ -313,6 +319,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_PREVIEW_FAIRNESS_ADVISORY,
             SERVICE_INSPECT_FAIRNESS_REVISIONS,
             SERVICE_INSPECT_TURNOUT_AUDIT,
+            SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_MARK_INCIDENT_CLOSED,
@@ -635,6 +642,66 @@ def _async_register_services(hass: HomeAssistant) -> None:
         )
 
 
+    async def async_refresh_turnout_audit_history(call: ServiceCall) -> dict:
+        """Bounded opt-in HA-scheduled review of cached past incidents only."""
+        _entry, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        selected = select_turnout_rechecks(
+            await cache.async_list(station_id), now, limit=2
+        )
+        outcome = {
+            "status": "bounded_retrospective_review",
+            "read_only_remote": True,
+            "reviewed": 0,
+            "changed_summaries": 0,
+            "not_attributable_or_incomplete": 0,
+            "failed": 0,
+            "remaining_due_not_counted": True,
+            "personal_or_incident_ids_returned": False,
+            "interpretation": "Audit marker changes do not prove corrected physical turnout",
+        }
+        for record in selected:
+            try:
+                audit = await analyze_incident_fairness(
+                    client.async_api_get, record["incident_id"], max_pages=5,
+                    groups=client.groups,
+                )
+                linked = summarize_incident_for_history(audit, station_id)
+                summary = summarize_turnout_audit(audit)
+                if (
+                    linked.get("status") != "imported"
+                    or summary["comparison_status"] != "audit_markers_observed"
+                ):
+                    outcome["not_attributable_or_incomplete"] += 1
+                    continue
+                old = record.get("turnout_audit_review") or {}
+                review = {
+                    "status": summary["comparison_status"],
+                    "checked_at": now.isoformat(),
+                    "late_registration_event_count": summary["late_registration_event_count"],
+                    "late_registration_round_count": summary["late_registration_round_count"],
+                    "latest_turnout_status_event_at": summary["latest_turnout_status_event_at"],
+                }
+                if old.get("status") == "audit_markers_observed" and any(
+                    old.get(field) != review[field]
+                    for field in (
+                        "late_registration_event_count",
+                        "late_registration_round_count",
+                        "latest_turnout_status_event_at",
+                    )
+                ):
+                    outcome["changed_summaries"] += 1
+                await cache.async_save_turnout_review(
+                    station_id, record["incident_id"], review
+                )
+                outcome["reviewed"] += 1
+            except Exception as err:
+                # No private incident IDs, actor names or audit bodies in logs.
+                _LOGGER.debug("Private turnout history review failed (%s)", type(err).__name__)
+                outcome["failed"] += 1
+        return outcome
+
     async def async_inspect_turnout_audit(call: ServiceCall) -> dict:
         """Inspect one authorized incident; return audit marker counts only."""
         _entry, client, _cache = _history_entry(call)
@@ -804,6 +871,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_PREVIEW_FAIRNESS_ADVISORY, async_preview_fairness_advisory, PREVIEW_FAIRNESS_ADVISORY_SCHEMA),
         (SERVICE_INSPECT_FAIRNESS_REVISIONS, async_inspect_fairness_revisions, INSPECT_FAIRNESS_REVISIONS_SCHEMA),
         (SERVICE_INSPECT_TURNOUT_AUDIT, async_inspect_turnout_audit, INSPECT_TURNOUT_AUDIT_SCHEMA),
+        (SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY, async_refresh_turnout_audit_history, REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
     ):
