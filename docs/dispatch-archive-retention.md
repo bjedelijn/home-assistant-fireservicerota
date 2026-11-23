@@ -24,19 +24,40 @@ Historical incident titles may contain sensitive free text: protect HA backups
 and limit access to history dashboards. Treat incident titles as untrusted
 display text.
 
-## Current status and remaining work
+## Historical BWR import (initial safe phase)
 
-`fireservicerota.get_dispatch_archive_status` returns the archive record
-count, date boundaries and active settings. On a newly updated installation
-`stored_incidents: 0` is expected: **historical BWR ingestion is not connected
-yet**. The existing `probe_historical_incident_list` is read-only and does
-not write any incident archive records.
+The opt-in action below traverses a maximum of 25 BWR listing pages per call,
+25 incidents per page, and stops at the first empty page. The previously
+verified history covered 392 incident-list records through 2019, but actual
+API coverage and year completeness still cannot be guaranteed. The persisted
+page checkpoint and archive records are stored together so a Home Assistant
+restart can resume the next page without recounting. Calling the action again
+after a successful complete run is a no-op.
 
-Next development tasks: build a resilient backfill with pagination checkpoint,
-source field mapping, verifiable deduplication, and separated alerted versus
-reported versus verified turnout evidence. Do not label a year complete just
-because pagination reaches an empty page. Do not publish an annual turnout
-count until corresponding evidence and data coverage have been validated.
+```yaml
+action: fireservicerota.import_dispatch_history
+data:
+  station_id: YOUR_AUTHORIZED_STATION_ID
+  max_pages: 25
+```
+
+The importer **currently saves only validated incident IDs and timestamps**,
+because those are the only fields confirmed from the list response. It does
+not infer post membership, incident titles, priority, vehicle specialism,
+individual responders, actual turnout or fairness. This is a first-stage
+archive index, **not the complete named incident-detail import**. No yearly
+statistics are calculated from these records, and no historical year can yet
+be marked complete. Extra details require verified source mapping and separate
+privacy safeguards. The retention/options UI applies to metadata records
+when such detail ingestion is later implemented.
+
+`fireservicerota.get_dispatch_archive_status` reports the stored count,
+checkpoint and import state without disclosing incidents or member identities.
+
+**Safety:** Read-only remote BWR API, private HA storage, no upload to GitHub.
+This action should not be used to infer real turnout or personal fairness
+from listing records. Audit extraction and role-level fairness aggregation
+remain a separate bounded design task.
 
 ## Status action
 
