@@ -530,8 +530,8 @@ def test_compact_task_names_resolve_from_current_station_without_guessing():
     enriched = enrich_compact_history_task_names(compact, index, 100)
     tasks = enriched["incident_evidence_overview"][0]["resolved_tasks"]
     assert tasks == [
-        {"id": "9001", "name": "WTS", "resolution": "current_station_task_index"},
         {"id": "7689", "name": "Red vehicle", "resolution": "current_station_task_index"},
+        {"id": "9001", "name": "WTS", "resolution": "current_station_task_index"},
         {
             "id": "9999",
             "resolution": "name_not_available_in_current_station_index",
