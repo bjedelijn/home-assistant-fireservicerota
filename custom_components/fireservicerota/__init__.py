@@ -101,6 +101,7 @@ from .const import (
     SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
     SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
     SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
+    SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
     SERVICE_IMPORT_DISPATCH_HISTORY,
     SERVICE_PROBE_FAIRNESS_AVAILABILITY,
     SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
@@ -352,6 +353,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
             SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
             SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
+            SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
             SERVICE_IMPORT_DISPATCH_HISTORY,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
@@ -674,6 +676,13 @@ def _async_register_services(hass: HomeAssistant) -> None:
             selection, schedule, now, task_index=client.task_index,
         )
 
+
+    async def async_get_dispatch_archive_monthly_index(call: ServiceCall) -> dict:
+        """Summarize only the local BWR index. Never request remote history."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        return await entry_data[DATA_DISPATCH_ARCHIVE].async_index_summary(
+            str(hass.config.time_zone)
+        )
 
     async def async_get_dispatch_archive_status(call: ServiceCall) -> dict:
         """Return private archive status without emitting incident identities."""
@@ -1028,6 +1037,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY, async_refresh_turnout_audit_history, REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA),
         (SERVICE_PROBE_HISTORICAL_INCIDENT_LIST, async_probe_historical_incident_list, PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA),
         (SERVICE_GET_DISPATCH_ARCHIVE_STATUS, async_get_dispatch_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
+        (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
