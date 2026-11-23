@@ -49,6 +49,7 @@ from .fairness_requirement_probe import (
 from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 from .dispatch_archive_store import DispatchArchiveStore
+from .dispatch_history_import import normalize_listing_page
 from .vehicle_evidence import incident_vehicle_evidence
 from .task_vehicle_evidence import task_evidence, matched_p2000_evidence
 
@@ -95,6 +96,7 @@ from .const import (
     SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
     SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
     SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
+    SERVICE_IMPORT_DISPATCH_HISTORY,
     SERVICE_PROBE_FAIRNESS_AVAILABILITY,
     SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_MARK_INCIDENT_CLOSED,
@@ -198,6 +200,11 @@ PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema({
     vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
 })
 PROBE_FAIRNESS_SCHEMA = PREVIEW_FAIRNESS_ADVISORY_SCHEMA
+IMPORT_DISPATCH_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Optional(ATTR_MAX_PAGES, default=25): vol.All(vol.Coerce(int), vol.Range(min=1, max=25)),
+})
 PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
@@ -337,6 +344,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
             SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
             SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
+            SERVICE_IMPORT_DISPATCH_HISTORY,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_MARK_INCIDENT_CLOSED,
@@ -680,6 +688,52 @@ def _async_register_services(hass: HomeAssistant) -> None:
             ),
         }
 
+    async def async_import_dispatch_history(call: ServiceCall) -> dict:
+        """Opt-in, bounded archive import; resume from persisted page checkpoint."""
+        entry_data, client, _fairness_store = _history_entry(call)
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive import is already running")
+        async with lock:
+            if archive.import_status == "complete":
+                return {**archive.status(), "status": "already_complete"}
+            await archive.async_update_import("running")
+            pages_this_call = 0
+            records_this_call = 0
+            for _ in range(call.data[ATTR_MAX_PAGES]):
+                page = archive.import_next_page
+                if page > 5000:
+                    await archive.async_update_import("failed")
+                    return {**archive.status(), "status": "page_limit_reached"}
+                try:
+                    payload = await client.async_api_get(
+                        "incidents", {"page": page, "per_page": 25}
+                    )
+                    rows = normalize_listing_page(payload)
+                except Exception as err:
+                    _LOGGER.debug(
+                        "BWR dispatch archive import stopped (%s)", type(err).__name__
+                    )
+                    await archive.async_update_import("interrupted")
+                    return {**archive.status(), "status": "interrupted_unexpected_response"}
+                if not rows:
+                    await archive.async_update_import("complete")
+                    return {**archive.status(), "status": "listing_exhausted",
+                            "archive_years_verified_complete": False}
+                await archive.async_commit_listing_page(
+                    rows, dict(client._entry.options), page=page
+                )
+                pages_this_call += 1
+                records_this_call += len(rows)
+            await archive.async_update_import("interrupted")
+            return {
+                **archive.status(), "status": "batch_limit_reached",
+                "pages_this_call": pages_this_call,
+                "records_this_call": records_this_call,
+                "archive_years_verified_complete": False,
+            }
+
     async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
         """Read at most five 25-row listing pages without storing incidents."""
         _entry, client, _cache = _history_entry(call)
@@ -950,6 +1004,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY, async_refresh_turnout_audit_history, REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA),
         (SERVICE_PROBE_HISTORICAL_INCIDENT_LIST, async_probe_historical_incident_list, PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA),
         (SERVICE_GET_DISPATCH_ARCHIVE_STATUS, async_get_dispatch_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
+        (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
     ):
