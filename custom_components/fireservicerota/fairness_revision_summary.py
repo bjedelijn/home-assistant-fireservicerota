@@ -45,26 +45,50 @@ def _safe_timestamp(raw: Any) -> str | None:
     return parsed.isoformat()
 
 
-def _role_change_counts(previous: Counter, current: Counter) -> list[dict[str, Any]]:
-    """Group additions/removals by role, with identities confined to memory."""
-    removed = previous - current
-    added = current - previous
-    roles = {role for _name, role in removed} | {role for _name, role in added}
+# Only these generic role labels may leave the private audit context.
+# Never echo arbitrary source labels, even in otherwise anonymous responses.
+_SAFE_ROLES = {
+    "aspirant manschap": "Aspirant Manschap",
+    "bevelvoerder": "Bevelvoerder",
+    "chauffeur": "Chauffeur",
+    "manschap": "Manschap",
+    "bediener redvoertuig": "Bediener Redvoertuig",
+    "chauffeur redvoertuig": "Chauffeur Redvoertuig",
+}
+_OTHER_ROLE = "overig"
+
+
+def _public_role(role: str) -> str:
+    return _SAFE_ROLES.get(role.casefold().strip(), _OTHER_ROLE)
+
+
+def _public_role_counts(raw: dict[str, int]) -> list[dict[str, Any]]:
+    totals: dict[str, int] = {}
+    for role, count in raw.items():
+        label = _public_role(role)
+        totals[label] = totals.get(label, 0) + count
     return [
-        {
-            "role": role,
-            "added_role_assignments": sum(
-                count for (_name, candidate_role), count in added.items()
-                if candidate_role == role
-            ),
-            "removed_role_assignments": sum(
-                count for (_name, candidate_role), count in removed.items()
-                if candidate_role == role
-            ),
-        }
-        for role in sorted(roles)
+        {"role": role, "proposed_seats": count}
+        for role, count in sorted(totals.items())
     ]
 
+
+def _role_change_counts(previous: Counter, current: Counter) -> list[dict[str, Any]]:
+    """Aggregate anonymous additions/removals by fixed public role vocabulary."""
+    removed = previous - current
+    added = current - previous
+    totals: dict[str, dict[str, int]] = {}
+    for delta, field in (
+        (added, "added_role_assignments"),
+        (removed, "removed_role_assignments"),
+    ):
+        for (_name, private_role), count in delta.items():
+            role = _public_role(private_role)
+            row = totals.setdefault(
+                role, {"added_role_assignments": 0, "removed_role_assignments": 0}
+            )
+            row[field] += count
+    return [{"role": role, **counts} for role, counts in sorted(totals.items())]
 
 def summarize_proposal_revisions(analysis: dict[str, Any]) -> dict[str, Any]:
     """Report counts only; never infer correctness, availability or actual crew."""
@@ -121,14 +145,8 @@ def summarize_proposal_revisions(analysis: dict[str, Any]) -> dict[str, Any]:
         return result
     result["first_proposal_at"] = safe_times[0]
     result["latest_proposal_at"] = safe_times[-1]
-    result["initial_role_counts"] = [
-        {"role": role, "proposed_seats": count}
-        for role, count in sorted(initial_roles.items())
-    ]
-    result["latest_role_counts"] = [
-        {"role": role, "proposed_seats": count}
-        for role, count in sorted(latest_roles.items())
-    ]
+    result["initial_role_counts"] = _public_role_counts(initial_roles)
+    result["latest_role_counts"] = _public_role_counts(latest_roles)
     result["added_role_assignments"] = sum((latest - initial).values())
     result["removed_role_assignments"] = sum((initial - latest).values())
     result["distinct_revisions"] = sum(
