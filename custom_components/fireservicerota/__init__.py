@@ -650,13 +650,13 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
 
     async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
-        """Read at most five archival listing pages without storing incidents."""
+        """Read at most five 25-row listing pages without storing incidents."""
         _entry, client, _cache = _history_entry(call)
         pages = []
         try:
             for page_number in range(1, 6):
                 payload = await client.async_api_get(
-                    "incidents", {"page": page_number, "per_page": 50}
+                    "incidents", {"page": page_number, "per_page": 25}
                 )
                 pages.append(payload)
                 # Only continue when this page has a known, bounded list shape.
@@ -666,7 +666,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     rows = payload.get("data")
                 else:
                     break
-                if not isinstance(rows, list) or len(rows) > 50 or not rows:
+                if not isinstance(rows, list) or len(rows) > 25 or not rows:
                     break
         except Exception as err:
             _LOGGER.debug(
