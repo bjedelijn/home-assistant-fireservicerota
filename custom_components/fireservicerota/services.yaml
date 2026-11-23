@@ -410,3 +410,32 @@ probe_fairness_task_coverage:
         number:
           min: 1
           mode: box
+
+inspect_fairness_revisions:
+  name: Inspect fairness proposal revisions (anonymous)
+  description: >-
+    Read a bounded historical incident audit, compare the first and latest
+    fairness proposals and count textual role changes. The service returns no
+    names or membership IDs, cannot explain why somebody was selected, and
+    never modifies BWR, HA storage, rosters, or alarms.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_id:
+      name: Incident ID
+      required: true
+      selector:
+        text: {}
+    max_pages:
+      name: Maximum audit pages
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
