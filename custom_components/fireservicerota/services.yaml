@@ -563,3 +563,17 @@ import_dispatch_history:
       required: false
       selector:
         text:
+
+get_dispatch_archive_monthly_index:
+  name: Get indexed BWR incidents by month (local only)
+  description: >-
+    Summarize only locally stored BWR incident IDs by created_at month,
+    in the Home Assistant timezone. Makes zero BWR API calls. These numbers
+    are not verified alerts, turnouts or fairness statistics, and no year
+    is claimed complete. Does not expose incident identifiers or persons.
+  fields:
+    entry_id:
+      name: Integration entry ID (optional)
+      required: false
+      selector:
+        text:
