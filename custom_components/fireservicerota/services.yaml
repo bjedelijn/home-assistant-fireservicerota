@@ -577,3 +577,33 @@ get_dispatch_archive_monthly_index:
       required: false
       selector:
         text:
+
+probe_historical_incident_detail:
+  name: Probe BWR historical incident detail capability
+  description: >-
+    Opt-in capability check of 1 to 3 already indexed incident IDs, using
+    the same conservative daily BWR request budget and 2-second pacing.
+    Returns only fixed field-presence counts. Does not return incident IDs,
+    incident names, timestamps, post names, crew information or raw API data.
+    This does not import details, calculate turnout, or establish fairness.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    limit:
+      name: Maximum detail samples
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 3
+          mode: box
+    entry_id:
+      name: Integration entry ID (optional)
+      required: false
+      selector:
+        text:
