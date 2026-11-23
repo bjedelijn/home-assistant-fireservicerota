@@ -28,7 +28,7 @@ from .fairness_audit import analyze_incident_fairness
 from .fairness_revision_summary import summarize_proposal_revisions
 from .turnout_audit_summary import summarize_turnout_audit
 from .turnout_recheck_selection import select_turnout_rechecks
-from .historical_listing_probe import summarize_history_listing
+from .historical_listing_probe import summarize_history_listing, compare_history_listing_pages
 from .historical_fairness import (
     summarize_incident_for_history,
     build_historical_role_preview,
@@ -650,25 +650,28 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
 
     async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
-        """One GET to test BWR incident-list capability, no private output."""
+        """Two bounded read-only BWR requests; no private result fields."""
         _entry, client, _cache = _history_entry(call)
         try:
-            # This is intentionally an exploratory GET: endpoint support and
-            # pagination remain unproven until an actual HA response is seen.
-            payload = await client.async_api_get(
+            page_1 = await client.async_api_get(
                 "incidents", {"page": 1, "per_page": 5}
+            )
+            page_2 = await client.async_api_get(
+                "incidents", {"page": 2, "per_page": 5}
             )
         except Exception as err:
             _LOGGER.debug(
-                "Historical listing probe unavailable (%s)", type(err).__name__
+                "Historical listing pagination probe unavailable (%s)",
+                type(err).__name__,
             )
             return {
                 "status": "endpoint_unavailable", "read_only": True,
                 "incident_ids_returned": False,
                 "personal_or_post_details_returned": False,
                 "history_complete": False,
+                "pagination_verified": False,
             }
-        return summarize_history_listing(payload)
+        return compare_history_listing_pages(page_1, page_2)
 
     async def async_refresh_turnout_audit_history(call: ServiceCall) -> dict:
         """Bounded opt-in HA-scheduled review of cached past incidents only."""
