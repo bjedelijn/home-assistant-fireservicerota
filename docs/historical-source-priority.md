@@ -71,7 +71,9 @@ data:
 ```
 
 The samples span recent and old locally indexed records. The response
-contains only reviewed candidate **field-presence counts**. No incident
+contains only reviewed candidate **field-presence counts**, including
+allowlisted top-level field names and a small nested key-presence summary
+for tasks and response groups. No field values are returned. No incident
 IDs, times, message bodies, vehicle numbers, staff names or unknown API
 keys are exposed. A missing field might simply have a different API name,
 so the output is a capability hint, not a confirmed mapping. It must **not**
