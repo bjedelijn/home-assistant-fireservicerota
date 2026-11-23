@@ -489,9 +489,10 @@ refresh_turnout_audit_history:
 probe_historical_incident_list:
   name: Probe BWR historical incident listing (read-only)
   description: >-
-    Make one authorized, read-only GET for the first five incident-list rows.
-    Only anonymous response-shape metadata and earliest/latest visible dates
-    are returned. Does not prove that date filters or a complete archive exist.
+    Make two authorized, read-only GETs for incident-list pages 1 and 2,
+    at most five rows each. Compare pages anonymously without returning incident
+    identifiers or private details. Does not prove historical depth, date
+    filters or a complete archive.
   fields:
     station_id:
       name: Authorized station ID
