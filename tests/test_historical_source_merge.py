@@ -30,7 +30,7 @@ def test_p2000_alone_never_creates_fairness_and_never_automatches():
         [{"event_id": "80", "title": "Same synthetic title", "priority": 1}],
     )
     assert result["summary"]["bwr_incidents"] == 1
-    assert result["summary"]["p2000_only_incidents"] == 1
+    assert result["summary"]["p2000_only_events"] == 1
     assert result["summary"]["verified_linked_p2000_events"] == 0
     alone = next(row for row in result["records"] if row["primary_source"] == "p2000")
     assert alone["fairness_source"] == "none"
@@ -42,7 +42,7 @@ def test_unresolved_link_never_silently_merges_or_drops_event():
         verified_links={"80": "999"},
     )
     assert result["summary"]["rejected_or_unresolved_links"] == 1
-    assert result["summary"]["p2000_only_incidents"] == 1
+    assert result["summary"]["p2000_only_events"] == 1
     assert len(result["records"]) == 2
 
 
