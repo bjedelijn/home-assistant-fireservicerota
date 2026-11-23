@@ -25,6 +25,7 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
+from .fairness_revision_summary import summarize_proposal_revisions
 from .historical_fairness import (
     summarize_incident_for_history,
     build_historical_role_preview,
@@ -84,6 +85,7 @@ from .const import (
     SERVICE_IMPORT_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_HISTORY,
     SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+    SERVICE_INSPECT_FAIRNESS_REVISIONS,
     SERVICE_PROBE_FAIRNESS_AVAILABILITY,
     SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_MARK_INCIDENT_CLOSED,
@@ -187,6 +189,12 @@ PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema({
     vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
 })
 PROBE_FAIRNESS_SCHEMA = PREVIEW_FAIRNESS_ADVISORY_SCHEMA
+INSPECT_FAIRNESS_REVISIONS_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Required(ATTR_INCIDENT_ID): vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")),
+    vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+})
 
 ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
     {
@@ -295,6 +303,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_IMPORT_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_HISTORY,
             SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+            SERVICE_INSPECT_FAIRNESS_REVISIONS,
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_MARK_INCIDENT_CLOSED,
@@ -616,6 +625,39 @@ def _async_register_services(hass: HomeAssistant) -> None:
             selection, schedule, now, task_index=client.task_index,
         )
 
+
+    async def async_inspect_fairness_revisions(call: ServiceCall) -> dict:
+        """One authorized on-demand incident audit; counts only, no persistence."""
+        _entry, client, _cache = _history_entry(call)
+        incident_id = call.data[ATTR_INCIDENT_ID]
+        station_id = call.data[ATTR_STATION_ID]
+        try:
+            audit = await analyze_incident_fairness(
+                client.async_api_get, incident_id,
+                max_pages=call.data[ATTR_MAX_PAGES], groups=client.groups,
+            )
+            # Ensure the audit is complete and the incident unambiguously
+            # belongs to the requested authorized station before returning.
+            matched = summarize_incident_for_history(audit, station_id)
+        except Exception as err:
+            # Exclude incident IDs, names and payloads from logs/errors.
+            _LOGGER.debug("Fairness revision inspection failed (%s)", type(err).__name__)
+            return {"status": "audit_unavailable", "read_only": True}
+        if matched.get("status") != "imported":
+            return {
+                "status": "not_attributable_to_authorized_station",
+                "reason": matched.get("reason"),
+                "read_only": True,
+            }
+        return {
+            "status": "observations_only",
+            "read_only": True,
+            "remote_modified": False,
+            "local_storage_modified": False,
+            "person_identifiers_returned": False,
+            **summarize_proposal_revisions(audit),
+        }
+
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
         """Inspect one incident's audit log with the existing OAuth client."""
         client = _service_client(hass, call.data.get(ATTR_ENTRY_ID))
@@ -722,6 +764,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_IMPORT_FAIRNESS_HISTORY, async_import_fairness_history, IMPORT_FAIRNESS_HISTORY_SCHEMA),
         (SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history, PREVIEW_FAIRNESS_HISTORY_SCHEMA),
         (SERVICE_PREVIEW_FAIRNESS_ADVISORY, async_preview_fairness_advisory, PREVIEW_FAIRNESS_ADVISORY_SCHEMA),
+        (SERVICE_INSPECT_FAIRNESS_REVISIONS, async_inspect_fairness_revisions, INSPECT_FAIRNESS_REVISIONS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
     ):
