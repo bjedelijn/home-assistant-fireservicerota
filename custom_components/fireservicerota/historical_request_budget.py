@@ -29,6 +29,7 @@ class HistoricalRequestBudget:
         self._date = ""
         self._used = 0
         self._last_attempt_monotonic: float | None = None
+        self._blocked_today = False
 
     async def async_load(self) -> None:
         data = await self._store.async_load()
@@ -40,6 +41,7 @@ class HistoricalRequestBudget:
                 max(0, min(count, HISTORICAL_REQUESTS_PER_UTC_DAY))
                 if type(count) is int else 0
             )
+            self._blocked_today = data.get("blocked_today") is True
         self._rollover()
 
     def _rollover(self) -> None:
@@ -47,6 +49,7 @@ class HistoricalRequestBudget:
         if self._date != date:
             self._date = date
             self._used = 0
+            self._blocked_today = False
 
     def status(self) -> dict:
         self._rollover()
@@ -59,6 +62,7 @@ class HistoricalRequestBudget:
             "historical_daily_attempt_cap": HISTORICAL_REQUESTS_PER_UTC_DAY,
             "historical_min_gap_seconds": HISTORICAL_MIN_REQUEST_INTERVAL_SECONDS,
             "provider_quota_known": False,
+            "historical_requests_paused_today": self._blocked_today,
             "coverage": "archive_import_and_listing_probe_only",
         }
 
@@ -66,7 +70,7 @@ class HistoricalRequestBudget:
         """Reserve before sending; rate-limit shared historical calls per entry."""
         async with self._lock:
             self._rollover()
-            if self._used >= HISTORICAL_REQUESTS_PER_UTC_DAY:
+            if self._blocked_today or self._used >= HISTORICAL_REQUESTS_PER_UTC_DAY:
                 raise HistoricalRequestBudgetExceeded()
             if self._last_attempt_monotonic is not None:
                 remaining = (
@@ -81,6 +85,21 @@ class HistoricalRequestBudget:
             await self._store.async_save({
                 "utc_date": self._date,
                 "attempts": self._used,
+                "blocked_today": self._blocked_today,
             })
             self._last_attempt_monotonic = monotonic()
-            return await client.async_api_get(endpoint, params)
+            try:
+                return await client.async_api_get(endpoint, params)
+            except Exception as err:
+                # Fail closed on likely provider throttling/authorization denial.
+                # Do not record response bodies, tokens or private endpoint data.
+                kind = type(err).__name__.casefold()
+                status = getattr(err, "status", None)
+                if status in (403, 429) or "ratelimit" in kind or "toomanyrequests" in kind:
+                    self._blocked_today = True
+                    await self._store.async_save({
+                        "utc_date": self._date,
+                        "attempts": self._used,
+                        "blocked_today": True,
+                    })
+                raise
