@@ -492,6 +492,7 @@ probe_historical_incident_list:
     Read at most five authorized incident-list pages, requesting 25 records
     per page (maximum 125 records). Return anonymous per-page date coverage,
     item counts and overlap counts only. No incident IDs, people or post details.
+    Use start_page to examine older ranges without reloading page one.
     Does not prove complete historical archive coverage.
   fields:
     station_id:
@@ -500,4 +501,22 @@ probe_historical_incident_list:
       selector:
         number:
           min: 1
+          mode: box
+    start_page:
+      name: Starting page
+      description: First 25-record listing page to inspect.
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 500
+          mode: box
+    max_pages:
+      name: Number of pages
+      description: At most five consecutive listing pages.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 5
           mode: box
