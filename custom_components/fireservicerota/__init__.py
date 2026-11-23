@@ -28,7 +28,7 @@ from .fairness_audit import analyze_incident_fairness
 from .fairness_revision_summary import summarize_proposal_revisions
 from .turnout_audit_summary import summarize_turnout_audit
 from .turnout_recheck_selection import select_turnout_rechecks
-from .historical_listing_probe import summarize_history_listing, compare_history_listing_pages
+from .historical_listing_probe import summarize_history_listing_scan
 from .historical_fairness import (
     summarize_incident_for_history,
     build_historical_role_preview,
@@ -650,18 +650,27 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
 
     async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
-        """Two read-only BWR listing pages, 25 requested rows per page."""
+        """Read at most five archival listing pages without storing incidents."""
         _entry, client, _cache = _history_entry(call)
+        pages = []
         try:
-            page_1 = await client.async_api_get(
-                "incidents", {"page": 1, "per_page": 25}
-            )
-            page_2 = await client.async_api_get(
-                "incidents", {"page": 2, "per_page": 25}
-            )
+            for page_number in range(1, 6):
+                payload = await client.async_api_get(
+                    "incidents", {"page": page_number, "per_page": 50}
+                )
+                pages.append(payload)
+                # Only continue when this page has a known, bounded list shape.
+                if isinstance(payload, list):
+                    rows = payload
+                elif isinstance(payload, dict):
+                    rows = payload.get("data")
+                else:
+                    break
+                if not isinstance(rows, list) or len(rows) > 50 or not rows:
+                    break
         except Exception as err:
             _LOGGER.debug(
-                "Historical listing pagination probe unavailable (%s)",
+                "Historical listing depth probe unavailable (%s)",
                 type(err).__name__,
             )
             return {
@@ -670,16 +679,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "personal_or_post_details_returned": False,
                 "history_complete": False,
                 "pagination_verified": False,
+                "pages_fetched": len(pages),
             }
-        result = compare_history_listing_pages(page_1, page_2)
-        result["per_page_requested"] = 25
-        result["per_page_effective"] = max(
-            result["page_1"]["items_inspected"],
-            result["page_2"]["items_inspected"],
-        )
-        result["requested_page_size_observed"] = (
-            result["page_1"]["items_inspected"] == 25
-        )
+        result = summarize_history_listing_scan(pages)
+        result["pages_fetched"] = len(pages)
         return result
 
     async def async_refresh_turnout_audit_history(call: ServiceCall) -> dict:
