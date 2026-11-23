@@ -520,3 +520,16 @@ probe_historical_incident_list:
           min: 1
           max: 5
           mode: box
+
+get_dispatch_archive_status:
+  name: Get dispatch archive status
+  description: >-
+    Show incident archive counts and active retention settings. No incident
+    identifiers, titles, vehicle data or personal information are returned.
+    The historical import is not yet connected.
+  fields:
+    entry_id:
+      name: Integration entry ID (optional)
+      required: false
+      selector:
+        text:
