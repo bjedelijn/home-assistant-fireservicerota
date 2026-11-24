@@ -88,8 +88,18 @@ class HistoricalTurnoutStore:
             if not self._loaded:
                 raise RuntimeError("Turnout store not loaded")
             previous = self._records.get(identifier)
-            if previous and previous["latest"]["rows"] == clean:
-                return False
+            if previous:
+                def operational(rows):
+                    return [{k: v for k, v in row.items() if k != "user_name"} for row in rows]
+                if operational(previous["latest"]["rows"]) == operational(clean):
+                    if previous["latest"]["rows"] == clean:
+                        return False
+                    # Name enrichment is not an operational turnout revision.
+                    updated = {**self._records, identifier: {**previous,
+                        "latest": {**previous["latest"], "rows": clean}}}
+                    await self._store.async_save({"records": updated})
+                    self._records = updated
+                    return True
             snapshot = {"observed_at": datetime.now(timezone.utc).isoformat(),
                         "rows": clean}
             if previous:
