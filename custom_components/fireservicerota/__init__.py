@@ -50,7 +50,9 @@ from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
 from .dispatch_archive_store import DispatchArchiveStore
 from .dispatch_history_import import normalize_listing_page
-from .historical_detail_probe import summarize_incident_detail_capabilities
+from .historical_detail_probe import (
+    summarize_incident_detail_capabilities, summarize_detail_relationships,
+)
 from .historical_request_budget import (
     HistoricalRequestBudget,
     HistoricalRequestBudgetExceeded,
@@ -799,6 +801,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 break
         return {
             **summarize_incident_detail_capabilities(inspected),
+            "local_relationships": summarize_detail_relationships(
+                inspected, client.groups, call.data[ATTR_STATION_ID], client.task_index
+            ),
             "requested_samples": len(ids),
             "stopped_reason": stopped_reason,
             **budget.status(),
