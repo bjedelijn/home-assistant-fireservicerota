@@ -299,6 +299,9 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             if value is not None:
                 index.setdefault(value, set()).add(numeric(row["membership_id"]))
     chains = {}
+    embedded_chains = {}
+    embedded_events = Counter()
+    embedded_round_events = []
     names = {}
     for row in snapshot.get("responses") or []:
         if not isinstance(row, dict):
@@ -361,6 +364,7 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
                     matches = index.get(identifier, set())
                     if matches:
                         reference_matches[field + "__" + kind + ("__unique" if len(matches) == 1 else "__ambiguous")] += 1
+        embedded_candidates = set()
         for source, value in (("subject", subject), ("description", description)):
             if not isinstance(value, str) or len(value) > 20000:
                 continue
@@ -369,6 +373,8 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             for name, keys in names.items():
                 if len(name.split()) >= 2 and re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", normalized):
                     matched.update(keys)
+            if source == "subject":
+                embedded_candidates = matched
             text_matches[source + ("__unique" if len(matched) == 1 else "__ambiguous" if matched else "__none")] += 1
         candidates = names.get(" ".join(subject.split()).casefold(), set()) if isinstance(subject, str) else set()
         if len(candidates) == 1:
@@ -378,6 +384,13 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             subject_matches["ambiguous"] += 1
         else:
             subject_matches["unmatched"] += 1
+        if len(embedded_candidates) == 1:
+            key = next(iter(embedded_candidates))
+            embedded_chains.setdefault(key, []).append((stamp, pair))
+            embedded_round_events.append((stamp, key))
+            embedded_events["unique"] += 1
+        else:
+            embedded_events["ambiguous_or_missing"] += 1
         timed_transitions.append((stamp, pair))
         tokens = set(re.findall(r"\b[a-z_]+\b", lower)) & vocabulary
         for token in tokens:
@@ -388,8 +401,8 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
     final_comparison = Counter()
     mapping = {"uitgerukt": "dispatched", "onbekend": "unknown",
                "niet_opgekomen": "no_show", "opgekomen_maar_niet_uitgerukt": "shown_up"}
-    for key, chain in chains.items():
-        if any(stamp is None or pair == "unparsed" for stamp, pair in chain):
+    for key, chain in embedded_chains.items():
+        if embedded_events["ambiguous_or_missing"] or shapes["missing_description"] or shapes["oversize"] or any(stamp is None or pair == "unparsed" for stamp, pair in chain):
             chain_counts["incomplete"] += 1
             continue
         ordered = sorted((datetime.fromisoformat(stamp), pair) for stamp, pair in chain)
@@ -419,6 +432,7 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             rounds.append({"first_event_at": item["first_event_at"],
                            "event_count": item["event_count"],
                            "candidate_transitions": dict(counts),
+                           "candidate_unique_memberships": len({key for stamp, key in embedded_round_events if stamp is not None and first <= datetime.fromisoformat(stamp) <= last}),
                            "unclassified_event_count": item["event_count"] - sum(counts.values())})
     return {**result, "status": "private_shapes_observed",
             "reported_status_counts": dict(outcomes), "status_pair_counts": dict(pairs),
@@ -434,6 +448,8 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             "candidate_reference_matches": dict(reference_matches),
             "candidate_embedded_name_matches": dict(text_matches),
             "reference_index_sizes": {k: len(v) for k, v in indexes.items()},
+            "candidate_chain_source": "unique_embedded_full_name_in_subject",
+            "candidate_chain_event_counts": dict(embedded_events),
             "candidate_membership_chain_counts": dict(chain_counts),
             "candidate_final_status_comparison": dict(final_comparison),
             "membership_identity_verified": False,
