@@ -40,6 +40,34 @@ def prepare_turnout_observation(payload: Any, incident_id: Any, groups: list,
         rows.append({**{key: response.get(key) for key in (
             "membership_id", "user_id", "user_name", "status", "reported_status",
             "arrived_at_station", "on_duty")}, "station_id": station_id})
+    assignments = payload.get("incident_skill_assignments")
+    codes = {}
+    for warning in payload.get("warning_statuses") or []:
+        if not isinstance(warning, dict):
+            continue
+        for skill in warning.get("skill_statuses") or []:
+            if isinstance(skill, dict) and (key := _identifier(skill.get("skill_id"))) is not None:
+                label = skill.get("short_code")
+                if isinstance(label, str) and label:
+                    codes.setdefault(key, set()).add(label)
+    if isinstance(assignments, list):
+        for row in rows:
+            membership = _identifier(row.get("membership_id"))
+            user = _identifier(row.get("user_id"))
+            if membership is None or user is None:
+                continue
+            matches = [response for response in responses if _identifier(response.get("membership_id")) == membership]
+            if len(matches) != 1:
+                continue
+            ids = set()
+            for assignment in assignments:
+                if not isinstance(assignment, dict) or _identifier(assignment.get("membership_id")) != membership or _identifier(assignment.get("user_id")) != user:
+                    continue
+                skills = assignment.get("skill_ids")
+                if isinstance(skills, list):
+                    ids.update(v for x in skills if (v := _identifier(x)) is not None)
+            row["assigned_skill_ids"] = sorted(ids)
+            row["assigned_skill_codes"] = {key: next(iter(codes[key])) for key in ids if len(codes.get(key, set())) == 1}
     try:
         clean = normalize_observation(rows)
     except ValueError:
