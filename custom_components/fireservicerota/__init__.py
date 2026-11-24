@@ -937,6 +937,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
         identity_fields = {}
         assignment_fields = {}
         warning_fields = {}
+        membership_shapes = {}
+        membership_counts = {"entries": 0, "empty_lists": 0, "matched_authorized_response": 0, "matched_shown_up": 0, "matched_dispatched": 0, "unmatched_or_unresolved": 0}
         skill_status_fields = {}
         coverage_counts = {"warning_lists": 0, "warning_rows": 0, "skill_status_rows": 0}
         attempted = response_rows = 0
@@ -981,6 +983,26 @@ def _async_register_services(hass: HomeAssistant) -> None:
                                 if not isinstance(skill, dict):
                                     continue
                                 coverage_counts["skill_status_rows"] += 1
+                                members = skill.get("available_memberships")
+                                if isinstance(members, list):
+                                    if not members:
+                                        membership_counts["empty_lists"] += 1
+                                    for member in members:
+                                        membership_counts["entries"] += 1
+                                        shape = type(member).__name__
+                                        membership_shapes[shape] = membership_shapes.get(shape, 0) + 1
+                                        raw_id = member.get("membership_id", member.get("id")) if isinstance(member, dict) else member
+                                        identifier_text = str(raw_id)
+                                        matches = [row for row in prepared["rows"] if row["membership_id"] == identifier_text]
+                                        if len(matches) != 1:
+                                            membership_counts["unmatched_or_unresolved"] += 1
+                                            continue
+                                        membership_counts["matched_authorized_response"] += 1
+                                        reported = matches[0].get("reported_status")
+                                        if reported == "shown_up":
+                                            membership_counts["matched_shown_up"] += 1
+                                        elif reported == "dispatched":
+                                            membership_counts["matched_dispatched"] += 1
                                 for field in ("skill_id", "short_code", "name", "required", "available", "count", "required_count", "available_count", "present_count", "responding_count", "acknowledged_count", "status", "sufficient", "fulfilled", "minimum", "actual", "needed", "missing", "number_required", "number_available", "assigned_count", "available_memberships", "buffer", "level", "assigned", "available_count", "position_type"):
                                     value = skill.get(field)
                                     if value is not None:
@@ -1013,6 +1035,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         return {**budget.status(), "status": reason, "attempted": attempted,
                 "outcomes": counts, "authorized_response_rows": response_rows,
                 "coverage_shape_counts": coverage_counts, "warning_field_presence": warning_fields,
+                "available_membership_shapes": membership_shapes, "available_membership_counts": membership_counts,
                 "skill_status_field_presence": skill_status_fields,
                 "identity_field_presence": identity_fields, "assignment_field_presence": assignment_fields,
                 "archive_modified": False, "personal_data_persisted": False}
