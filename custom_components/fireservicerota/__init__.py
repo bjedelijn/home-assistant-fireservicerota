@@ -369,6 +369,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_IMPORT_DISPATCH_HISTORY,
             "enrich_dispatch_history",
             "repair_dispatch_station_index",
+            "diagnose_dispatch_station_index",
             "get_station_archive_status",
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
@@ -792,6 +793,63 @@ def _async_register_services(hass: HomeAssistant) -> None:
         else:
             result["stations"] = [{"station_id": int(key), "indexed_incidents": archive.station_index_count(key)} for key in sorted(permitted, key=int)]
         return result
+
+    async def async_diagnose_dispatch_station_index(call: ServiceCall) -> dict:
+        from .staffing_insights import _resolve_station
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower() or not client.own_stations:
+            raise HomeAssistantError("No authorized BrandweerRooster station membership")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        known = {str(g["id"]): g for g in client.groups if isinstance(g, dict) and g.get("id") is not None}
+        result = {"inspected": 0, "responses_missing": 0, "responses_empty": 0,
+                  "responses_other_shape": 0, "responses_nonempty": 0,
+                  "response_rows": 0, "group_missing": 0, "group_unknown": 0,
+                  "group_without_station": 0, "group_resolved": 0,
+                  "unexpected_identity": 0, "alternative_fields_present": {}}
+        async with lock:
+            for identifier in await archive.async_unresolved_station_ids(call.data[ATTR_LIMIT], call.data["offset"]):
+                try:
+                    payload = await budget.async_get(client, f"incidents/{identifier}", None)
+                except HistoricalRequestBudgetExceeded:
+                    result["stopped_reason"] = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception:
+                    result["stopped_reason"] = "request_failed"
+                    break
+                result["inspected"] += 1
+                if not isinstance(payload, dict) or str(payload.get("id")) != identifier:
+                    result["unexpected_identity"] += 1
+                    continue
+                for key in ("station_id", "station_ids", "group_id", "group_ids", "groups", "stations", "task_ids", "incident_skill_assignments", "vehicle_ids"):
+                    if key in payload:
+                        counts = result["alternative_fields_present"]
+                        counts[key] = counts.get(key, 0) + 1
+                rows = payload.get("incident_responses")
+                if rows is None:
+                    result["responses_missing"] += 1
+                elif not isinstance(rows, list):
+                    result["responses_other_shape"] += 1
+                elif not rows:
+                    result["responses_empty"] += 1
+                else:
+                    result["responses_nonempty"] += 1
+                    for row in rows:
+                        result["response_rows"] += 1
+                        group = row.get("group_id") if isinstance(row, dict) else None
+                        if group is None:
+                            result["group_missing"] += 1
+                        elif str(group) not in known:
+                            result["group_unknown"] += 1
+                        elif not _resolve_station(group, known):
+                            result["group_without_station"] += 1
+                        else:
+                            result["group_resolved"] += 1
+        return {**result, **budget.status(), "archive_modified": False}
 
     async def async_repair_dispatch_station_index(call: ServiceCall) -> dict:
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
@@ -1241,6 +1299,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
+        ("diagnose_dispatch_station_index", async_diagnose_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
         ("repair_dispatch_station_index", async_repair_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10))})),
         ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
