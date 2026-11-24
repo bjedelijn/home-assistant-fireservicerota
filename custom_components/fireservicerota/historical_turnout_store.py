@@ -16,7 +16,7 @@ def _identifier(value: Any) -> str | None:
 
 
 def normalize_observation(rows: Any) -> list[dict]:
-    """Accept normalized response rows only; never persist names or raw payloads."""
+    """Accept normalized response rows only; retain only allowlisted fields, never raw payloads."""
     if not isinstance(rows, list):
         raise ValueError("Expected response list")
     result = []
@@ -34,6 +34,8 @@ def normalize_observation(rows: Any) -> list[dict]:
         seen.add(key)
         clean = {"membership_id": membership, "station_id": station,
                  "user_id": _identifier(row.get("user_id"))}
+        name = row.get("user_name")
+        clean["user_name"] = " ".join(name.split())[:256] if isinstance(name, str) and name.strip() else None
         for field in ("status", "reported_status"):
             value = row.get(field)
             clean[field] = value if isinstance(value, str) and value in {
