@@ -73,6 +73,15 @@ def normalize_archive_record(row: Any, *, include_details: bool) -> dict | None:
     if isinstance(station_ids, list) and type(unresolved) is int and unresolved >= 0:
         result["response_station_ids"] = sorted({v for v in station_ids if isinstance(v, str) and v.isascii() and v.isdigit() and len(v) <= 24})
         result["response_station_unresolved_count"] = unresolved
+    direct = row.get("incident_station_ids")
+    unresolved_direct = row.get("incident_station_unresolved_count")
+    if isinstance(direct, list) and type(unresolved_direct) is int and unresolved_direct >= 0:
+        result["incident_station_ids"] = sorted({v for v in direct if isinstance(v, str) and v.isascii() and v.isdigit() and len(v) <= 24})
+        result["incident_station_unresolved_count"] = unresolved_direct
+    if row.get("incident_type") == "incident_alert":
+        result["incident_type"] = "incident_alert"
+    if type(row.get("response_count")) is int and row["response_count"] >= 0:
+        result["response_count"] = row["response_count"]
     title = row.get("title")
     if isinstance(title, str) and title.strip():
         result["title"] = title.strip()[:200]
@@ -144,6 +153,9 @@ class DispatchArchiveStore:
                 page = enrichment.get("next_page", 1)
                 self._enrichment_next_page = page if type(page) is int and 1 <= page <= 5001 else 1
                 self._enrichment_complete = enrichment.get("complete") is True
+            if data.get("station_evidence_version") != 2:
+                self._enrichment_next_page = 1
+                self._enrichment_complete = False
             self._loaded = True
             await self._apply_options_locked(options)
 
@@ -234,12 +246,12 @@ class DispatchArchiveStore:
             changed = 0
             for row in records:
                 clean = normalize_archive_record(row, include_details=True)
-                if not clean or "response_station_ids" not in clean:
+                if not clean:
                     continue
                 target = existing.get(clean["incident_id"])
                 if target is None:
                     continue
-                fields = {k: clean[k] for k in ("response_station_ids", "response_station_unresolved_count")}
+                fields = {k: clean[k] for k in ("response_station_ids", "response_station_unresolved_count", "incident_station_ids", "incident_station_unresolved_count", "incident_type", "response_count") if k in clean}
                 if any(target.get(k) != v for k, v in fields.items()):
                     target.update(fields)
                     changed += 1
@@ -261,12 +273,12 @@ class DispatchArchiveStore:
     async def async_unresolved_station_ids(self, limit: int, offset: int = 0) -> list[str]:
         async with self._lock:
             return [r["incident_id"] for r in self._records
-                    if not r.get("response_station_ids") and r.get("station_repair_status")][offset:offset + limit]
+                    if not (r.get("response_station_ids") or r.get("incident_station_ids")) and r.get("station_repair_status")][offset:offset + limit]
 
     async def async_missing_station_ids(self, limit: int) -> list[str]:
         """Select only existing records lacking a station index."""
         async with self._lock:
-            return [r["incident_id"] for r in self._records if not r.get("response_station_ids") and not r.get("station_repair_status")][:limit]
+            return [r["incident_id"] for r in self._records if not (r.get("response_station_ids") or r.get("incident_station_ids")) and not r.get("station_repair_status")][:limit]
 
     async def async_mark_station_repair(self, identifier: str, status: str) -> None:
         if status not in ("unresolved", "unexpected_response", "resolved"):
@@ -283,14 +295,18 @@ class DispatchArchiveStore:
             if not options.get(CONF_DISPATCH_ARCHIVE_DETAILS, True):
                 return False
             clean = normalize_archive_record(row, include_details=True)
-            if not clean or not clean.get("response_station_ids"):
+            if not clean or not (clean.get("response_station_ids") or clean.get("incident_station_ids")):
                 return False
             for target in self._records:
                 if target["incident_id"] == clean["incident_id"]:
-                    target.update({k: clean[k] for k in ("response_station_ids", "response_station_unresolved_count")})
+                    target.update({k: clean[k] for k in ("response_station_ids", "response_station_unresolved_count", "incident_station_ids", "incident_station_unresolved_count", "incident_type", "response_count") if k in clean})
+                    target["station_repair_status"] = "resolved"
                     await self._apply_options_locked(options)
                     return True
             return False
+
+    def incident_station_count(self, station_id) -> int:
+        return sum(str(station_id) in r.get("incident_station_ids", []) for r in self._records)
 
     def station_index_count(self, station_id) -> int:
         return sum(str(station_id) in r.get("response_station_ids", []) for r in self._records)
@@ -305,6 +321,7 @@ class DispatchArchiveStore:
 
     async def _save_locked(self) -> None:
         await self._store.async_save({
+            "station_evidence_version": 2,
             "records": self._records,
             "yearly": self._yearly,
             "import": self._import,
@@ -351,8 +368,11 @@ class DispatchArchiveStore:
         """Return only counts and dates; no operational identifiers."""
         return {
             "stored_incidents": len(self._records),
-            "station_repair_pending": sum(not r.get("response_station_ids") and not r.get("station_repair_status") for r in self._records),
-            "station_repair_unresolved": sum(not r.get("response_station_ids") and bool(r.get("station_repair_status")) for r in self._records),
+            "incidents_with_direct_station": sum(bool(r.get("incident_station_ids")) for r in self._records),
+            "incidents_with_any_station": sum(bool(r.get("incident_station_ids") or r.get("response_station_ids")) for r in self._records),
+            "incidents_with_known_empty_responses": sum(r.get("response_count") == 0 for r in self._records),
+            "station_repair_pending": sum(not (r.get("response_station_ids") or r.get("incident_station_ids")) and not r.get("station_repair_status") for r in self._records),
+            "station_repair_unresolved": sum(not (r.get("response_station_ids") or r.get("incident_station_ids")) and bool(r.get("station_repair_status")) for r in self._records),
             "station_enrichment_next_page": self._enrichment_next_page,
             "station_enrichment_complete": self._enrichment_complete,
             "incidents_with_response_station_index": sum("response_station_ids" in r for r in self._records),
