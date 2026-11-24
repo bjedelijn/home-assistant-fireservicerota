@@ -245,3 +245,70 @@ def summarize_registration_comparison(analysis: dict[str, Any]) -> dict[str, Any
             "first_proposal": compare(proposals[0]), "latest_proposal": compare(proposals[-1]),
             "current_registered_dispatched_memberships": len(dispatched),
             "interpretation": "Current administrative snapshot only; unmatched names and later corrections may affect comparison."}
+
+
+def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, Any]:
+    """Inspect private audit text shapes and response multiplicity without echoing text."""
+    import re
+    from collections import Counter
+    result = {"status": "unavailable", "old_new_status_values_verified": False,
+              "manual_corrections_verified": False}
+    if analysis.get("audit_complete") is not True:
+        return result
+    snapshot = analysis.get("api_snapshot") or {}
+    if snapshot.get("available") is not True:
+        return result
+    vocabulary = {"dispatched", "shown_up", "no_show", "unknown", "acknowledged",
+                  "pending", "expired", "rejected", "accepted", "cancelled",
+                  "canceled", "arrived", "at_station", "responding"}
+    def bucket(value):
+        if value is None:
+            return "null"
+        if isinstance(value, str):
+            normalized = value.strip().casefold()
+            return normalized if normalized in vocabulary else ("empty" if not normalized else "other_string")
+        return "boolean" if isinstance(value, bool) else "other_type"
+    memberships = {}
+    outcomes = Counter()
+    pairs = Counter()
+    for row in snapshot.get("responses") or []:
+        if not isinstance(row, dict):
+            continue
+        status = bucket(row.get("reported_status"))
+        outcomes[status] += 1
+        pairs[bucket(row.get("status")) + "__" + status] += 1
+        key = row.get("membership_id")
+        if type(key) in (int, str) and str(key).isascii() and str(key).isdigit():
+            memberships.setdefault(str(key), []).append(status)
+    shapes = Counter()
+    token_counts = Counter()
+    for event in analysis.get("audit_turnout_status_changes") or []:
+        if not isinstance(event, dict) or not isinstance(event.get("description"), str):
+            shapes["missing_description"] += 1
+            continue
+        description = event["description"]
+        if len(description) > 20000:
+            shapes["oversize"] += 1
+            continue
+        lower = description.casefold()
+        for label, pattern in {
+            "arrow": r"→|->|⇒",
+            "old_new_labels": r"\b(?:old|oud|vorige)\b.*\b(?:new|nieuw|nieuwe)\b",
+            "from_to_labels": r"\b(?:from|van)\b.*\b(?:to|naar)\b",
+            "html_markup": r"<[a-z][^>]*>",
+            "multiline": r"\n",
+        }.items():
+            if re.search(pattern, lower, re.S):
+                shapes[label] += 1
+        tokens = set(re.findall(r"\b[a-z_]+\b", lower)) & vocabulary
+        for token in tokens:
+            token_counts[token] += 1
+        if not tokens:
+            shapes["no_known_status_tokens"] += 1
+    return {**result, "status": "private_shapes_observed",
+            "reported_status_counts": dict(outcomes), "status_pair_counts": dict(pairs),
+            "memberships_with_multiple_response_rows": sum(len(v) > 1 for v in memberships.values()),
+            "memberships_with_conflicting_status_buckets": sum(len(set(v)) > 1 for v in memberships.values()),
+            "audit_description_shape_counts": dict(shapes),
+            "audit_known_status_token_event_counts": dict(token_counts),
+            "interpretation": "Token presence is not a parsed old/new transition; no private text returned."}
