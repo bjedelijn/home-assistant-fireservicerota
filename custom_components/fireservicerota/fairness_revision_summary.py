@@ -283,12 +283,18 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
     shapes = Counter()
     token_counts = Counter()
     transition_counts = Counter()
+    timed_transitions = []
     labels = {
         "uitgerukt", "opgekomen", "niet opgekomen", "onbekend",
         "niet uitgerukt", "aanwezig", "afwezig", "niet aanwezig",
         "niet ingevuld", "geen", "wel opgekomen", "mee", "niet mee",
         "ingezet", "niet ingezet", "niet verschenen", "verschenen",
         "niet ter plaatse", "ter plaatse", "geen opkomst",
+        "niet uitgerukt maar opgekomen", "opgekomen maar niet uitgerukt",
+        "wel uitgerukt", "niet mee uitgerukt", "mee uitgerukt",
+        "niet bekend", "niet geregistreerd", "niet van toepassing",
+        "op de kazerne", "opkomst onbekend", "niet op komen dagen",
+        "op komen dagen", "niet op komen dagen", "niet beschikbaar",
     } | vocabulary
     alternatives = "|".join(re.escape(v) for v in sorted(labels, key=len, reverse=True))
     transition_pattern = re.compile(
@@ -314,18 +320,35 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
         }.items():
             if re.search(pattern, lower, re.S):
                 shapes[label] += 1
-        match = transition_pattern.search(lower)
+        match = transition_pattern.search(" ".join(lower.split()))
+        stamp = _safe_timestamp(event.get("at"))
+        pair = "unparsed"
         if match:
             old, new = (v.casefold().replace(" ", "_") for v in match.groups())
-            transition_counts[old + "__" + new] += 1
+            pair = old + "__" + new
+            transition_counts[pair] += 1
             shapes["recognized_same_label" if old == new else "recognized_different_label"] += 1
         else:
             shapes["unparsed_transition"] += 1
+        timed_transitions.append((stamp, pair))
         tokens = set(re.findall(r"\b[a-z_]+\b", lower)) & vocabulary
         for token in tokens:
             token_counts[token] += 1
         if not tokens:
             shapes["no_known_status_tokens"] += 1
+    from .turnout_audit_summary import summarize_turnout_audit
+    audit_summary = summarize_turnout_audit(analysis)
+    rounds = []
+    if audit_summary.get("comparison_status") == "audit_markers_observed":
+        for item in audit_summary["late_registration_rounds"]:
+            first = datetime.fromisoformat(item["first_event_at"])
+            last = datetime.fromisoformat(item["last_event_at"])
+            counts = Counter(pair for stamp, pair in timed_transitions
+                             if stamp is not None and first <= datetime.fromisoformat(stamp) <= last)
+            rounds.append({"first_event_at": item["first_event_at"],
+                           "event_count": item["event_count"],
+                           "candidate_transitions": dict(counts),
+                           "unclassified_event_count": item["event_count"] - sum(counts.values())})
     return {**result, "status": "private_shapes_observed",
             "reported_status_counts": dict(outcomes), "status_pair_counts": dict(pairs),
             "memberships_with_multiple_response_rows": sum(len(v) > 1 for v in memberships.values()),
@@ -334,4 +357,5 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             "audit_known_status_token_event_counts": dict(token_counts),
             "candidate_label_transitions": dict(transition_counts),
             "label_semantics_verified": False,
+            "late_round_candidate_transitions": rounds,
             "interpretation": "Token presence is not a parsed old/new transition; no private text returned."}
