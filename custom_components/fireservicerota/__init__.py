@@ -858,8 +858,17 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "pages_fetched": len(pages),
             }
         result = summarize_history_listing_scan(pages, start_page=start_page)
+        listing_rows = []
+        for payload in pages:
+            rows = payload if isinstance(payload, list) else payload.get("data") if isinstance(payload, dict) else None
+            if isinstance(rows, list) and len(rows) <= 25:
+                listing_rows.extend(row for row in rows if isinstance(row, dict))
+        result["listing_detail_capabilities"] = summarize_incident_detail_capabilities(listing_rows)
+        result["listing_local_relationships"] = summarize_detail_relationships(
+            listing_rows, client.groups, call.data[ATTR_STATION_ID], client.task_index
+        )
         result["pages_fetched"] = len(pages)
-        return result
+        return {**result, **budget.status()}
 
     async def async_refresh_turnout_audit_history(call: ServiceCall) -> dict:
         """Bounded opt-in HA-scheduled review of cached past incidents only."""
