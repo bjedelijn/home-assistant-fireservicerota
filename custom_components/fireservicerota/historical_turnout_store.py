@@ -101,6 +101,23 @@ class HistoricalTurnoutStore:
             self._records = updated
             return True
 
+    async def async_restrict(self, allowed_incident_stations: set[tuple[str, str]]) -> int:
+        """Remove records outside the current authorized, retained archive scope.
+
+        Caller must establish that authorization and archive loading succeeded.
+        Never call with an empty scope merely because a provider request failed.
+        """
+        allowed = {f"{incident}:{station}" for incident, station in allowed_incident_stations}
+        async with self._lock:
+            if not self._loaded:
+                raise RuntimeError("Turnout store not loaded")
+            updated = {key: value for key, value in self._records.items() if key in allowed}
+            removed = len(self._records) - len(updated)
+            if removed:
+                await self._store.async_save({"records": updated})
+                self._records = updated
+            return removed
+
     def status(self) -> dict:
         """Counts only; no personal identifiers in diagnostics."""
         return {"observed_incidents": len({key.split(":")[0] for key in self._records}),
