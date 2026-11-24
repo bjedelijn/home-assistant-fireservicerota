@@ -181,3 +181,65 @@ def summarize_proposal_revisions(analysis: dict[str, Any]) -> dict[str, Any]:
     result["revision_timeline"] = transitions
     result["comparison_status"] = "textual_snapshots_compared"
     return result
+
+
+def summarize_registration_comparison(analysis: dict[str, Any]) -> dict[str, Any]:
+    """Compare first/latest textual proposal with current registered membership outcomes."""
+    result = {"status": "unavailable", "first_registration_available": False,
+              "manual_correction_verified": False, "physical_departure_verified": False}
+    if analysis.get("audit_complete") is not True:
+        return result
+    proposals = analysis.get("fairness_suggestions")
+    snapshot = analysis.get("api_snapshot") or {}
+    if not isinstance(proposals, list) or not proposals or snapshot.get("available") is not True:
+        return result
+    if any(not isinstance(p, dict) or _safe_timestamp(p.get("at")) is None
+           or not _proposal_tokens(p)[2] for p in proposals):
+        return result
+    proposals = sorted(proposals, key=lambda p: datetime.fromisoformat(_safe_timestamp(p["at"])))
+    if len(proposals) > 1 and (
+        _safe_timestamp(proposals[0]["at"]) == _safe_timestamp(proposals[1]["at"])
+        or _safe_timestamp(proposals[-1]["at"]) == _safe_timestamp(proposals[-2]["at"])
+    ):
+        return result
+    def ident(value):
+        return str(value) if type(value) in (str, int) and str(value).isascii() and str(value).isdigit() else None
+    def name(value):
+        return " ".join(value.split()).casefold() if isinstance(value, str) else ""
+    responses = snapshot.get("responses")
+    if not isinstance(responses, list) or any(not isinstance(r, dict) for r in responses):
+        return result
+    names = {}
+    statuses = {}
+    for row in responses:
+        key = ident(row.get("membership_id"))
+        if key is None:
+            continue
+        if name(row.get("user_name")):
+            names.setdefault(name(row["user_name"]), set()).add(key)
+        raw = row.get("reported_status")
+        status = raw if isinstance(raw, str) and raw in ("dispatched", "shown_up", "no_show", "unknown") else "other_or_missing"
+        statuses.setdefault(key, set()).add(status)
+    dispatched = {k for k, v in statuses.items() if v == {"dispatched"}}
+    def compare(proposal):
+        matched = set()
+        unmatched = ambiguous = 0
+        for row in proposal["members"]:
+            candidates = names.get(name(row["name"]), set())
+            if len(candidates) == 1:
+                matched.update(candidates)
+            elif candidates:
+                ambiguous += 1
+            else:
+                unmatched += 1
+        return {"matched_memberships": len(matched), "unmatched_seats": unmatched,
+                "ambiguous_seats": ambiguous,
+                "matched_registered_dispatched": len(matched & dispatched),
+                "matched_registered_shown_up": sum(statuses[k] == {"shown_up"} for k in matched),
+                "matched_registered_no_show": sum(statuses[k] == {"no_show"} for k in matched),
+                "matched_other_or_ambiguous_outcome": sum(statuses[k] not in ({"dispatched"}, {"shown_up"}, {"no_show"}) for k in matched),
+                "registered_dispatched_not_matched_to_proposal": len(dispatched - matched)}
+    return {**result, "status": "observed_snapshots_compared",
+            "first_proposal": compare(proposals[0]), "latest_proposal": compare(proposals[-1]),
+            "current_registered_dispatched_memberships": len(dispatched),
+            "interpretation": "Current administrative snapshot only; unmatched names and later corrections may affect comparison."}
