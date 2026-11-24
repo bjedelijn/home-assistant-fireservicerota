@@ -368,6 +368,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
             SERVICE_IMPORT_DISPATCH_HISTORY,
             "enrich_dispatch_history",
+            "get_station_archive_status",
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_MARK_INCIDENT_CLOSED,
@@ -773,6 +774,13 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "records_this_call": records_this_call,
                 "archive_years_verified_complete": False,
             }
+
+    async def async_get_station_archive_status(call: ServiceCall) -> dict:
+        entry_data, _client, _cache = _history_entry(call)
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        return {**archive.status(),
+                "requested_station_index_count": archive.station_index_count(call.data[ATTR_STATION_ID]),
+                "api_requests_made": 0, "history_complete": False}
 
     async def async_enrich_dispatch_history(call: ServiceCall) -> dict:
         entry_data, client, _cache = _history_entry(call)
@@ -1183,6 +1191,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
+        ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
     ):
