@@ -258,6 +258,11 @@ class DispatchArchiveStore:
     def enrichment_complete(self) -> bool:
         return self._enrichment_complete
 
+    async def async_unresolved_station_ids(self, limit: int, offset: int = 0) -> list[str]:
+        async with self._lock:
+            return [r["incident_id"] for r in self._records
+                    if not r.get("response_station_ids") and r.get("station_repair_status")][offset:offset + limit]
+
     async def async_missing_station_ids(self, limit: int) -> list[str]:
         """Select only existing records lacking a station index."""
         async with self._lock:
