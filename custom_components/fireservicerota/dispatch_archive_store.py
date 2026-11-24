@@ -65,6 +65,11 @@ def normalize_archive_record(row: Any, *, include_details: bool) -> dict | None:
     }
     if not include_details:
         return result
+    station_ids = row.get("response_station_ids")
+    unresolved = row.get("response_station_unresolved_count")
+    if isinstance(station_ids, list) and type(unresolved) is int and unresolved >= 0:
+        result["response_station_ids"] = sorted({v for v in station_ids if isinstance(v, str) and v.isascii() and v.isdigit() and len(v) <= 24})
+        result["response_station_unresolved_count"] = unresolved
     title = row.get("title")
     if isinstance(title, str) and title.strip():
         result["title"] = title.strip()[:200]
@@ -263,6 +268,8 @@ class DispatchArchiveStore:
         """Return only counts and dates; no operational identifiers."""
         return {
             "stored_incidents": len(self._records),
+            "incidents_with_response_station_index": sum("response_station_ids" in r for r in self._records),
+            "incidents_with_resolved_response_station": sum(bool(r.get("response_station_ids")) for r in self._records),
             "stored_yearly_series": len(self._yearly),
             "oldest_incident_date": (
                 self._records[-1]["occurred_at"][:10] if self._records else None
