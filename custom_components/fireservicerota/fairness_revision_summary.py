@@ -423,13 +423,25 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
     from .turnout_audit_summary import summarize_turnout_audit
     audit_summary = summarize_turnout_audit(analysis)
     rounds = []
+    round_memberships = []
+    proposal_memberships = {}
+    proposals = analysis.get("fairness_suggestions") or []
+    if proposals and all(isinstance(p, dict) and _safe_timestamp(p.get("at")) and _proposal_tokens(p)[2] for p in proposals):
+        ordered_proposals = sorted(proposals, key=lambda p: datetime.fromisoformat(_safe_timestamp(p["at"])))
+        for label, proposal in (("first", ordered_proposals[0]), ("latest", ordered_proposals[-1])):
+            candidates = [names.get(" ".join(row["name"].split()).casefold(), set()) for row in proposal["members"]]
+            if candidates and all(len(keys) == 1 for keys in candidates):
+                proposal_memberships[label] = set().union(*candidates)
     if audit_summary.get("comparison_status") == "audit_markers_observed":
         for item in audit_summary["late_registration_rounds"]:
             first = datetime.fromisoformat(item["first_event_at"])
             last = datetime.fromisoformat(item["last_event_at"])
             counts = Counter(pair for stamp, pair in timed_transitions
                              if stamp is not None and first <= datetime.fromisoformat(stamp) <= last)
+            round_keys = {key for stamp, key in embedded_round_events if stamp is not None and first <= datetime.fromisoformat(stamp) <= last}
+            round_memberships.append(round_keys)
             rounds.append({"first_event_at": item["first_event_at"],
+                           "candidate_proposal_overlap": {label: len(round_keys & keys) for label, keys in proposal_memberships.items()},
                            "event_count": item["event_count"],
                            "candidate_transitions": dict(counts),
                            "candidate_unique_memberships": len({key for stamp, key in embedded_round_events if stamp is not None and first <= datetime.fromisoformat(stamp) <= last}),
@@ -443,6 +455,7 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             "candidate_label_transitions": dict(transition_counts),
             "label_semantics_verified": False,
             "late_round_candidate_transitions": rounds,
+            "candidate_round_overlap": [{"earlier_round": i + 1, "later_round": j + 1, "shared_memberships": len(a & b), "earlier_only": len(a - b), "later_only": len(b - a)} for i, a in enumerate(round_memberships) for j, b in enumerate(round_memberships) if j > i],
             "audit_subject_match_counts": dict(subject_matches),
             "candidate_reference_shapes": dict(reference_shapes),
             "candidate_reference_matches": dict(reference_matches),
