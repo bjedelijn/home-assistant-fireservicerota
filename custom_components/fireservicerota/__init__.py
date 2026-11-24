@@ -305,15 +305,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     dispatch_archive = DispatchArchiveStore(hass, entry.entry_id)
     await dispatch_archive.async_load(dict(entry.options))
-    # Preserve pre-option pilot data until the user explicitly chooses a setting.
-    if entry.options.get("historical_turnout_enabled") is False:
-        from .historical_turnout_store import HistoricalTurnoutStore
-        try:
-            turnout_store = HistoricalTurnoutStore(hass, entry.entry_id)
-            await turnout_store.async_load()
-            await turnout_store.async_restrict(set())
-        except Exception as err:
-            _LOGGER.warning("Turnout storage cleanup failed (%s)", type(err).__name__)
     history_budget = HistoricalRequestBudget(hass, entry.entry_id)
     await history_budget.async_load()
 
@@ -996,8 +987,6 @@ def _async_register_services(hass: HomeAssistant) -> None:
         from .historical_turnout_normalizer import prepare_turnout_observation
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
         client = entry_data[DATA_CLIENT]
-        if not client._entry.options.get("historical_turnout_enabled", False):
-            return {"status": "personal_storage_disabled", "api_requests_made": 0}
         allowed = {str(x.get("id")) for x in client.own_stations or []
                    if isinstance(x, dict) and str(x.get("id")).isascii() and str(x.get("id")).isdigit()}
         if "brandweerrooster.nl" not in str(client._url).lower() or not allowed:
@@ -1057,8 +1046,6 @@ def _async_register_services(hass: HomeAssistant) -> None:
         from .historical_turnout_normalizer import prepare_turnout_observation
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
         client = entry_data[DATA_CLIENT]
-        if not client._entry.options.get("historical_turnout_enabled", False):
-            return {"status": "personal_storage_disabled", "api_requests_made": 0}
         allowed = {str(x.get("id")) for x in client.own_stations or []
                    if isinstance(x, dict) and str(x.get("id")).isascii() and str(x.get("id")).isdigit()}
         if "brandweerrooster.nl" not in str(client._url).lower() or not allowed:
