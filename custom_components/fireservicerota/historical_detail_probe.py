@@ -165,8 +165,60 @@ def summarize_detail_relationships(payloads, groups, station_id, task_index):
             counts["unique_membership_match" if matches == 1 else
                    "ambiguous_membership_match" if matches > 1 else "missing_membership_match"] += 1
     return {
+        "status_profile": summarize_status_profile(payloads),
         "counts": counts,
         "task_index_available": bool(tasks),
         "group_index_available": bool(known),
         "interpretation": "Local reference matches and value shapes only; no verified attendance, task affiliation or fairness.",
     }
+
+
+# Fixed candidate vocabulary, not a verified provider enum.
+_STATUS_CANDIDATES = frozenset(("available", "unavailable", "unknown",
+    "responding", "not_responding", "accepted", "declined", "pending",
+    "present", "absent", "arrived", "not_arrived", "yes", "no"))
+
+
+def summarize_status_profile(payloads):
+    """Aggregate candidate status labels and types; never echo unknown values."""
+    def bucket(value):
+        if value is None:
+            return "null"
+        if type(value) is bool:
+            return "boolean_true" if value else "boolean_false"
+        if type(value) is int:
+            return "integer_other"
+        if type(value) is str:
+            normalized = value.strip().casefold()
+            if not normalized:
+                return "string_empty"
+            return "string_" + normalized if normalized in _STATUS_CANDIDATES else "string_other"
+        return "other_type"
+
+    def rows(value):
+        return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
+
+    def member(value):
+        return str(value) if type(value) in (str, int) and str(value).isascii() and str(value).isdigit() else None
+
+    result = {"status_counts": {}, "reported_status_counts": {},
+              "cross_counts": {}, "uniquely_assigned_response_cross_counts": {},
+              "status_semantics_verified": False}
+    def increment(target, key):
+        target[key] = target.get(key, 0) + 1
+
+    for payload in rows(payloads):
+        responses = rows(payload.get("incident_responses"))
+        assignments = rows(payload.get("incident_skill_assignments"))
+        members = [member(r.get("membership_id")) for r in responses]
+        assigned = {member(a.get("membership_id")) for a in assignments} - {None}
+        for response, key in zip(responses, members):
+            status = bucket(response.get("status"))
+            reported = bucket(response.get("reported_status"))
+            pair = status + "__" + reported
+            increment(result["status_counts"], status)
+            increment(result["reported_status_counts"], reported)
+            increment(result["cross_counts"], pair)
+            if key in assigned and members.count(key) == 1:
+                increment(result["uniquely_assigned_response_cross_counts"], pair)
+    return result
