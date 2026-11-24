@@ -810,7 +810,12 @@ def _async_register_services(hass: HomeAssistant) -> None:
                   "responses_other_shape": 0, "responses_nonempty": 0,
                   "response_rows": 0, "group_missing": 0, "group_unknown": 0,
                   "group_without_station": 0, "group_resolved": 0,
-                  "unexpected_identity": 0, "alternative_fields_present": {}}
+                  "unexpected_identity": 0, "alternative_fields_present": {},
+                  "alternative_fields_nonempty": {}, "incident_field_presence": {},
+                  "title_keyword_candidates": {"test": 0, "oefening": 0, "annulering": 0},
+                  "incident_group_rows": 0, "incident_group_resolved": 0,
+                  "incident_group_unknown": 0, "incident_group_without_station": 0,
+                  "task_references_known": 0, "task_references_unknown": 0}
         async with lock:
             for identifier in await archive.async_unresolved_station_ids(call.data[ATTR_LIMIT], call.data["offset"]):
                 try:
@@ -829,6 +834,37 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     if key in payload:
                         counts = result["alternative_fields_present"]
                         counts[key] = counts.get(key, 0) + 1
+                        if payload[key]:
+                            counts = result["alternative_fields_nonempty"]
+                            counts[key] = counts.get(key, 0) + 1
+                for key in ("type", "incident_type", "incident_type_id", "category", "category_id", "status", "is_test", "is_exercise", "cancelled", "cancelled_at", "fairness_proposal"):
+                    if key in payload:
+                        counts = result["incident_field_presence"]
+                        counts[key] = counts.get(key, 0) + 1
+                import re
+                title = " ".join(str(payload.get(key) or "") for key in ("title", "description", "name")).casefold()
+                for label, pattern in (("test", r"\btest(?:alarm|alarmering|melding)?\b"), ("oefening", r"\boefen(?:ing|alarm|melding)?\b"), ("annulering", r"\b(?:geannuleerd|annulering|ingetrokken)\b")):
+                    if re.search(pattern, title):
+                        result["title_keyword_candidates"][label] += 1
+                incident_groups = payload.get("groups")
+                if isinstance(incident_groups, list):
+                    for group in incident_groups:
+                        result["incident_group_rows"] += 1
+                        key = group.get("id", group.get("group_id")) if isinstance(group, dict) else group
+                        if str(key) not in known:
+                            result["incident_group_unknown"] += 1
+                        elif _resolve_station(key, known):
+                            result["incident_group_resolved"] += 1
+                        else:
+                            result["incident_group_without_station"] += 1
+                tasks = payload.get("task_ids")
+                if isinstance(tasks, list):
+                    for task in tasks:
+                        key = str(task)
+                        if key in client.task_index or (type(task) is int and task in client.task_index):
+                            result["task_references_known"] += 1
+                        else:
+                            result["task_references_unknown"] += 1
                 rows = payload.get("incident_responses")
                 if rows is None:
                     result["responses_missing"] += 1
