@@ -1007,6 +1007,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     raise HomeAssistantError("Explicit deletion confirmation required")
                 removed = await store.async_restrict(set())
             return {"operation": operation, "before": before, **store.status(),
+                    "skill_summary": store.skill_summary(),
                     "removed_incident_stations": removed, "archive_modified": False,
                     "api_requests_made": 0}
 
