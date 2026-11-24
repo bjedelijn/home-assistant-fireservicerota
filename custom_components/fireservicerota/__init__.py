@@ -936,6 +936,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
         counts = {}
         identity_fields = {}
         assignment_fields = {}
+        warning_fields = {}
+        skill_status_fields = {}
+        coverage_counts = {"warning_lists": 0, "warning_rows": 0, "skill_status_rows": 0}
         attempted = response_rows = 0
         reason = "batch_limit_reached"
         async with lock:
@@ -960,6 +963,29 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 counts[status] = counts.get(status, 0) + 1
                 response_rows += len(prepared.get("rows", []))
                 if status == "ready":
+                    # Count only field presence and primitive types, never raw values.
+                    warnings = payload.get("warning_statuses")
+                    if isinstance(warnings, list):
+                        coverage_counts["warning_lists"] += 1
+                        for warning in warnings:
+                            if not isinstance(warning, dict):
+                                continue
+                            coverage_counts["warning_rows"] += 1
+                            for field in ("group_id", "station_id", "task_id", "vehicle_id", "skill_statuses", "status", "sufficient", "required", "available"):
+                                if warning.get(field) is not None:
+                                    warning_fields[field] = warning_fields.get(field, 0) + 1
+                            skills = warning.get("skill_statuses")
+                            if not isinstance(skills, list):
+                                continue
+                            for skill in skills:
+                                if not isinstance(skill, dict):
+                                    continue
+                                coverage_counts["skill_status_rows"] += 1
+                                for field in ("skill_id", "short_code", "name", "required", "available", "count", "required_count", "available_count", "present_count", "responding_count", "acknowledged_count", "status", "sufficient", "fulfilled", "minimum", "actual", "needed", "missing", "number_required", "number_available"):
+                                    value = skill.get(field)
+                                    if value is not None:
+                                        key = field + ":" + type(value).__name__
+                                        skill_status_fields[key] = skill_status_fields.get(key, 0) + 1
                     authorized = {(row["station_id"], row["membership_id"]) for row in prepared["rows"]}
                     from .staffing_insights import _resolve_station
                     known = {str(g.get("id")): g for g in client.groups if isinstance(g, dict)}
@@ -986,6 +1012,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
                                 assignment_fields[field] = assignment_fields.get(field, 0) + 1
         return {**budget.status(), "status": reason, "attempted": attempted,
                 "outcomes": counts, "authorized_response_rows": response_rows,
+                "coverage_shape_counts": coverage_counts, "warning_field_presence": warning_fields,
+                "skill_status_field_presence": skill_status_fields,
                 "identity_field_presence": identity_fields, "assignment_field_presence": assignment_fields,
                 "archive_modified": False, "personal_data_persisted": False}
 
