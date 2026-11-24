@@ -776,11 +776,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
             }
 
     async def async_get_station_archive_status(call: ServiceCall) -> dict:
-        entry_data, _client, _cache = _history_entry(call)
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower():
+            raise HomeAssistantError("Historical archive is only supported for BrandweerRooster NL")
+        permitted = {str(x.get("id")) for x in client.own_stations if isinstance(x, dict) and str(x.get("id")).isascii() and str(x.get("id")).isdigit()}
+        requested = call.data.get(ATTR_STATION_ID)
+        if not permitted or (requested is not None and str(requested) not in permitted):
+            raise HomeAssistantError("No authorized station membership for this request")
         archive = entry_data[DATA_DISPATCH_ARCHIVE]
-        return {**archive.status(),
-                "requested_station_index_count": archive.station_index_count(call.data[ATTR_STATION_ID]),
-                "api_requests_made": 0, "history_complete": False}
+        result = {**archive.status(), "api_requests_made": 0, "history_complete": False}
+        if requested is not None:
+            result["requested_station_index_count"] = archive.station_index_count(requested)
+        else:
+            result["stations"] = [{"station_id": int(key), "indexed_incidents": archive.station_index_count(key)} for key in sorted(permitted, key=int)]
+        return result
 
     async def async_enrich_dispatch_history(call: ServiceCall) -> dict:
         entry_data, client, _cache = _history_entry(call)
@@ -1191,7 +1201,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
-        ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
+        ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
     ):
