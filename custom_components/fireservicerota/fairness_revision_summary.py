@@ -432,6 +432,38 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             candidates = [names.get(" ".join(row["name"].split()).casefold(), set()) for row in proposal["members"]]
             if candidates and all(len(keys) == 1 for keys in candidates):
                 proposal_memberships[label] = set().union(*candidates)
+    duty_rows = {}
+    for row in snapshot.get("responses") or []:
+        if isinstance(row, dict) and numeric(row.get("membership_id")) is not None:
+            duty_rows.setdefault(numeric(row["membership_id"]), []).append(row.get("on_duty"))
+    duty_keys = {key for key, flags in duty_rows.items() if len(flags) == 1 and flags[0] is True}
+    duty_roles = {}
+    duty_appearances = Counter()
+    valid_snapshots = 0
+    for proposal in proposals:
+        if not isinstance(proposal, dict) or not _proposal_tokens(proposal)[2]:
+            continue
+        matched = {}
+        for row in proposal["members"]:
+            keys = names.get(" ".join(row["name"].split()).casefold(), set())
+            if len(keys) == 1:
+                matched.setdefault(next(iter(keys)), set()).add(row["role"])
+        if len(matched) != len(proposal["members"]):
+            continue
+        valid_snapshots += 1
+        for key in duty_keys & matched.keys():
+            duty_appearances[key] += 1
+            duty_roles.setdefault(key, set()).update(matched[key])
+    duty_summary = {
+        "candidate_on_duty_memberships": len(duty_keys),
+        "fully_matched_proposal_snapshots": valid_snapshots,
+        "proposal_snapshots_total": len(proposals),
+        "candidate_proposal_overlap": {label: len(duty_keys & keys) for label, keys in proposal_memberships.items()},
+        "present_in_every_proposal": sum(valid_snapshots > 0 and valid_snapshots == len(proposals) and duty_appearances[key] == valid_snapshots for key in duty_keys),
+        "single_role_across_all_proposals": sum(valid_snapshots > 0 and valid_snapshots == len(proposals) and duty_appearances[key] == valid_snapshots and len(duty_roles.get(key, set())) == 1 for key in duty_keys),
+        "candidate_role_counts": dict(Counter(role for roles in duty_roles.values() for role in roles if role in {"Bevelvoerder", "Chauffeur", "Manschap", "Aspirant Manschap", "Officier van Dienst"})),
+        "duty_semantics_verified": False,
+    }
     if audit_summary.get("comparison_status") == "audit_markers_observed":
         for item in audit_summary["late_registration_rounds"]:
             first = datetime.fromisoformat(item["first_event_at"])
@@ -450,6 +482,7 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             "historical_context_field_shapes": snapshot.get("historical_context_field_shapes", {}),
             "historical_context_field_types": snapshot.get("historical_context_field_types", {}),
             "historical_context_semantics_verified": False,
+            "candidate_duty_proposal_comparison": duty_summary,
             "reported_status_counts": dict(outcomes), "status_pair_counts": dict(pairs),
             "memberships_with_multiple_response_rows": sum(len(v) > 1 for v in memberships.values()),
             "memberships_with_conflicting_status_buckets": sum(len(set(v)) > 1 for v in memberships.values()),
