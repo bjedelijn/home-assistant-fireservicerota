@@ -18,6 +18,7 @@ _CANDIDATES: dict[str, tuple[str, ...]] = {
     "task_reference": ("task_ids", "incident_tasks", "tasks"),
     "response_information": ("incident_responses", "responding", "responses"),
     "fairness_assignment": ("fairness_proposals", "crew_assignments", "assignments"),
+    "skill_assignment_information": ("incident_skill_assignments",),
     "audit_information": ("audits", "audit_logs", "revisions"),
     "created_timestamp": ("created_at",),
     "start_timestamp": ("start_time", "started_at", "incident_time"),
@@ -29,9 +30,10 @@ _NESTED_CANDIDATES: dict[str, tuple[str, ...]] = {
     "tasks": ("task_id", "id", "station_id", "name", "type"),
     "incident_responses": (
         "membership_id", "station_id", "status", "reported_status",
-        "incident_task_id", "created_at",
+        "incident_task_id", "created_at", "group_id", "arrived_at_station",
     ),
     "responding": ("station_id", "task_id", "response_people", "skill_assignments"),
+    "incident_skill_assignments": ("membership_id", "skill_ids"),
 }
 
 
