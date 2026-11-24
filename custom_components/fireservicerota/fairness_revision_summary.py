@@ -284,6 +284,15 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
     token_counts = Counter()
     transition_counts = Counter()
     timed_transitions = []
+    subject_matches = Counter()
+    chains = {}
+    names = {}
+    for row in snapshot.get("responses") or []:
+        if not isinstance(row, dict):
+            continue
+        name, key = row.get("user_name"), row.get("membership_id")
+        if isinstance(name, str) and name.strip() and type(key) in (int, str) and str(key).isascii() and str(key).isdigit():
+            names.setdefault(" ".join(name.split()).casefold(), set()).add(str(key))
     labels = {
         "uitgerukt", "opgekomen", "niet opgekomen", "onbekend",
         "niet uitgerukt", "aanwezig", "afwezig", "niet aanwezig",
@@ -330,12 +339,44 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             shapes["recognized_same_label" if old == new else "recognized_different_label"] += 1
         else:
             shapes["unparsed_transition"] += 1
+        subject = event.get("subject")
+        candidates = names.get(" ".join(subject.split()).casefold(), set()) if isinstance(subject, str) else set()
+        if len(candidates) == 1:
+            subject_matches["unique_exact_name"] += 1
+            chains.setdefault(next(iter(candidates)), []).append((stamp, pair))
+        elif candidates:
+            subject_matches["ambiguous"] += 1
+        else:
+            subject_matches["unmatched"] += 1
         timed_transitions.append((stamp, pair))
         tokens = set(re.findall(r"\b[a-z_]+\b", lower)) & vocabulary
         for token in tokens:
             token_counts[token] += 1
         if not tokens:
             shapes["no_known_status_tokens"] += 1
+    chain_counts = Counter()
+    final_comparison = Counter()
+    mapping = {"uitgerukt": "dispatched", "onbekend": "unknown",
+               "niet_opgekomen": "no_show", "opgekomen_maar_niet_uitgerukt": "shown_up"}
+    for key, chain in chains.items():
+        if any(stamp is None or pair == "unparsed" for stamp, pair in chain):
+            chain_counts["incomplete"] += 1
+            continue
+        ordered = sorted((datetime.fromisoformat(stamp), pair) for stamp, pair in chain)
+        if len({stamp for stamp, _ in ordered}) != len(ordered):
+            chain_counts["ambiguous_order"] += 1
+            continue
+        transitions = [pair.split("__", 1) for _, pair in ordered]
+        if any(a[1] != b[0] for a, b in zip(transitions, transitions[1:])):
+            chain_counts["discontinuous"] += 1
+            continue
+        chain_counts["continuous"] += 1
+        expected = mapping.get(transitions[-1][1])
+        current = memberships.get(key, [])
+        if expected is None or len(current) != 1:
+            final_comparison["unresolved"] += 1
+        else:
+            final_comparison["candidate_match" if current[0] == expected else "candidate_mismatch"] += 1
     from .turnout_audit_summary import summarize_turnout_audit
     audit_summary = summarize_turnout_audit(analysis)
     rounds = []
@@ -358,4 +399,8 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             "candidate_label_transitions": dict(transition_counts),
             "label_semantics_verified": False,
             "late_round_candidate_transitions": rounds,
+            "audit_subject_match_counts": dict(subject_matches),
+            "candidate_membership_chain_counts": dict(chain_counts),
+            "candidate_final_status_comparison": dict(final_comparison),
+            "membership_identity_verified": False,
             "interpretation": "Token presence is not a parsed old/new transition; no private text returned."}
