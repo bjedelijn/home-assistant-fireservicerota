@@ -161,12 +161,20 @@ def summarize_history_listing_scan(pages: list[Any], *, start_page: int = 1) -> 
         result["status"] = "unrecognized_page_shape"
         result["stopped_on_unexpected_response"] = True
         return result
+    reference_keys = ("task_ids", "tasks", "incident_tasks", "station_id", "station_ids", "group_id", "group_ids", "incident_responses")
+    result["reference_field_counts"] = dict.fromkeys(reference_keys, 0)
+    result["reference_nonempty_counts"] = dict.fromkeys(reference_keys, 0)
     seen: set[str] = set()
     overlaps = 0
     for payload in pages:
         rows = payload if isinstance(payload, list) else payload["data"]
         local: set[str] = set()
         for row in rows:
+            for key in reference_keys:
+                if key in row:
+                    result["reference_field_counts"][key] += 1
+                    if row[key] not in (None, "", [], {}):
+                        result["reference_nonempty_counts"][key] += 1
             identifier = row.get("id")
             if isinstance(identifier, bool) or not isinstance(identifier, (str, int)):
                 result["status"] = "identifiers_not_comparable"
