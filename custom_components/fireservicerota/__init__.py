@@ -790,8 +790,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
         result = {**archive.status(), "api_requests_made": 0, "history_complete": False}
         if requested is not None:
             result["requested_station_index_count"] = archive.station_index_count(requested)
+            result["requested_incident_station_count"] = archive.incident_station_count(requested)
         else:
-            result["stations"] = [{"station_id": int(key), "indexed_incidents": archive.station_index_count(key)} for key in sorted(permitted, key=int)]
+            result["stations"] = [{"station_id": int(key), "indexed_incidents": archive.station_index_count(key), "direct_incidents": archive.incident_station_count(key)} for key in sorted(permitted, key=int)]
         return result
 
     async def async_diagnose_dispatch_station_index(call: ServiceCall) -> dict:
