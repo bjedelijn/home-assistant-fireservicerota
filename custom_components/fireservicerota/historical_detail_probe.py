@@ -107,3 +107,66 @@ def summarize_incident_detail_capabilities(payloads: list[Any]) -> dict[str, Any
             "or fairness semantics, completeness or station affiliation."
         ),
     }
+
+
+def summarize_detail_relationships(payloads, groups, station_id, task_index):
+    """Count local reference matches; never emit identifiers or raw statuses."""
+    from .staffing_insights import _resolve_station
+
+    def identifier(value):
+        return str(value) if type(value) in (int, str) and str(value).isascii() and str(value).isdigit() else None
+
+    def rows(value):
+        return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+    known = {identifier(g.get("id")): g for g in rows(groups) if identifier(g.get("id"))}
+    tasks = {identifier(k) for k in task_index} if isinstance(task_index, dict) else set()
+    counts = dict.fromkeys((
+        "response_rows", "requested_station", "other_resolved_station",
+        "unresolved_station", "task_references", "known_task_references",
+        "assignment_rows", "unique_membership_match", "ambiguous_membership_match",
+        "missing_membership_match", "arrival_true", "arrival_false",
+        "arrival_missing_or_null", "arrival_other_type",
+        "status_equal", "status_different", "status_missing_or_invalid",
+    ), 0)
+    for payload in rows(payloads):
+        responses = rows(payload.get("incident_responses"))
+        memberships = {}
+        for response in responses:
+            counts["response_rows"] += 1
+            group = identifier(response.get("group_id"))
+            station = _resolve_station(group, known) if group else None
+            resolved = identifier(station.get("station_id")) if station else None
+            key = ("unresolved_station" if resolved is None else
+                   "requested_station" if resolved == identifier(station_id) else
+                   "other_resolved_station")
+            counts[key] += 1
+            member = identifier(response.get("membership_id"))
+            if member:
+                memberships[member] = memberships.get(member, 0) + 1
+            arrival = response.get("arrived_at_station")
+            key = ("arrival_true" if arrival is True else "arrival_false" if arrival is False
+                   else "arrival_missing_or_null" if arrival is None else "arrival_other_type")
+            counts[key] += 1
+            status, reported = response.get("status"), response.get("reported_status")
+            valid = all(type(v) in (str, int, bool) and v != "" for v in (status, reported))
+            key = ("status_missing_or_invalid" if not valid else
+                   "status_equal" if type(status) is type(reported) and status == reported
+                   else "status_different")
+            counts[key] += 1
+        task_ids = payload.get("task_ids")
+        if isinstance(task_ids, list):
+            for task in task_ids:
+                counts["task_references"] += 1
+                counts["known_task_references"] += int(identifier(task) in tasks and identifier(task) is not None)
+        for assignment in rows(payload.get("incident_skill_assignments")):
+            counts["assignment_rows"] += 1
+            matches = memberships.get(identifier(assignment.get("membership_id")), 0)
+            counts["unique_membership_match" if matches == 1 else
+                   "ambiguous_membership_match" if matches > 1 else "missing_membership_match"] += 1
+    return {
+        "counts": counts,
+        "task_index_available": bool(tasks),
+        "group_index_available": bool(known),
+        "interpretation": "Local reference matches and value shapes only; no verified attendance, task affiliation or fairness.",
+    }
