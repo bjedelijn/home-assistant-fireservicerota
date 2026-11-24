@@ -255,6 +255,25 @@ class DispatchArchiveStore:
     def enrichment_complete(self) -> bool:
         return self._enrichment_complete
 
+    async def async_missing_station_ids(self, limit: int) -> list[str]:
+        """Select only existing records lacking a station index."""
+        async with self._lock:
+            return [r["incident_id"] for r in self._records if not r.get("response_station_ids")][:limit]
+
+    async def async_repair_station_record(self, row: dict, options: dict) -> bool:
+        async with self._lock:
+            if not options.get(CONF_DISPATCH_ARCHIVE_DETAILS, True):
+                return False
+            clean = normalize_archive_record(row, include_details=True)
+            if not clean or not clean.get("response_station_ids"):
+                return False
+            for target in self._records:
+                if target["incident_id"] == clean["incident_id"]:
+                    target.update({k: clean[k] for k in ("response_station_ids", "response_station_unresolved_count")})
+                    await self._apply_options_locked(options)
+                    return True
+            return False
+
     def station_index_count(self, station_id) -> int:
         return sum(str(station_id) in r.get("response_station_ids", []) for r in self._records)
 
