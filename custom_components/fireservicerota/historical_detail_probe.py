@@ -176,7 +176,9 @@ def summarize_detail_relationships(payloads, groups, station_id, task_index):
 # Fixed candidate vocabulary, not a verified provider enum.
 _STATUS_CANDIDATES = frozenset(("available", "unavailable", "unknown",
     "responding", "not_responding", "accepted", "declined", "pending",
-    "present", "absent", "arrived", "not_arrived", "yes", "no"))
+    "present", "absent", "arrived", "not_arrived", "yes", "no",
+    "dispatched", "shown_up", "no_show", "rejected", "expired",
+    "cancelled", "canceled", "acknowledged", "at_station"))
 
 
 def summarize_status_profile(payloads):
