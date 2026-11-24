@@ -142,4 +142,6 @@ class HistoricalTurnoutStore:
                 "discarded_revisions": sum(r.get("discarded_revisions", 0) for r in self._records.values()),
                 "known_empty_incidents": sum(not r["latest"]["rows"] for r in self._records.values()),
                 "observed_revisions": sum(len(r["revisions"]) for r in self._records.values()),
+                "latest_rows_with_name": sum(bool(row.get("user_name")) for r in self._records.values() for row in r["latest"]["rows"]),
+                "latest_response_rows": sum(len(r["latest"]["rows"]) for r in self._records.values()),
                 "physical_departure_verified": False}
