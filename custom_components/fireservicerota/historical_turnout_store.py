@@ -118,6 +118,11 @@ class HistoricalTurnoutStore:
                 self._records = updated
             return removed
 
+    def has_observation(self, incident_id: str, station_id: str) -> bool:
+        if not self._loaded:
+            raise RuntimeError("Turnout store not loaded")
+        return f"{incident_id}:{station_id}" in self._records
+
     def status(self) -> dict:
         """Counts only; no personal identifiers in diagnostics."""
         return {"observed_incidents": len({key.split(":")[0] for key in self._records}),
