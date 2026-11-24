@@ -971,7 +971,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                             if not isinstance(warning, dict):
                                 continue
                             coverage_counts["warning_rows"] += 1
-                            for field in ("group_id", "station_id", "task_id", "vehicle_id", "skill_statuses", "status", "sufficient", "required", "available"):
+                            for field in ("group_id", "station_id", "task_id", "vehicle_id", "skill_statuses", "status", "sufficient", "required", "available", "availability_requirement_id", "task_ids", "level", "service_level"):
                                 if warning.get(field) is not None:
                                     warning_fields[field] = warning_fields.get(field, 0) + 1
                             skills = warning.get("skill_statuses")
@@ -981,7 +981,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                                 if not isinstance(skill, dict):
                                     continue
                                 coverage_counts["skill_status_rows"] += 1
-                                for field in ("skill_id", "short_code", "name", "required", "available", "count", "required_count", "available_count", "present_count", "responding_count", "acknowledged_count", "status", "sufficient", "fulfilled", "minimum", "actual", "needed", "missing", "number_required", "number_available"):
+                                for field in ("skill_id", "short_code", "name", "required", "available", "count", "required_count", "available_count", "present_count", "responding_count", "acknowledged_count", "status", "sufficient", "fulfilled", "minimum", "actual", "needed", "missing", "number_required", "number_available", "assigned_count", "available_memberships", "buffer", "level", "assigned", "available_count", "position_type"):
                                     value = skill.get(field)
                                     if value is not None:
                                         key = field + ":" + type(value).__name__
