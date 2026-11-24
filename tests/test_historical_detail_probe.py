@@ -75,3 +75,24 @@ def test_reviewed_keys_and_nested_structure_never_leak_values():
     assert result["reviewed_nested_keys_present_count"]["responding"]["response_people"] == 1
     assert "SYNTHETIC_" not in str(result)
     assert "99999" not in str(result)
+
+
+def test_known_group_arrival_and_skill_fields_are_counted_without_values():
+    result = summarize_incident_detail_capabilities([
+        {"incident_responses": [{"group_id": 987654321,
+                                 "arrived_at_station": "SYNTHETIC_ARRIVAL"}],
+         "incident_skill_assignments": [{"membership_id": 987654322,
+                                         "skill_ids": [987654323]}]},
+        {"incident_responses": [{"group_id": None}],
+         "incident_skill_assignments": []},
+    ])
+    nested = result["reviewed_nested_keys_present_count"]
+    assert nested["incident_responses"]["group_id"] == 1
+    assert nested["incident_responses"]["arrived_at_station"] == 1
+    assert nested["incident_skill_assignments"]["membership_id"] == 1
+    assert nested["incident_skill_assignments"]["skill_ids"] == 1
+    assert result["fields_present_count"]["skill_assignment_information"] == 1
+    assert result["physical_departure_verified"] is False
+    assert result["fairness_evidence_verified"] is False
+    assert "98765432" not in str(result)
+    assert "SYNTHETIC_ARRIVAL" not in str(result)
