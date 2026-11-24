@@ -370,6 +370,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "enrich_dispatch_history",
             "repair_dispatch_station_index",
             "probe_turnout_import",
+            "import_turnout_history",
             "diagnose_dispatch_station_index",
             "get_station_archive_status",
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
@@ -958,6 +959,65 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "outcomes": counts, "authorized_response_rows": response_rows,
                 "archive_modified": False, "personal_data_persisted": False}
 
+    async def async_import_turnout_history(call: ServiceCall) -> dict:
+        from .historical_turnout_store import HistoricalTurnoutStore
+        from .historical_turnout_normalizer import prepare_turnout_observation
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        allowed = {str(x.get("id")) for x in client.own_stations or []
+                   if isinstance(x, dict) and str(x.get("id")).isascii() and str(x.get("id")).isdigit()}
+        if "brandweerrooster.nl" not in str(client._url).lower() or not allowed:
+            raise HomeAssistantError("No authorized BrandweerRooster station membership")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        counts = {}
+        attempted = response_rows = saved = 0
+        reason = "batch_limit_reached"
+        async with lock:
+            if not client._entry.options.get("dispatch_archive_details", True):
+                return {"status": "detail_storage_disabled", "archive_modified": False}
+            scope = {}
+            for identifier, station in await archive.async_turnout_scope(allowed):
+                scope.setdefault(identifier, set()).add(station)
+            if not archive.enrichment_complete:
+                return {"status": "station_enrichment_incomplete", "personal_data_persisted": False}
+            store = HistoricalTurnoutStore(hass, client.entry_id)
+            await store.async_load()
+            pending = [identifier for identifier, stations in scope.items()
+                       if any(not store.has_observation(identifier, station) for station in stations)]
+            for identifier in pending[:call.data[ATTR_LIMIT]]:
+                try:
+                    payload = await budget.async_get(client, f"incidents/{identifier}", None)
+                except HistoricalRequestBudgetExceeded:
+                    reason = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception:
+                    reason = "request_failed"
+                    break
+                attempted += 1
+                prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
+                status = prepared["status"]
+                counts[status] = counts.get(status, 0) + 1
+                response_rows += len(prepared.get("rows", []))
+                if status != "ready":
+                    continue
+                for station in prepared["station_scope"]:
+                    if not store.has_observation(identifier, station):
+                        saved += int(await store.async_observe(identifier,
+                            [row for row in prepared["rows"] if row["station_id"] == station],
+                            station_id=station))
+            remaining = sum(any(not store.has_observation(identifier, station) for station in stations)
+                            for identifier, stations in scope.items())
+            if not remaining:
+                reason = "scope_exhausted"
+        return {**budget.status(), "status": reason, "attempted": attempted,
+                "outcomes": counts, "authorized_response_rows": response_rows,
+                **store.status(), "remaining_incidents": remaining, "saved_incident_stations": saved,
+                "archive_modified": False, "personal_data_persisted": bool(saved)}
+
     async def async_repair_dispatch_station_index(call: ServiceCall) -> dict:
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
         client = entry_data[DATA_CLIENT]
@@ -1407,6 +1467,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("diagnose_dispatch_station_index", async_diagnose_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)), vol.Optional("comparison_sample", default=False): cv.boolean, vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
+        ("import_turnout_history", async_import_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3))})),
         ("probe_turnout_import", async_probe_turnout_import, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
         ("repair_dispatch_station_index", async_repair_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10))})),
         ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
