@@ -368,6 +368,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
             SERVICE_IMPORT_DISPATCH_HISTORY,
             "enrich_dispatch_history",
+            "repair_dispatch_station_index",
             "get_station_archive_status",
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
@@ -792,6 +793,45 @@ def _async_register_services(hass: HomeAssistant) -> None:
             result["stations"] = [{"station_id": int(key), "indexed_incidents": archive.station_index_count(key)} for key in sorted(permitted, key=int)]
         return result
 
+    async def async_repair_dispatch_station_index(call: ServiceCall) -> dict:
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower() or not client.own_stations:
+            raise HomeAssistantError("No authorized BrandweerRooster station membership")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        result = {"attempted": 0, "resolved": 0, "unresolved": 0, "unexpected_response": 0}
+        async with lock:
+            if not client._entry.options.get("dispatch_archive_details", True):
+                return {**archive.status(), "status": "detail_storage_disabled", "api_requests_made": 0}
+            for identifier in await archive.async_missing_station_ids(call.data[ATTR_LIMIT]):
+                try:
+                    payload = await budget.async_get(client, f"incidents/{identifier}", None)
+                except HistoricalRequestBudgetExceeded:
+                    result["stopped_reason"] = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception:
+                    result["stopped_reason"] = "request_failed"
+                    break
+                result["attempted"] += 1
+                try:
+                    rows = normalize_listing_page([payload], client.groups)
+                    if len(rows) != 1 or rows[0]["incident_id"] != identifier:
+                        raise ValueError("Unexpected incident identity")
+                except (ValueError, TypeError, AttributeError):
+                    await archive.async_mark_station_repair(identifier, "unexpected_response")
+                    result["unexpected_response"] += 1
+                    continue
+                if await archive.async_repair_station_record(rows[0], dict(client._entry.options)):
+                    result["resolved"] += 1
+                else:
+                    await archive.async_mark_station_repair(identifier, "unresolved")
+                    result["unresolved"] += 1
+        return {**archive.status(), **budget.status(), **result, "history_complete": False}
+
     async def async_enrich_dispatch_history(call: ServiceCall) -> dict:
         entry_data, client, _cache = _history_entry(call)
         archive = entry_data[DATA_DISPATCH_ARCHIVE]
@@ -1201,6 +1241,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
+        ("repair_dispatch_station_index", async_repair_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10))})),
         ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
