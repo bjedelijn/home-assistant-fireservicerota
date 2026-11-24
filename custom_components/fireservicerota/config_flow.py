@@ -207,9 +207,9 @@ class FireServiceRotaOptionsFlow(config_entries.OptionsFlowWithReload):
         schema = vol.Schema(
             {
                 vol.Optional(
-                    "historical_turnout_enabled",
-                    default=bool(current.get("historical_turnout_enabled", False)),
-                ): bool,
+                    "historical_turnout_display",
+                    default=current.get("historical_turnout_display", "role"),
+                ): vol.In({"role": "Alleen functie", "first": "Voornaam", "initial": "Voornaam + initiaal", "full": "Volledige naam"}),
                 vol.Optional(
                     CONF_DISPATCH_ARCHIVE_RETENTION,
                     default=str(current.get(CONF_DISPATCH_ARCHIVE_RETENTION, "all")),
