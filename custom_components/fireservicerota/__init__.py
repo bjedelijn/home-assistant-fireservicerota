@@ -595,7 +595,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 continue
             try:
                 audit = await analyze_incident_fairness(
-                    client.async_api_get, incident_id,
+                    lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), incident_id,
                     max_pages=call.data[ATTR_MAX_PAGES], groups=client.groups,
                 )
                 converted = summarize_incident_for_history(audit, station_id)
@@ -604,11 +604,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     result["imported"] += 1
                 else:
                     result["skipped"] += 1
+            except HistoricalRequestBudgetExceeded:
+                result["stopped_reason"] = "daily_budget_exhausted_or_paused"
+                break
             except Exception:
                 # Never write real incident IDs, response bodies or names to logs.
                 _LOGGER.warning("Private fairness import failed for one incident")
                 result["failed"] += 1
-        return result
+        return {**result, **entry_data[DATA_HISTORICAL_REQUEST_BUDGET].status()}
 
     async def async_preview_fairness_history(call: ServiceCall) -> dict:
         """Anonymous descriptive historical overview, not a crew prediction."""
@@ -858,7 +861,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     async def async_refresh_turnout_audit_history(call: ServiceCall) -> dict:
         """Bounded opt-in HA-scheduled review of cached past incidents only."""
-        _entry, client, cache = _history_entry(call)
+        entry_data, client, cache = _history_entry(call)
         station_id = call.data[ATTR_STATION_ID]
         now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
         selected = select_turnout_rechecks(
@@ -878,7 +881,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         for record in selected:
             try:
                 audit = await analyze_incident_fairness(
-                    client.async_api_get, record["incident_id"], max_pages=5,
+                    lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), record["incident_id"], max_pages=5,
                     groups=client.groups,
                 )
                 linked = summarize_incident_for_history(audit, station_id)
@@ -910,19 +913,22 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     station_id, record["incident_id"], review
                 )
                 outcome["reviewed"] += 1
+            except HistoricalRequestBudgetExceeded:
+                outcome["stopped_reason"] = "daily_budget_exhausted_or_paused"
+                break
             except Exception as err:
                 # No private incident IDs, actor names or audit bodies in logs.
                 _LOGGER.debug("Private turnout history review failed (%s)", type(err).__name__)
                 outcome["failed"] += 1
-        return outcome
+        return {**outcome, **entry_data[DATA_HISTORICAL_REQUEST_BUDGET].status()}
 
     async def async_inspect_turnout_audit(call: ServiceCall) -> dict:
         """Inspect one authorized incident; return audit marker counts only."""
-        _entry, client, _cache = _history_entry(call)
+        entry_data, client, _cache = _history_entry(call)
         station_id = call.data[ATTR_STATION_ID]
         try:
             audit = await analyze_incident_fairness(
-                client.async_api_get, call.data[ATTR_INCIDENT_ID],
+                lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), call.data[ATTR_INCIDENT_ID],
                 max_pages=call.data[ATTR_MAX_PAGES], groups=client.groups,
             )
             attribution = summarize_incident_for_history(audit, station_id)
@@ -947,12 +953,12 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     async def async_inspect_fairness_revisions(call: ServiceCall) -> dict:
         """One authorized on-demand incident audit; counts only, no persistence."""
-        _entry, client, _cache = _history_entry(call)
+        entry_data, client, _cache = _history_entry(call)
         incident_id = call.data[ATTR_INCIDENT_ID]
         station_id = call.data[ATTR_STATION_ID]
         try:
             audit = await analyze_incident_fairness(
-                client.async_api_get, incident_id,
+                lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), incident_id,
                 max_pages=call.data[ATTR_MAX_PAGES], groups=client.groups,
             )
             # Ensure the audit is complete and the incident unambiguously
