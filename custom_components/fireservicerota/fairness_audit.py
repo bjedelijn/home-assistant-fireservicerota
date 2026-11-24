@@ -101,6 +101,7 @@ def _api_snapshot(incident: Any) -> dict[str, Any]:
                 "status": response.get("status"),
                 "reported_status": response.get("reported_status"),
                 "arrived_at_station": response.get("arrived_at_station"),
+                "on_duty": response.get("on_duty"),
             }
         )
 
