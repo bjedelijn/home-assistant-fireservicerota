@@ -367,6 +367,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
             SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
             SERVICE_IMPORT_DISPATCH_HISTORY,
+            "enrich_dispatch_history",
             SERVICE_PROBE_FAIRNESS_AVAILABILITY,
             SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_MARK_INCIDENT_CLOSED,
@@ -773,6 +774,47 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "archive_years_verified_complete": False,
             }
 
+    async def async_enrich_dispatch_history(call: ServiceCall) -> dict:
+        entry_data, client, _cache = _history_entry(call)
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        changed = pages = 0
+        reason = "batch_limit_reached"
+        async with lock:
+            for _ in range(call.data[ATTR_MAX_PAGES]):
+                if not client._entry.options.get("dispatch_archive_details", True):
+                    reason = "detail_storage_disabled"
+                    break
+                if archive.enrichment_complete:
+                    reason = "listing_exhausted"
+                    break
+                page = archive.enrichment_next_page
+                if page > 5000:
+                    reason = "page_limit_reached"
+                    break
+                try:
+                    payload = await budget.async_get(client, "incidents", {"page": page, "per_page": 25})
+                    rows = normalize_listing_page(payload, client.groups)
+                    changed += await archive.async_enrich_station_page(rows, dict(client._entry.options), page=page)
+                    pages += 1
+                    if not rows:
+                        reason = "listing_exhausted"
+                        break
+                except HistoricalRequestBudgetExceeded:
+                    reason = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception as err:
+                    _LOGGER.debug("Station enrichment interrupted (%s)", type(err).__name__)
+                    reason = "interrupted_unexpected_response"
+                    break
+        return {**archive.status(), **budget.status(), "status": reason,
+                "pages_this_call": pages, "records_changed": changed,
+                "requested_station_index_count": archive.station_index_count(call.data[ATTR_STATION_ID]),
+                "history_complete": False}
+
     async def async_probe_historical_incident_detail(call: ServiceCall) -> dict:
         """Inspect at most three locally indexed BWR detail response shapes.
 
@@ -1140,6 +1182,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_GET_DISPATCH_ARCHIVE_STATUS, async_get_dispatch_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
+        ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
         (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
     ):
