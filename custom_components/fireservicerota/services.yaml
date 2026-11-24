@@ -428,8 +428,9 @@ inspect_fairness_revisions:
           min: 1
           mode: box
     incident_id:
-      name: Incident ID
-      required: true
+      name: Incident ID (optional)
+      description: Omit to select one cached incident with late registration markers for this station.
+      required: false
       selector:
         text: {}
     max_pages:
