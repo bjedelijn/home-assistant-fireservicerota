@@ -371,6 +371,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "repair_dispatch_station_index",
             "probe_turnout_import",
             "import_turnout_history",
+            "manage_turnout_storage",
             "recheck_turnout_history",
             "diagnose_dispatch_station_index",
             "get_station_archive_status",
@@ -960,6 +961,27 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "outcomes": counts, "authorized_response_rows": response_rows,
                 "archive_modified": False, "personal_data_persisted": False}
 
+    async def async_manage_turnout_storage(call: ServiceCall) -> dict:
+        from .historical_turnout_store import HistoricalTurnoutStore
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        async with lock:
+            store = HistoricalTurnoutStore(hass, client.entry_id)
+            await store.async_load()
+            operation = call.data["operation"]
+            before = store.status()
+            removed = 0
+            if operation == "purge":
+                if not call.data.get("confirm_delete", False):
+                    raise HomeAssistantError("Explicit deletion confirmation required")
+                removed = await store.async_restrict(set())
+            return {"operation": operation, "before": before, **store.status(),
+                    "removed_incident_stations": removed, "archive_modified": False,
+                    "api_requests_made": 0}
+
     async def async_import_turnout_history(call: ServiceCall) -> dict:
         from .historical_turnout_store import HistoricalTurnoutStore
         from .historical_turnout_normalizer import prepare_turnout_observation
@@ -1526,6 +1548,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("diagnose_dispatch_station_index", async_diagnose_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)), vol.Optional("comparison_sample", default=False): cv.boolean, vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
         ("recheck_turnout_history", async_recheck_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
+        ("manage_turnout_storage", async_manage_turnout_storage, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("operation", default="status"): vol.In(["status", "purge"]), vol.Optional("confirm_delete", default=False): cv.boolean})),
         ("import_turnout_history", async_import_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3))})),
         ("probe_turnout_import", async_probe_turnout_import, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
         ("repair_dispatch_station_index", async_repair_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10))})),
