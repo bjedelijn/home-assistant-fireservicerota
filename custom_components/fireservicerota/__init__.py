@@ -815,9 +815,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
                   "title_keyword_candidates": {"test": 0, "oefening": 0, "annulering": 0},
                   "incident_group_rows": 0, "incident_group_resolved": 0,
                   "incident_group_unknown": 0, "incident_group_without_station": 0,
-                  "task_references_known": 0, "task_references_unknown": 0}
+                  "task_references_known": 0, "task_references_unknown": 0,
+                  "incident_types": {}, "station_comparison": {},
+                  "comparison_sample": call.data["comparison_sample"]}
         async with lock:
-            for identifier in await archive.async_unresolved_station_ids(call.data[ATTR_LIMIT], call.data["offset"]):
+            identifiers = (await archive.async_detail_probe_ids(call.data[ATTR_LIMIT], call.data["offset"])
+                           if call.data["comparison_sample"]
+                           else await archive.async_unresolved_station_ids(call.data[ATTR_LIMIT], call.data["offset"]))
+            for identifier in identifiers:
                 try:
                     payload = await budget.async_get(client, f"incidents/{identifier}", None)
                 except HistoricalRequestBudgetExceeded:
@@ -846,6 +851,13 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 for label, pattern in (("test", r"\btest(?:alarm|alarmering|melding)?\b"), ("oefening", r"\boefen(?:ing|alarm|melding)?\b"), ("annulering", r"\b(?:geannuleerd|annulering|ingetrokken)\b")):
                     if re.search(pattern, title):
                         result["title_keyword_candidates"][label] += 1
+                raw_type = payload.get("type")
+                # Only short machine-like tokens; never expose free-text titles.
+                type_key = str(raw_type) if type(raw_type) in (str, int) and re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(raw_type)) else "missing_or_other"
+                types = result["incident_types"]
+                types[type_key] = types.get(type_key, 0) + 1
+                direct_stations = set()
+                response_stations = set()
                 incident_groups = payload.get("groups")
                 if isinstance(incident_groups, list):
                     for group in incident_groups:
@@ -855,6 +867,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
                             result["incident_group_unknown"] += 1
                         elif _resolve_station(key, known):
                             result["incident_group_resolved"] += 1
+                            station = _resolve_station(key, known)
+                            if station.get("station_id") is not None:
+                                direct_stations.add(str(station["station_id"]))
                         else:
                             result["incident_group_without_station"] += 1
                 tasks = payload.get("task_ids")
@@ -885,6 +900,19 @@ def _async_register_services(hass: HomeAssistant) -> None:
                             result["group_without_station"] += 1
                         else:
                             result["group_resolved"] += 1
+                            station = _resolve_station(group, known)
+                            if station.get("station_id") is not None:
+                                response_stations.add(str(station["station_id"]))
+                comparison = ("equal" if direct_stations == response_stations else
+                              "direct_superset" if response_stations < direct_stations else
+                              "response_superset" if direct_stations < response_stations else
+                              "partial_overlap" if direct_stations & response_stations else "disjoint")
+                if not response_stations:
+                    comparison = "direct_only" if direct_stations else "neither"
+                elif not direct_stations:
+                    comparison = "response_only"
+                counts = result["station_comparison"]
+                counts[comparison] = counts.get(comparison, 0) + 1
         return {**result, **budget.status(), "archive_modified": False}
 
     async def async_repair_dispatch_station_index(call: ServiceCall) -> dict:
@@ -1335,7 +1363,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
-        ("diagnose_dispatch_station_index", async_diagnose_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
+        ("diagnose_dispatch_station_index", async_diagnose_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)), vol.Optional("comparison_sample", default=False): cv.boolean, vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
         ("repair_dispatch_station_index", async_repair_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10))})),
         ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
