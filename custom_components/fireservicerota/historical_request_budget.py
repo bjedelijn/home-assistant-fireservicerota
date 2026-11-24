@@ -12,7 +12,9 @@ from time import monotonic
 
 from homeassistant.helpers.storage import Store
 
-HISTORICAL_REQUESTS_PER_UTC_DAY = 200
+HISTORICAL_REQUESTS_PER_UTC_DAY = 500
+HISTORICAL_REQUESTS_PER_MINUTE = 15
+HISTORICAL_REQUESTS_PER_HOUR = 100
 HISTORICAL_MIN_REQUEST_INTERVAL_SECONDS = 2.0
 
 
@@ -30,6 +32,7 @@ class HistoricalRequestBudget:
         self._used = 0
         self._last_attempt_monotonic: float | None = None
         self._blocked_today = False
+        self._attempt_times: list[float] = []
 
     async def async_load(self) -> None:
         data = await self._store.async_load()
@@ -42,6 +45,9 @@ class HistoricalRequestBudget:
                 if type(count) is int else 0
             )
             self._blocked_today = data.get("blocked_today") is True
+            times = data.get("attempt_times", [])
+            if isinstance(times, list):
+                self._attempt_times = sorted(t for t in times if type(t) in (int, float) and 0 <= t <= datetime.now(timezone.utc).timestamp())[-500:]
         self._rollover()
 
     def _rollover(self) -> None:
@@ -51,9 +57,19 @@ class HistoricalRequestBudget:
             self._used = 0
             self._blocked_today = False
 
+    def _recent(self) -> tuple[int, int]:
+        now = datetime.now(timezone.utc).timestamp()
+        self._attempt_times = [t for t in self._attempt_times if t > now - 3600]
+        return sum(t > now - 60 for t in self._attempt_times), len(self._attempt_times)
+
     def status(self) -> dict:
         self._rollover()
+        minute, hour = self._recent()
         return {
+            "historical_minute_attempt_cap": HISTORICAL_REQUESTS_PER_MINUTE,
+            "historical_hour_attempt_cap": HISTORICAL_REQUESTS_PER_HOUR,
+            "historical_minute_attempts_used": minute,
+            "historical_hour_attempts_used": hour,
             "historical_budget_utc_date": self._date,
             "historical_attempts_used": self._used,
             "historical_attempts_remaining": max(
@@ -79,12 +95,18 @@ class HistoricalRequestBudget:
                 )
                 if remaining > 0:
                     await asyncio.sleep(remaining)
+            self._rollover()
+            minute, hour = self._recent()
+            if self._blocked_today or self._used >= HISTORICAL_REQUESTS_PER_UTC_DAY or minute >= HISTORICAL_REQUESTS_PER_MINUTE or hour >= HISTORICAL_REQUESTS_PER_HOUR:
+                raise HistoricalRequestBudgetExceeded()
+            self._attempt_times.append(datetime.now(timezone.utc).timestamp())
             # Save the attempt before network I/O; a crash cannot reset
             # an in-flight request's consumed budget.
             self._used += 1
             await self._store.async_save({
                 "utc_date": self._date,
                 "attempts": self._used,
+                "attempt_times": self._attempt_times,
                 "blocked_today": self._blocked_today,
             })
             self._last_attempt_monotonic = monotonic()
@@ -100,6 +122,7 @@ class HistoricalRequestBudget:
                     await self._store.async_save({
                         "utc_date": self._date,
                         "attempts": self._used,
+                "attempt_times": self._attempt_times,
                         "blocked_today": True,
                     })
                 raise
