@@ -45,6 +45,10 @@ def normalize_observation(rows: Any) -> list[dict]:
         for field in ("arrived_at_station", "on_duty"):
             value = row.get(field)
             clean[field] = value if type(value) is bool else None
+        skills = row.get("assigned_skill_ids")
+        clean["assigned_skill_ids"] = sorted({v for x in skills if (v := _identifier(x)) is not None}) if isinstance(skills, list) else None
+        codes = row.get("assigned_skill_codes")
+        clean["assigned_skill_codes"] = {k: v[:80] for k, v in codes.items() if k in (clean["assigned_skill_ids"] or []) and isinstance(v, str)} if isinstance(codes, dict) else {}
         result.append(clean)
     return sorted(result, key=lambda row: (row["station_id"], row["membership_id"]))
 
@@ -90,11 +94,11 @@ class HistoricalTurnoutStore:
             previous = self._records.get(identifier)
             if previous:
                 def operational(rows):
-                    return [{k: v for k, v in row.items() if k != "user_name"} for row in rows]
+                    return [{k: v for k, v in row.items() if k not in {"user_name", "assigned_skill_ids", "assigned_skill_codes"}} for row in rows]
                 if operational(previous["latest"]["rows"]) == operational(clean):
                     if previous["latest"]["rows"] == clean:
                         return False
-                    # Name enrichment is not an operational turnout revision.
+                    # Metadata enrichment is not an operational turnout revision.
                     updated = {**self._records, identifier: {**previous,
                         "latest": {**previous["latest"], "rows": clean}}}
                     await self._store.async_save({"records": updated})
@@ -144,4 +148,6 @@ class HistoricalTurnoutStore:
                 "observed_revisions": sum(len(r["revisions"]) for r in self._records.values()),
                 "latest_rows_with_name": sum(bool(row.get("user_name")) for r in self._records.values() for row in r["latest"]["rows"]),
                 "latest_response_rows": sum(len(r["latest"]["rows"]) for r in self._records.values()),
+                "latest_rows_with_assigned_skills": sum(bool(row.get("assigned_skill_ids")) for r in self._records.values() for row in r["latest"]["rows"]),
+                "latest_rows_with_skill_codes": sum(bool(row.get("assigned_skill_codes")) for r in self._records.values() for row in r["latest"]["rows"]),
                 "physical_departure_verified": False}
