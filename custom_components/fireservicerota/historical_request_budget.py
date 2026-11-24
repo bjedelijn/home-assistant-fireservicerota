@@ -12,7 +12,7 @@ from time import monotonic
 
 from homeassistant.helpers.storage import Store
 
-HISTORICAL_REQUESTS_PER_UTC_DAY = 40
+HISTORICAL_REQUESTS_PER_UTC_DAY = 200
 HISTORICAL_MIN_REQUEST_INTERVAL_SECONDS = 2.0
 
 
@@ -38,7 +38,7 @@ class HistoricalRequestBudget:
             count = data.get("attempts", 0)
             self._date = date if isinstance(date, str) else ""
             self._used = (
-                max(0, min(count, HISTORICAL_REQUESTS_PER_UTC_DAY))
+                max(0, count)
                 if type(count) is int else 0
             )
             self._blocked_today = data.get("blocked_today") is True
