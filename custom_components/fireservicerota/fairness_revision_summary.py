@@ -448,6 +448,7 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
                            "unclassified_event_count": item["event_count"] - sum(counts.values())})
     return {**result, "status": "private_shapes_observed",
             "historical_context_field_shapes": snapshot.get("historical_context_field_shapes", {}),
+            "historical_context_field_types": snapshot.get("historical_context_field_types", {}),
             "historical_context_semantics_verified": False,
             "reported_status_counts": dict(outcomes), "status_pair_counts": dict(pairs),
             "memberships_with_multiple_response_rows": sum(len(v) > 1 for v in memberships.values()),
