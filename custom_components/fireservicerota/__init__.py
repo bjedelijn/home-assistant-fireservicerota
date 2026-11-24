@@ -237,6 +237,7 @@ INSPECT_TURNOUT_AUDIT_SCHEMA = vol.Schema({
     vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
 })
 INSPECT_FAIRNESS_REVISIONS_SCHEMA = vol.Schema({
+    vol.Optional("sample_index"): vol.All(vol.Coerce(int), vol.Range(min=1, max=20)),
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
     vol.Optional(ATTR_INCIDENT_ID): vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")),
@@ -957,6 +958,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
         incident_id = call.data.get(ATTR_INCIDENT_ID)
         station_id = call.data[ATTR_STATION_ID]
         selection = "explicit_incident"
+        if incident_id is None and "sample_index" in call.data:
+            identifiers = {str(record.get("incident_id") or "") for record in await _cache.async_list(station_id) if str(record.get("station_id")) == str(station_id) and record.get("proposal_snapshots_seen")}
+            identifiers = sorted((v for v in identifiers if v.isascii() and v.isdigit()), key=int, reverse=True)
+            index = call.data["sample_index"] - 1
+            if index >= len(identifiers):
+                return {"status": "no_cached_sample_at_index", "cached_sample_count": len(identifiers), "read_only": True, "api_requests_made": 0}
+            incident_id = identifiers[index]
+            selection = "cached_proposal_sample_index"
         if incident_id is None:
             candidates = []
             for record in await _cache.async_list(station_id):
