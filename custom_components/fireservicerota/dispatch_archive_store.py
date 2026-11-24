@@ -168,7 +168,7 @@ class DispatchArchiveStore:
                     include_details=bool(options.get(CONF_DISPATCH_ARCHIVE_DETAILS, True)),
                 )
                 if normalized:
-                    new_records[normalized["incident_id"]] = normalized
+                    new_records[normalized["incident_id"]] = {**new_records.get(normalized["incident_id"], {}), **normalized}
             self._records = prune_archive_records(
                 list(new_records.values()), now=datetime.now(timezone.utc),
                 retention=options.get(CONF_DISPATCH_ARCHIVE_RETENTION, "all"),
@@ -200,7 +200,7 @@ class DispatchArchiveStore:
                 cleaned = normalize_archive_record(row, include_details=include_details)
                 if cleaned is None:
                     raise ValueError("Unrecognized incident in listing page")
-                previous[cleaned["incident_id"]] = cleaned
+                previous[cleaned["incident_id"]] = {**previous.get(cleaned["incident_id"], {}), **cleaned}
             self._records = prune_archive_records(
                 list(previous.values()),
                 now=datetime.now(timezone.utc),
@@ -212,6 +212,27 @@ class DispatchArchiveStore:
             self._import["rows_seen"] += len(records)
             self._import["status"] = "running"
             await self._save_locked()
+
+    async def async_enrich_station_page(self, records: list[dict], options: dict) -> int:
+        """Enrich existing records only, without changing the import checkpoint."""
+        async with self._lock:
+            if not self._loaded or not options.get(CONF_DISPATCH_ARCHIVE_DETAILS, True):
+                return 0
+            existing = {r["incident_id"]: r for r in self._records}
+            changed = 0
+            for row in records:
+                clean = normalize_archive_record(row, include_details=True)
+                if not clean or "response_station_ids" not in clean:
+                    continue
+                target = existing.get(clean["incident_id"])
+                if target is None:
+                    continue
+                fields = {k: clean[k] for k in ("response_station_ids", "response_station_unresolved_count")}
+                if any(target.get(k) != v for k, v in fields.items()):
+                    target.update(fields)
+                    changed += 1
+            await self._apply_options_locked(options)
+            return changed
 
     @property
     def import_next_page(self) -> int:
