@@ -147,10 +147,15 @@ class HistoricalTurnoutStore:
         combinations = Counter()
         by_station = {}
         by_status = {}
+        assignment_coverage = {}
         without_skills = unknown = unresolved = 0
         for record in self._records.values():
             for row in record["latest"]["rows"]:
                 ids = row.get("assigned_skill_ids")
+                station = row["station_id"]
+                status = row.get("reported_status") or "unknown"
+                bucket = assignment_coverage.setdefault(station, {}).setdefault(status, Counter())
+                bucket["unknown" if ids is None else "assigned" if ids else "none_observed"] += 1
                 if ids is None:
                     unknown += 1
                     continue
@@ -177,6 +182,9 @@ class HistoricalTurnoutStore:
                 "rows_without_assigned_skills": without_skills,
                 "rows_assignment_unknown": unknown,
                 "unresolved_skill_references": unresolved,
+                "assignment_coverage_by_station_and_status": {
+                    station: {status: dict(counts) for status, counts in statuses.items()}
+                    for station, statuses in assignment_coverage.items()},
                 "vehicle_role_verified": False}
 
     def status(self) -> dict:
