@@ -196,10 +196,12 @@ def summarize_registration_comparison(analysis: dict[str, Any]) -> dict[str, Any
     if any(not isinstance(p, dict) or _safe_timestamp(p.get("at")) is None
            or not _proposal_tokens(p)[2] for p in proposals):
         return result
-    proposals = sorted(proposals, key=lambda p: datetime.fromisoformat(_safe_timestamp(p["at"])))
+    def timestamp(p):
+        return datetime.fromisoformat(_safe_timestamp(p["at"]))
+    proposals = sorted(proposals, key=timestamp)
     if len(proposals) > 1 and (
-        _safe_timestamp(proposals[0]["at"]) == _safe_timestamp(proposals[1]["at"])
-        or _safe_timestamp(proposals[-1]["at"]) == _safe_timestamp(proposals[-2]["at"])
+        timestamp(proposals[0]) == timestamp(proposals[1])
+        or timestamp(proposals[-1]) == timestamp(proposals[-2])
     ):
         return result
     def ident(value):
