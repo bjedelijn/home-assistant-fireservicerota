@@ -66,7 +66,7 @@ class HistoricalTurnoutStore:
                 raise ValueError("Invalid historical turnout store")
             self._loaded = True
 
-    async def async_observe(self, incident_id: Any, rows: Any) -> bool:
+    async def async_observe(self, incident_id: Any, rows: Any, *, station_id: Any) -> bool:
         """Record a validated complete observation, including a known empty list.
 
         Caller must verify incident identity, completeness and authorized scope.
@@ -75,7 +75,13 @@ class HistoricalTurnoutStore:
         identifier = _identifier(incident_id)
         if identifier is None:
             raise ValueError("Invalid incident ID")
+        station = _identifier(station_id)
+        if station is None:
+            raise ValueError("Invalid station scope")
         clean = normalize_observation(rows)
+        if any(row["station_id"] != station for row in clean):
+            raise ValueError("Response outside station scope")
+        identifier = f"{identifier}:{station}"
         async with self._lock:
             if not self._loaded:
                 raise RuntimeError("Turnout store not loaded")
@@ -86,9 +92,10 @@ class HistoricalTurnoutStore:
                         "rows": clean}
             if previous:
                 record = {"first": previous["first"], "latest": snapshot,
-                          "revisions": [*previous["revisions"], snapshot]}
+                          "revisions": [*previous["revisions"], snapshot][-100:],
+                          "discarded_revisions": previous.get("discarded_revisions", 0) + int(len(previous["revisions"]) >= 100)}
             else:
-                record = {"first": snapshot, "latest": snapshot, "revisions": []}
+                record = {"first": snapshot, "latest": snapshot, "revisions": [], "discarded_revisions": 0}
             updated = {**self._records, identifier: record}
             await self._store.async_save({"records": updated})
             self._records = updated
@@ -96,7 +103,9 @@ class HistoricalTurnoutStore:
 
     def status(self) -> dict:
         """Counts only; no personal identifiers in diagnostics."""
-        return {"observed_incidents": len(self._records),
+        return {"observed_incidents": len({key.split(":")[0] for key in self._records}),
+                "observed_incident_stations": len(self._records),
+                "discarded_revisions": sum(r.get("discarded_revisions", 0) for r in self._records.values()),
                 "known_empty_incidents": sum(not r["latest"]["rows"] for r in self._records.values()),
                 "observed_revisions": sum(len(r["revisions"]) for r in self._records.values()),
                 "physical_departure_verified": False}
