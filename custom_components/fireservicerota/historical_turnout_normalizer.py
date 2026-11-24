@@ -38,7 +38,7 @@ def prepare_turnout_observation(payload: Any, incident_id: Any, groups: list,
         if station_id not in scope:
             return {"status": "station_evidence_conflict"}
         rows.append({**{key: response.get(key) for key in (
-            "membership_id", "user_id", "status", "reported_status",
+            "membership_id", "user_id", "user_name", "status", "reported_status",
             "arrived_at_station", "on_duty")}, "station_id": station_id})
     try:
         clean = normalize_observation(rows)
