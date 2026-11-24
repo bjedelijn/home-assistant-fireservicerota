@@ -934,6 +934,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
         if lock.locked():
             raise HomeAssistantError("Historical archive operation is already running")
         counts = {}
+        identity_fields = {}
+        assignment_fields = {}
         attempted = response_rows = 0
         reason = "batch_limit_reached"
         async with lock:
@@ -957,8 +959,34 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 status = prepared["status"]
                 counts[status] = counts.get(status, 0) + 1
                 response_rows += len(prepared.get("rows", []))
+                if status == "ready":
+                    authorized = {(row["station_id"], row["membership_id"]) for row in prepared["rows"]}
+                    from .staffing_insights import _resolve_station
+                    known = {str(g.get("id")): g for g in client.groups if isinstance(g, dict)}
+                    for row in payload.get("incident_responses", []):
+                        station = _resolve_station(row.get("group_id"), known)
+                        if not station or (str(station.get("station_id")), str(row.get("membership_id"))) not in authorized:
+                            continue
+                        for field in ("user_name", "first_name", "last_name", "user_first_name", "user_last_name", "role", "function", "skill_ids", "task_id"):
+                            if row.get(field) is not None:
+                                identity_fields[field] = identity_fields.get(field, 0) + 1
+                        user = row.get("user")
+                        if isinstance(user, dict):
+                            for field in ("first_name", "last_name", "name"):
+                                if user.get(field) is not None:
+                                    key = "user." + field
+                                    identity_fields[key] = identity_fields.get(key, 0) + 1
+                    for assignment in payload.get("incident_skill_assignments") or []:
+                        if not isinstance(assignment, dict):
+                            continue
+                        if str(assignment.get("membership_id")) not in {m for _, m in authorized}:
+                            continue
+                        for field in ("membership_id", "user_id", "skill_ids", "task_id", "role", "function", "vehicle_id"):
+                            if assignment.get(field) is not None:
+                                assignment_fields[field] = assignment_fields.get(field, 0) + 1
         return {**budget.status(), "status": reason, "attempted": attempted,
                 "outcomes": counts, "authorized_response_rows": response_rows,
+                "identity_field_presence": identity_fields, "assignment_field_presence": assignment_fields,
                 "archive_modified": False, "personal_data_persisted": False}
 
     async def async_manage_turnout_storage(call: ServiceCall) -> dict:
