@@ -223,7 +223,7 @@ class DispatchArchiveStore:
             "import": self._import,
         })
 
-    async def async_detail_probe_ids(self, limit: int) -> list[str]:
+    async def async_detail_probe_ids(self, limit: int, offset: int = 0) -> list[str]:
         """Select local IDs only; never return them from a HA service.
 
         Spread samples over the indexed range instead of always selecting
@@ -232,7 +232,10 @@ class DispatchArchiveStore:
         if type(limit) is not int or not 1 <= limit <= 3:
             raise ValueError("Probe limit must be between one and three")
         async with self._lock:
-            total = len(self._records)
+            if type(offset) is not int or offset < 0:
+                raise ValueError("Invalid probe offset")
+            records = self._records[offset:]
+            total = len(records)
             if total == 0:
                 return []
             positions = (
@@ -241,7 +244,7 @@ class DispatchArchiveStore:
                 else [0, (total - 1) // 2, total - 1]
             )
             return list(dict.fromkeys(
-                self._records[position]["incident_id"]
+                records[position]["incident_id"]
                 for position in positions
             ))
 
