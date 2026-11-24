@@ -744,7 +744,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     payload = await budget.async_get(
                         client, "incidents", {"page": page, "per_page": 25}
                     )
-                    rows = normalize_listing_page(payload)
+                    rows = normalize_listing_page(payload, client.groups)
                 except HistoricalRequestBudgetExceeded:
                     await archive.async_update_import("interrupted")
                     return {**archive.status(), **budget.status(),
