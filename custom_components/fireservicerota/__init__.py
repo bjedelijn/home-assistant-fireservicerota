@@ -216,6 +216,7 @@ IMPORT_DISPATCH_HISTORY_SCHEMA = vol.Schema({
     vol.Optional(ATTR_MAX_PAGES, default=25): vol.All(vol.Coerce(int), vol.Range(min=1, max=25)),
 })
 PROBE_HISTORICAL_INCIDENT_DETAIL_SCHEMA = vol.Schema({
+    vol.Optional("offset"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000)),
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
     vol.Optional(ATTR_LIMIT, default=2): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)),
@@ -781,7 +782,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         entry_data, client, _cache = _history_entry(call)
         archive = entry_data[DATA_DISPATCH_ARCHIVE]
         budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
-        ids = await archive.async_detail_probe_ids(call.data[ATTR_LIMIT])
+        ids = await archive.async_detail_probe_ids(call.data[ATTR_LIMIT], offset=call.data.get("offset"))
         inspected = []
         stopped_reason = None
         for identifier in ids:
