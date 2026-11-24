@@ -129,8 +129,10 @@ def summarize_detail_relationships(payloads, groups, station_id, task_index):
         "arrival_missing_or_null", "arrival_other_type",
         "status_equal", "status_different", "status_missing_or_invalid",
     ), 0)
+    station_payloads = []
     for payload in rows(payloads):
         responses = rows(payload.get("incident_responses"))
+        station_responses = []
         memberships = {}
         for response in responses:
             counts["response_rows"] += 1
@@ -141,6 +143,8 @@ def summarize_detail_relationships(payloads, groups, station_id, task_index):
                    "requested_station" if resolved == identifier(station_id) else
                    "other_resolved_station")
             counts[key] += 1
+            if key == "requested_station":
+                station_responses.append(response)
             member = identifier(response.get("membership_id"))
             if member:
                 memberships[member] = memberships.get(member, 0) + 1
@@ -154,6 +158,8 @@ def summarize_detail_relationships(payloads, groups, station_id, task_index):
                    "status_equal" if type(status) is type(reported) and status == reported
                    else "status_different")
             counts[key] += 1
+        if station_responses:
+            station_payloads.append({"incident_responses": station_responses})
         task_ids = payload.get("task_ids")
         if isinstance(task_ids, list):
             for task in task_ids:
@@ -166,6 +172,9 @@ def summarize_detail_relationships(payloads, groups, station_id, task_index):
                    "ambiguous_membership_match" if matches > 1 else "missing_membership_match"] += 1
     return {
         "status_profile": summarize_status_profile(payloads),
+        "requested_station_status_profile": summarize_status_profile(station_payloads),
+        "requested_station_incidents_observed": len(station_payloads),
+        "requested_station_duty_counts": {label: sum((r.get("on_duty") is value) for p in station_payloads for r in p["incident_responses"]) for label, value in (("true", True), ("false", False), ("missing_or_null", None))},
         "counts": counts,
         "task_index_available": bool(tasks),
         "group_index_available": bool(known),
