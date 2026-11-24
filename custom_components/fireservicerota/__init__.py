@@ -25,7 +25,7 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
-from .fairness_revision_summary import summarize_proposal_revisions
+from .fairness_revision_summary import summarize_proposal_revisions, summarize_registration_comparison
 from .turnout_audit_summary import summarize_turnout_audit
 from .turnout_recheck_selection import select_turnout_rechecks
 from .historical_listing_probe import summarize_history_listing_scan
@@ -981,6 +981,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
             "local_storage_modified": False,
             "person_identifiers_returned": False,
             **summarize_proposal_revisions(audit),
+            "turnout_audit": summarize_turnout_audit(audit),
+            "registration_comparison": summarize_registration_comparison(audit),
+            **entry_data[DATA_HISTORICAL_REQUEST_BUDGET].status(),
         }
 
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
