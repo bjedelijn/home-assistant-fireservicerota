@@ -93,6 +93,7 @@ def _api_snapshot(incident: Any) -> dict[str, Any]:
             continue
         responses.append(
             {
+                "response_id": response.get("id"),
                 "user_id": response.get("user_id"),
                 "user_name": response.get("user_name"),
                 "membership_id": response.get("membership_id"),
@@ -201,6 +202,10 @@ async def analyze_incident_fairness(
                     "subject": subject,
                     "changed_by": _value(item, "whodunnit"),
                     "description": changes,
+                    "_candidate_references": {key: _value(item, key) for key in (
+                        "user_id", "membership_id", "incident_response_id",
+                        "subject_id", "audit_log_subject_id", "object_id", "auditable_id",
+                    ) if key in item},
                 }
             )
 
