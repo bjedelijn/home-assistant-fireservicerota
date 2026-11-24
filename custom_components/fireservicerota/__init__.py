@@ -239,7 +239,7 @@ INSPECT_TURNOUT_AUDIT_SCHEMA = vol.Schema({
 INSPECT_FAIRNESS_REVISIONS_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
     vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
-    vol.Required(ATTR_INCIDENT_ID): vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")),
+    vol.Optional(ATTR_INCIDENT_ID): vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")),
     vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
 })
 
@@ -954,8 +954,27 @@ def _async_register_services(hass: HomeAssistant) -> None:
     async def async_inspect_fairness_revisions(call: ServiceCall) -> dict:
         """One authorized on-demand incident audit; counts only, no persistence."""
         entry_data, client, _cache = _history_entry(call)
-        incident_id = call.data[ATTR_INCIDENT_ID]
+        incident_id = call.data.get(ATTR_INCIDENT_ID)
         station_id = call.data[ATTR_STATION_ID]
+        selection = "explicit_incident"
+        if incident_id is None:
+            candidates = []
+            for record in await _cache.async_list(station_id):
+                review = record.get("turnout_audit_review") or {}
+                identifier = str(record.get("incident_id") or "")
+                events = review.get("late_registration_event_count")
+                rounds = review.get("late_registration_round_count")
+                if (str(record.get("station_id")) == str(station_id)
+                    and identifier.isascii() and identifier.isdigit()
+                    and review.get("status") == "audit_markers_observed"
+                    and type(events) is int and events > 0
+                    and record.get("proposal_snapshots_seen")):
+                    candidates.append((rounds if type(rounds) is int else 0, events, identifier))
+            if not candidates:
+                return {"status": "no_cached_late_registration_candidate",
+                        "read_only": True, "api_requests_made": 0}
+            incident_id = max(candidates)[2]
+            selection = "cached_late_registration_markers"
         try:
             audit = await analyze_incident_fairness(
                 lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), incident_id,
@@ -976,6 +995,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
             }
         return {
             "status": "observations_only",
+            "selection": selection,
             "read_only": True,
             "remote_modified": False,
             "local_storage_modified": False,
