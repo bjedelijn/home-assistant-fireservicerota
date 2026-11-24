@@ -96,3 +96,31 @@ def test_known_group_arrival_and_skill_fields_are_counted_without_values():
     assert result["fairness_evidence_verified"] is False
     assert "98765432" not in str(result)
     assert "SYNTHETIC_ARRIVAL" not in str(result)
+
+
+def test_relationship_status_profile_and_privacy():
+    from custom_components.fireservicerota.historical_detail_probe import summarize_detail_relationships
+    result = summarize_detail_relationships([{
+        "task_ids": [123456789],
+        "incident_responses": [
+            {"group_id": 123456780, "membership_id": 123456781,
+             "status": "responding", "reported_status": True, "arrived_at_station": False},
+            {"group_id": 123456780, "membership_id": 123456782,
+             "status": "SYNTHETIC_PRIVATE", "reported_status": 123456783},
+        ],
+        "incident_skill_assignments": [{"membership_id": 123456781, "skill_ids": [123456784]}],
+    }], [{"id": 123456780, "type": "station"}], 123456780, {"123456789": {}})
+    counts = result["counts"]
+    assert counts["requested_station"] == 2
+    assert counts["known_task_references"] == 1
+    assert counts["unique_membership_match"] == 1
+    assert counts["arrival_false"] == 1
+    assert counts["arrival_missing_or_null"] == 1
+    profile = result["status_profile"]
+    assert profile["cross_counts"] == {
+        "string_responding__boolean_true": 1, "string_other__integer_other": 1}
+    assert profile["uniquely_assigned_response_cross_counts"] == {
+        "string_responding__boolean_true": 1}
+    assert profile["status_semantics_verified"] is False
+    assert "SYNTHETIC_PRIVATE" not in str(result)
+    assert "12345678" not in str(result)
