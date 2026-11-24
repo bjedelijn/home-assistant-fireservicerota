@@ -65,6 +65,9 @@ def normalize_archive_record(row: Any, *, include_details: bool) -> dict | None:
     }
     if not include_details:
         return result
+    repair = row.get("station_repair_status")
+    if repair in ("unresolved", "unexpected_response", "resolved"):
+        result["station_repair_status"] = repair
     station_ids = row.get("response_station_ids")
     unresolved = row.get("response_station_unresolved_count")
     if isinstance(station_ids, list) and type(unresolved) is int and unresolved >= 0:
@@ -258,7 +261,17 @@ class DispatchArchiveStore:
     async def async_missing_station_ids(self, limit: int) -> list[str]:
         """Select only existing records lacking a station index."""
         async with self._lock:
-            return [r["incident_id"] for r in self._records if not r.get("response_station_ids")][:limit]
+            return [r["incident_id"] for r in self._records if not r.get("response_station_ids") and not r.get("station_repair_status")][:limit]
+
+    async def async_mark_station_repair(self, identifier: str, status: str) -> None:
+        if status not in ("unresolved", "unexpected_response", "resolved"):
+            raise ValueError("Invalid repair status")
+        async with self._lock:
+            for row in self._records:
+                if row["incident_id"] == identifier:
+                    row["station_repair_status"] = status
+                    await self._save_locked()
+                    break
 
     async def async_repair_station_record(self, row: dict, options: dict) -> bool:
         async with self._lock:
@@ -333,6 +346,8 @@ class DispatchArchiveStore:
         """Return only counts and dates; no operational identifiers."""
         return {
             "stored_incidents": len(self._records),
+            "station_repair_pending": sum(not r.get("response_station_ids") and not r.get("station_repair_status") for r in self._records),
+            "station_repair_unresolved": sum(not r.get("response_station_ids") and bool(r.get("station_repair_status")) for r in self._records),
             "station_enrichment_next_page": self._enrichment_next_page,
             "station_enrichment_complete": self._enrichment_complete,
             "incidents_with_response_station_index": sum("response_station_ids" in r for r in self._records),
