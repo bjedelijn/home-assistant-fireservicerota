@@ -282,6 +282,20 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             memberships.setdefault(str(key), []).append(status)
     shapes = Counter()
     token_counts = Counter()
+    transition_counts = Counter()
+    labels = {
+        "uitgerukt", "opgekomen", "niet opgekomen", "onbekend",
+        "niet uitgerukt", "aanwezig", "afwezig", "niet aanwezig",
+        "niet ingevuld", "geen", "wel opgekomen", "mee", "niet mee",
+        "ingezet", "niet ingezet", "niet verschenen", "verschenen",
+        "niet ter plaatse", "ter plaatse", "geen opkomst",
+    } | vocabulary
+    alternatives = "|".join(re.escape(v) for v in sorted(labels, key=len, reverse=True))
+    transition_pattern = re.compile(
+        r"\b(?:van|from)\s+['‘’“”\"]?(" + alternatives
+        + r")['‘’“”\"]?\s+(?:naar|to)\s+['‘’“”\"]?("
+        + alternatives + r")['‘’“”\"]?\s*[.!]?\s*$", re.I
+    )
     for event in analysis.get("audit_turnout_status_changes") or []:
         if not isinstance(event, dict) or not isinstance(event.get("description"), str):
             shapes["missing_description"] += 1
@@ -300,6 +314,13 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
         }.items():
             if re.search(pattern, lower, re.S):
                 shapes[label] += 1
+        match = transition_pattern.search(lower)
+        if match:
+            old, new = (v.casefold().replace(" ", "_") for v in match.groups())
+            transition_counts[old + "__" + new] += 1
+            shapes["recognized_same_label" if old == new else "recognized_different_label"] += 1
+        else:
+            shapes["unparsed_transition"] += 1
         tokens = set(re.findall(r"\b[a-z_]+\b", lower)) & vocabulary
         for token in tokens:
             token_counts[token] += 1
@@ -311,4 +332,6 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             "memberships_with_conflicting_status_buckets": sum(len(set(v)) > 1 for v in memberships.values()),
             "audit_description_shape_counts": dict(shapes),
             "audit_known_status_token_event_counts": dict(token_counts),
+            "candidate_label_transitions": dict(transition_counts),
+            "label_semantics_verified": False,
             "interpretation": "Token presence is not a parsed old/new transition; no private text returned."}
