@@ -104,6 +104,24 @@ def _api_snapshot(incident: Any) -> dict[str, Any]:
             }
         )
 
+    # Fixed semantic field-name categories only; never return values or raw keys.
+    context_shapes = {}
+    for scope, rows in (("incident", [incident]), ("response", incident.get("incident_responses") or [])):
+        counts = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for category, pattern in {
+                "availability": r"availab|paraat|readiness",
+                "roster": r"roster|schedule|duty|consign|on.call",
+                "boost_stop": r"boost|forward|fairness_stop",
+                "fairness": r"fairness|virtual",
+                "alarm_policy": r"alarm.*policy|alert.*policy|notification.*policy",
+            }.items():
+                if any(re.search(pattern, str(key), re.I) and value is not None for key, value in row.items()):
+                    counts[category] = counts.get(category, 0) + 1
+        context_shapes[scope] = counts
+
     assignments = []
     for assignment in incident.get("incident_skill_assignments") or []:
         if not isinstance(assignment, dict):
@@ -119,6 +137,7 @@ def _api_snapshot(incident: Any) -> dict[str, Any]:
         "available": True,
         "responses": responses,
         "skill_assignments": assignments,
+        "historical_context_field_shapes": context_shapes,
     }
 
 
