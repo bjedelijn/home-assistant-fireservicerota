@@ -305,6 +305,13 @@ class DispatchArchiveStore:
                     return True
             return False
 
+    async def async_turnout_scope(self, authorized: set[str]) -> list[tuple[str, str]]:
+        async with self._lock:
+            if not self._loaded:
+                raise RuntimeError("Archive not loaded")
+            return [(r["incident_id"], station) for r in self._records
+                    for station in sorted(authorized & set(r.get("incident_station_ids", [])))]
+
     def incident_station_count(self, station_id) -> int:
         return sum(str(station_id) in r.get("incident_station_ids", []) for r in self._records)
 
