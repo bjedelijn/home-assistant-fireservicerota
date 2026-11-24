@@ -117,6 +117,8 @@ class DispatchArchiveStore:
         self._records: list[dict] = []
         self._yearly: list[dict] = []
         self._loaded = False
+        self._enrichment_next_page = 1
+        self._enrichment_complete = False
         self._import = {"status": "not_started", "next_page": 1, "pages_processed": 0, "rows_seen": 0}
 
     async def async_load(self, options: dict) -> None:
@@ -134,6 +136,11 @@ class DispatchArchiveStore:
                     "pages_processed": max(0, int(state.get("pages_processed", 0))),
                     "rows_seen": max(0, int(state.get("rows_seen", 0))),
                 }
+            enrichment = data.get("station_enrichment", {})
+            if isinstance(enrichment, dict):
+                page = enrichment.get("next_page", 1)
+                self._enrichment_next_page = page if type(page) is int and 1 <= page <= 5001 else 1
+                self._enrichment_complete = enrichment.get("complete") is True
             self._loaded = True
             await self._apply_options_locked(options)
 
@@ -213,11 +220,13 @@ class DispatchArchiveStore:
             self._import["status"] = "running"
             await self._save_locked()
 
-    async def async_enrich_station_page(self, records: list[dict], options: dict) -> int:
+    async def async_enrich_station_page(self, records: list[dict], options: dict, *, page: int) -> int:
         """Enrich existing records only, without changing the import checkpoint."""
         async with self._lock:
             if not self._loaded or not options.get(CONF_DISPATCH_ARCHIVE_DETAILS, True):
                 return 0
+            if page != self._enrichment_next_page or self._enrichment_complete or not 1 <= page <= 5000:
+                raise ValueError("Unexpected enrichment checkpoint")
             existing = {r["incident_id"]: r for r in self._records}
             changed = 0
             for row in records:
@@ -231,8 +240,23 @@ class DispatchArchiveStore:
                 if any(target.get(k) != v for k, v in fields.items()):
                     target.update(fields)
                     changed += 1
+            if records:
+                self._enrichment_next_page += 1
+            else:
+                self._enrichment_complete = True
             await self._apply_options_locked(options)
             return changed
+
+    @property
+    def enrichment_next_page(self) -> int:
+        return self._enrichment_next_page
+
+    @property
+    def enrichment_complete(self) -> bool:
+        return self._enrichment_complete
+
+    def station_index_count(self, station_id) -> int:
+        return sum(str(station_id) in r.get("response_station_ids", []) for r in self._records)
 
     @property
     def import_next_page(self) -> int:
@@ -247,6 +271,7 @@ class DispatchArchiveStore:
             "records": self._records,
             "yearly": self._yearly,
             "import": self._import,
+            "station_enrichment": {"next_page": self._enrichment_next_page, "complete": self._enrichment_complete},
         })
 
     async def async_detail_probe_ids(self, limit: int, offset: int | None = None) -> list[str]:
@@ -289,6 +314,8 @@ class DispatchArchiveStore:
         """Return only counts and dates; no operational identifiers."""
         return {
             "stored_incidents": len(self._records),
+            "station_enrichment_next_page": self._enrichment_next_page,
+            "station_enrichment_complete": self._enrichment_complete,
             "incidents_with_response_station_index": sum("response_station_ids" in r for r in self._records),
             "incidents_with_resolved_response_station": sum(bool(r.get("response_station_ids")) for r in self._records),
             "stored_yearly_series": len(self._yearly),
