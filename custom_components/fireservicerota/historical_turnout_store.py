@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -138,6 +140,44 @@ class HistoricalTurnoutStore:
         if not self._loaded:
             raise RuntimeError("Turnout store not loaded")
         return f"{incident_id}:{station_id}" in self._records
+
+    def skill_summary(self) -> dict:
+        """Aggregate latest observations, without person or incident identifiers."""
+        codes = Counter()
+        combinations = Counter()
+        by_station = {}
+        by_status = {}
+        without_skills = unknown = unresolved = 0
+        for record in self._records.values():
+            for row in record["latest"]["rows"]:
+                ids = row.get("assigned_skill_ids")
+                if ids is None:
+                    unknown += 1
+                    continue
+                if not ids:
+                    without_skills += 1
+                    continue
+                mapping = row.get("assigned_skill_codes") or {}
+                labels = set()
+                for skill in ids:
+                    label = mapping.get(skill)
+                    if not isinstance(label, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_ /+-]{0,31}", label):
+                        unresolved += 1
+                        continue
+                    labels.add(label)
+                if labels:
+                    codes.update(labels)
+                    combinations.update([" + ".join(sorted(labels))])
+                    by_station.setdefault(row["station_id"], Counter()).update(labels)
+                    by_status.setdefault(row.get("reported_status") or "unknown", Counter()).update(labels)
+        return {"skill_code_counts": dict(codes),
+                "skill_combinations": dict(combinations),
+                "skill_codes_by_station": {k: dict(v) for k, v in by_station.items()},
+                "skill_codes_by_reported_status": {k: dict(v) for k, v in by_status.items()},
+                "rows_without_assigned_skills": without_skills,
+                "rows_assignment_unknown": unknown,
+                "unresolved_skill_references": unresolved,
+                "vehicle_role_verified": False}
 
     def status(self) -> dict:
         """Counts only; no personal identifiers in diagnostics."""
