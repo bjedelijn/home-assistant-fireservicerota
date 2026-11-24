@@ -285,6 +285,19 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
     transition_counts = Counter()
     timed_transitions = []
     subject_matches = Counter()
+    reference_shapes = Counter()
+    reference_matches = Counter()
+    text_matches = Counter()
+    def numeric(value):
+        return str(value) if type(value) in (int, str) and str(value).isascii() and str(value).isdigit() else None
+    indexes = {field: {} for field in ("user_id", "membership_id", "response_id")}
+    for row in snapshot.get("responses") or []:
+        if not isinstance(row, dict) or numeric(row.get("membership_id")) is None:
+            continue
+        for field, index in indexes.items():
+            value = numeric(row.get(field))
+            if value is not None:
+                index.setdefault(value, set()).add(numeric(row["membership_id"]))
     chains = {}
     names = {}
     for row in snapshot.get("responses") or []:
@@ -340,6 +353,23 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
         else:
             shapes["unparsed_transition"] += 1
         subject = event.get("subject")
+        for field, value in (event.get("_candidate_references") or {}).items():
+            identifier = numeric(value)
+            reference_shapes[field + ("__numeric" if identifier is not None else "__other")] += 1
+            if identifier is not None:
+                for kind, index in indexes.items():
+                    matches = index.get(identifier, set())
+                    if matches:
+                        reference_matches[field + "__" + kind + ("__unique" if len(matches) == 1 else "__ambiguous")] += 1
+        for source, value in (("subject", subject), ("description", description)):
+            if not isinstance(value, str) or len(value) > 20000:
+                continue
+            normalized = " ".join(value.split()).casefold()
+            matched = set()
+            for name, keys in names.items():
+                if len(name.split()) >= 2 and re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", normalized):
+                    matched.update(keys)
+            text_matches[source + ("__unique" if len(matched) == 1 else "__ambiguous" if matched else "__none")] += 1
         candidates = names.get(" ".join(subject.split()).casefold(), set()) if isinstance(subject, str) else set()
         if len(candidates) == 1:
             subject_matches["unique_exact_name"] += 1
@@ -400,6 +430,10 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
             "label_semantics_verified": False,
             "late_round_candidate_transitions": rounds,
             "audit_subject_match_counts": dict(subject_matches),
+            "candidate_reference_shapes": dict(reference_shapes),
+            "candidate_reference_matches": dict(reference_matches),
+            "candidate_embedded_name_matches": dict(text_matches),
+            "reference_index_sizes": {k: len(v) for k, v in indexes.items()},
             "candidate_membership_chain_counts": dict(chain_counts),
             "candidate_final_status_comparison": dict(final_comparison),
             "membership_identity_verified": False,
