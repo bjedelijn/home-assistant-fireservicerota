@@ -447,6 +447,8 @@ def summarize_registration_diagnostics(analysis: dict[str, Any]) -> dict[str, An
                            "candidate_unique_memberships": len({key for stamp, key in embedded_round_events if stamp is not None and first <= datetime.fromisoformat(stamp) <= last}),
                            "unclassified_event_count": item["event_count"] - sum(counts.values())})
     return {**result, "status": "private_shapes_observed",
+            "historical_context_field_shapes": snapshot.get("historical_context_field_shapes", {}),
+            "historical_context_semantics_verified": False,
             "reported_status_counts": dict(outcomes), "status_pair_counts": dict(pairs),
             "memberships_with_multiple_response_rows": sum(len(v) > 1 for v in memberships.values()),
             "memberships_with_conflicting_status_buckets": sum(len(set(v)) > 1 for v in memberships.values()),
