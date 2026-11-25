@@ -50,6 +50,37 @@ def prepare_turnout_observation(payload: Any, incident_id: Any, groups: list,
                 label = skill.get("short_code")
                 if isinstance(label, str) and label:
                     codes.setdefault(key, set()).add(label)
+    # Positive membership evidence only; absence is not proof of no qualifications.
+    available = {}
+    warnings = payload.get("warning_statuses")
+    for warning in warnings if isinstance(warnings, list) else []:
+        if not isinstance(warning, dict):
+            continue
+        skills = warning.get("skill_statuses")
+        for skill in skills if isinstance(skills, list) else []:
+            if not isinstance(skill, dict):
+                continue
+            skill_id = _identifier(skill.get("skill_id"))
+            members = skill.get("available_memberships")
+            if skill_id is None or not isinstance(members, list):
+                continue
+            for member in members:
+                if not isinstance(member, dict):
+                    continue
+                membership = _identifier(member.get("membership_id", member.get("id")))
+                if membership is None:
+                    continue
+                matches = [response for response in responses if _identifier(response.get("membership_id")) == membership]
+                if len(matches) != 1:
+                    continue
+                if member.get("user_id") is not None and _identifier(member.get("user_id")) != _identifier(matches[0].get("user_id")):
+                    continue
+                available.setdefault(membership, set()).add(skill_id)
+    for row in rows:
+        ids = available.get(_identifier(row.get("membership_id")))
+        if ids:
+            row["available_skill_ids"] = sorted(ids)
+            row["available_skill_codes"] = {key: next(iter(codes[key])) for key in ids if len(codes.get(key, set())) == 1}
     if isinstance(assignments, list):
         for row in rows:
             membership = _identifier(row.get("membership_id"))
