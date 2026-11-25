@@ -51,6 +51,10 @@ def normalize_observation(rows: Any) -> list[dict]:
         clean["assigned_skill_ids"] = sorted({v for x in skills if (v := _identifier(x)) is not None}) if isinstance(skills, list) else None
         codes = row.get("assigned_skill_codes")
         clean["assigned_skill_codes"] = {k: v[:80] for k, v in codes.items() if k in (clean["assigned_skill_ids"] or []) and isinstance(v, str)} if isinstance(codes, dict) else {}
+        skills = row.get("available_skill_ids")
+        clean["available_skill_ids"] = sorted({_identifier(x) for x in skills}) if isinstance(skills, list) and all(_identifier(x) is not None for x in skills) else None
+        codes = row.get("available_skill_codes")
+        clean["available_skill_codes"] = {k: v[:80] for k, v in codes.items() if k in (clean["available_skill_ids"] or []) and isinstance(v, str)} if isinstance(codes, dict) else {}
         result.append(clean)
     return sorted(result, key=lambda row: (row["station_id"], row["membership_id"]))
 
@@ -96,7 +100,14 @@ class HistoricalTurnoutStore:
             previous = self._records.get(identifier)
             if previous:
                 def operational(rows):
-                    return [{k: v for k, v in row.items() if k not in {"user_name", "assigned_skill_ids", "assigned_skill_codes"}} for row in rows]
+                    return [{k: v for k, v in row.items() if k not in {"user_name", "assigned_skill_ids", "assigned_skill_codes", "available_skill_ids", "available_skill_codes"}} for row in rows]
+                prior = {row["membership_id"]: row for row in previous["latest"]["rows"]}
+                for row in clean:
+                    old = prior.get(row["membership_id"], {})
+                    if old.get("user_id") == row.get("user_id") and row.get("user_id") is not None:
+                        if row["available_skill_ids"] is None and old.get("available_skill_ids") is not None:
+                            row["available_skill_ids"] = old["available_skill_ids"]
+                            row["available_skill_codes"] = old.get("available_skill_codes", {})
                 if operational(previous["latest"]["rows"]) == operational(clean):
                     if previous["latest"]["rows"] == clean:
                         return False
@@ -198,4 +209,6 @@ class HistoricalTurnoutStore:
                 "latest_response_rows": sum(len(r["latest"]["rows"]) for r in self._records.values()),
                 "latest_rows_with_assigned_skills": sum(bool(row.get("assigned_skill_ids")) for r in self._records.values() for row in r["latest"]["rows"]),
                 "latest_rows_with_skill_codes": sum(bool(row.get("assigned_skill_codes")) for r in self._records.values() for row in r["latest"]["rows"]),
+                "latest_rows_with_available_skills": sum(bool(row.get("available_skill_ids")) for r in self._records.values() for row in r["latest"]["rows"]),
+                "latest_rows_available_skills_unknown": sum(row.get("available_skill_ids") is None for r in self._records.values() for row in r["latest"]["rows"]),
                 "physical_departure_verified": False}
