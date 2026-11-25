@@ -159,12 +159,29 @@ class HistoricalTurnoutStore:
         by_station = {}
         by_status = {}
         assignment_coverage = {}
+        available_coverage = {}
+        available_codes = {}
+        available_combinations = {}
+        available_unresolved = 0
         without_skills = unknown = unresolved = 0
         for record in self._records.values():
             for row in record["latest"]["rows"]:
                 ids = row.get("assigned_skill_ids")
                 station = row["station_id"]
                 status = row.get("reported_status") or "unknown"
+                available = row.get("available_skill_ids")
+                coverage = available_coverage.setdefault(station, {}).setdefault(status, Counter())
+                coverage["unknown" if available is None else "observed" if available else "none_observed"] += 1
+                labels_available = set()
+                for skill in available or []:
+                    label = (row.get("available_skill_codes") or {}).get(skill)
+                    if isinstance(label, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_ /+-]{0,31}", label):
+                        labels_available.add(label)
+                    else:
+                        available_unresolved += 1
+                if labels_available:
+                    available_codes.setdefault(station, {}).setdefault(status, Counter()).update(labels_available)
+                    available_combinations.setdefault(station, {}).setdefault(status, Counter()).update([" + ".join(sorted(labels_available))])
                 bucket = assignment_coverage.setdefault(station, {}).setdefault(status, Counter())
                 bucket["unknown" if ids is None else "assigned" if ids else "none_observed"] += 1
                 if ids is None:
@@ -196,6 +213,16 @@ class HistoricalTurnoutStore:
                 "assignment_coverage_by_station_and_status": {
                     station: {status: dict(counts) for status, counts in statuses.items()}
                     for station, statuses in assignment_coverage.items()},
+                "available_skill_coverage_by_station_and_status": {
+                    station: {status: dict(counts) for status, counts in statuses.items()}
+                    for station, statuses in available_coverage.items()},
+                "available_skill_codes_by_station_and_status": {
+                    station: {status: dict(counts) for status, counts in statuses.items()}
+                    for station, statuses in available_codes.items()},
+                "available_skill_combinations_by_station_and_status": {
+                    station: {status: dict(counts) for status, counts in statuses.items()}
+                    for station, statuses in available_combinations.items()},
+                "available_skill_unresolved_references": available_unresolved,
                 "vehicle_role_verified": False}
 
     def status(self) -> dict:
