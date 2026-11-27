@@ -1125,6 +1125,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     break
                 attempted += 1
                 prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
+                full_authorized_count = len(prepared.get("rows", []))
                 status = prepared["status"]
                 counts[status] = counts.get(status, 0) + 1
                 if status == "ready" and selected_station is not None:
@@ -1138,6 +1139,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
                         saved += int(await store.async_observe(identifier,
                             [row for row in prepared["rows"] if row["station_id"] == station],
                             station_id=station))
+                # Keep unscoped provider counts only for incidents whose response
+                # stations are all authorized; never infer a station from counts.
+                if prepared.get("provider_response_count") == full_authorized_count:
+                    await store.async_observe_requirements(identifier, prepared.get("requirement_evidence"))
             remaining = sum(any(not store.has_observation(identifier, station) for station in stations)
                             for identifier, stations in selected_scope.items())
             if not remaining:
@@ -1197,6 +1202,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     break
                 attempted += 1
                 prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
+                full_authorized_count = len(prepared.get("rows", []))
                 status = prepared["status"]
                 counts[status] = counts.get(status, 0) + 1
                 if status == "ready" and selected_station is not None:
@@ -1212,6 +1218,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
                             station_id=station)
                         saved += int(changed)
                         unchanged += int(not changed)
+                # Keep unscoped provider counts only for incidents whose response
+                # stations are all authorized; never infer a station from counts.
+                if prepared.get("provider_response_count") == full_authorized_count:
+                    await store.async_observe_requirements(identifier, prepared.get("requirement_evidence"))
         return {**budget.status(), "status": reason, "attempted": attempted,
                 "outcomes": counts, "authorized_response_rows": response_rows,
                 **store.status(), "eligible_incidents": len(pending), "changed_incident_stations": saved, "unchanged_incident_stations": unchanged,
