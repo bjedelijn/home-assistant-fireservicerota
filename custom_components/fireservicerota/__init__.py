@@ -949,8 +949,18 @@ def _async_register_services(hass: HomeAssistant) -> None:
             scope = {}
             for identifier, station in await archive.async_turnout_scope(allowed):
                 scope.setdefault(identifier, set()).add(station)
+            selected_station = call.data.get("station_id")
+            if selected_station is not None:
+                selected_station = str(selected_station)
+                if selected_station not in allowed:
+                    raise HomeAssistantError("Station is not authorized")
+            selected_scope = {
+                identifier: stations if selected_station is None else {selected_station}
+                for identifier, stations in scope.items()
+                if selected_station is None or selected_station in stations
+            }
             offset = call.data["offset"]
-            for identifier in list(scope)[offset:offset + call.data[ATTR_LIMIT]]:
+            for identifier in list(selected_scope)[offset:offset + call.data[ATTR_LIMIT]]:
                 try:
                     payload = await budget.async_get(client, f"incidents/{identifier}", None)
                 except HistoricalRequestBudgetExceeded:
@@ -963,6 +973,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
                 status = prepared["status"]
                 counts[status] = counts.get(status, 0) + 1
+                if status == "ready" and selected_station is not None:
+                    prepared = {**prepared, "rows": [row for row in prepared["rows"] if row["station_id"] == selected_station],
+                                "station_scope": [station for station in prepared["station_scope"] if station == selected_station]}
                 response_rows += len(prepared.get("rows", []))
                 if status == "ready":
                     # Count only field presence and primitive types, never raw values.
@@ -1085,11 +1098,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
             scope = {}
             for identifier, station in await archive.async_turnout_scope(allowed):
                 scope.setdefault(identifier, set()).add(station)
+            selected_station = call.data.get("station_id")
+            if selected_station is not None:
+                selected_station = str(selected_station)
+                if selected_station not in allowed:
+                    raise HomeAssistantError("Station is not authorized")
+            selected_scope = {
+                identifier: stations if selected_station is None else {selected_station}
+                for identifier, stations in scope.items()
+                if selected_station is None or selected_station in stations
+            }
             if not archive.enrichment_complete:
                 return {"status": "station_enrichment_incomplete", "personal_data_persisted": False}
             store = HistoricalTurnoutStore(hass, client.entry_id)
             await store.async_load()
-            pending = [identifier for identifier, stations in scope.items()
+            pending = [identifier for identifier, stations in selected_scope.items()
                        if any(not store.has_observation(identifier, station) for station in stations)]
             for identifier in pending[:call.data[ATTR_LIMIT]]:
                 try:
@@ -1104,6 +1127,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
                 status = prepared["status"]
                 counts[status] = counts.get(status, 0) + 1
+                if status == "ready" and selected_station is not None:
+                    prepared = {**prepared, "rows": [row for row in prepared["rows"] if row["station_id"] == selected_station],
+                                "station_scope": [station for station in prepared["station_scope"] if station == selected_station]}
                 response_rows += len(prepared.get("rows", []))
                 if status != "ready":
                     continue
@@ -1113,7 +1139,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                             [row for row in prepared["rows"] if row["station_id"] == station],
                             station_id=station))
             remaining = sum(any(not store.has_observation(identifier, station) for station in stations)
-                            for identifier, stations in scope.items())
+                            for identifier, stations in selected_scope.items())
             if not remaining:
                 reason = "scope_exhausted"
         return {**budget.status(), "status": reason, "attempted": attempted,
@@ -1144,11 +1170,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
             scope = {}
             for identifier, station in await archive.async_turnout_scope(allowed):
                 scope.setdefault(identifier, set()).add(station)
+            selected_station = call.data.get("station_id")
+            if selected_station is not None:
+                selected_station = str(selected_station)
+                if selected_station not in allowed:
+                    raise HomeAssistantError("Station is not authorized")
+            selected_scope = {
+                identifier: stations if selected_station is None else {selected_station}
+                for identifier, stations in scope.items()
+                if selected_station is None or selected_station in stations
+            }
             if not archive.enrichment_complete:
                 return {"status": "station_enrichment_incomplete", "personal_data_persisted": False}
             store = HistoricalTurnoutStore(hass, client.entry_id)
             await store.async_load()
-            pending = [identifier for identifier, stations in scope.items()
+            pending = [identifier for identifier, stations in selected_scope.items()
                        if any(store.has_observation(identifier, station) for station in stations)]
             for identifier in pending[call.data['offset']:call.data['offset'] + call.data[ATTR_LIMIT]]:
                 try:
@@ -1163,6 +1199,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
                 status = prepared["status"]
                 counts[status] = counts.get(status, 0) + 1
+                if status == "ready" and selected_station is not None:
+                    prepared = {**prepared, "rows": [row for row in prepared["rows"] if row["station_id"] == selected_station],
+                                "station_scope": [station for station in prepared["station_scope"] if station == selected_station]}
                 response_rows += len(prepared.get("rows", []))
                 if status != "ready":
                     continue
@@ -1627,10 +1666,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
         ("diagnose_dispatch_station_index", async_diagnose_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)), vol.Optional("comparison_sample", default=False): cv.boolean, vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
-        ("recheck_turnout_history", async_recheck_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
+        ("recheck_turnout_history", async_recheck_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("station_id"): vol.All(vol.Coerce(int), vol.Range(min=1)), vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
         ("manage_turnout_storage", async_manage_turnout_storage, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("operation", default="status"): vol.In(["status", "purge"]), vol.Optional("confirm_delete", default=False): cv.boolean})),
-        ("import_turnout_history", async_import_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3))})),
-        ("probe_turnout_import", async_probe_turnout_import, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
+        ("import_turnout_history", async_import_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("station_id"): vol.All(vol.Coerce(int), vol.Range(min=1)), vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3))})),
+        ("probe_turnout_import", async_probe_turnout_import, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("station_id"): vol.All(vol.Coerce(int), vol.Range(min=1)), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
         ("repair_dispatch_station_index", async_repair_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10))})),
         ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
         (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
