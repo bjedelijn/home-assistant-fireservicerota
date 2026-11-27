@@ -66,6 +66,7 @@ class HistoricalTurnoutStore:
         self._store = Store(hass, 1, f"fireservicerota.historical_turnout_{entry_id}")
         self._lock = asyncio.Lock()
         self._records = {}
+        self._requirements = {}
         self._loaded = False
 
     async def async_load(self) -> None:
@@ -76,6 +77,9 @@ class HistoricalTurnoutStore:
             self._records = data.get("records", {}) if isinstance(data, dict) else {}
             if not isinstance(self._records, dict):
                 raise ValueError("Invalid historical turnout store")
+            self._requirements = data.get("requirements", {}) if isinstance(data, dict) else {}
+            if not isinstance(self._requirements, dict):
+                raise ValueError("Invalid requirement store")
             self._loaded = True
 
     async def async_observe(self, incident_id: Any, rows: Any, *, station_id: Any) -> bool:
@@ -114,7 +118,7 @@ class HistoricalTurnoutStore:
                     # Metadata enrichment is not an operational turnout revision.
                     updated = {**self._records, identifier: {**previous,
                         "latest": {**previous["latest"], "rows": clean}}}
-                    await self._store.async_save({"records": updated})
+                    await self._store.async_save({"records": updated, "requirements": self._requirements})
                     self._records = updated
                     return True
             snapshot = {"observed_at": datetime.now(timezone.utc).isoformat(),
@@ -126,8 +130,31 @@ class HistoricalTurnoutStore:
             else:
                 record = {"first": snapshot, "latest": snapshot, "revisions": [], "discarded_revisions": 0}
             updated = {**self._records, identifier: record}
-            await self._store.async_save({"records": updated})
+            await self._store.async_save({"records": updated, "requirements": self._requirements})
             self._records = updated
+            return True
+
+    async def async_observe_requirements(self, incident_id: Any, evidence: list | None) -> bool:
+        """Store incident-level provider evidence separately from turnout revisions."""
+        identifier = _identifier(incident_id)
+        if identifier is None or evidence is None:
+            return False
+        async with self._lock:
+            if not self._loaded:
+                raise RuntimeError("Turnout store not loaded")
+            if not any(key.split(":")[0] == identifier for key in self._records):
+                return False
+            previous = self._requirements.get(identifier)
+            if previous and previous["latest"]["evidence"] == evidence:
+                return False
+            snapshot = {"observed_at": datetime.now(timezone.utc).isoformat(), "evidence": evidence}
+            record = {"first": previous["first"] if previous else snapshot,
+                      "latest": snapshot,
+                      "revisions": ([*previous["revisions"], snapshot][-100:] if previous else []),
+                      "discarded_revisions": (previous.get("discarded_revisions", 0) + int(len(previous["revisions"]) >= 100) if previous else 0)}
+            updated = {**self._requirements, identifier: record}
+            await self._store.async_save({"records": self._records, "requirements": updated})
+            self._requirements = updated
             return True
 
     async def async_restrict(self, allowed_incident_stations: set[tuple[str, str]]) -> int:
@@ -142,9 +169,14 @@ class HistoricalTurnoutStore:
                 raise RuntimeError("Turnout store not loaded")
             updated = {key: value for key, value in self._records.items() if key in allowed}
             removed = len(self._records) - len(updated)
-            if removed:
-                await self._store.async_save({"records": updated})
+            # Unscoped evidence cannot safely survive a partial station restriction.
+            affected = {key.split(":")[0] for key in self._records if key not in updated}
+            requirements = {key: value for key, value in self._requirements.items()
+                            if key not in affected and any(k.split(":")[0] == key for k in updated)}
+            if removed or requirements != self._requirements:
+                await self._store.async_save({"records": updated, "requirements": requirements})
                 self._records = updated
+                self._requirements = requirements
             return removed
 
     def has_observation(self, incident_id: str, station_id: str) -> bool:
@@ -227,7 +259,12 @@ class HistoricalTurnoutStore:
 
     def status(self) -> dict:
         """Counts only; no personal identifiers in diagnostics."""
-        return {"observed_incidents": len({key.split(":")[0] for key in self._records}),
+        return {"requirement_incidents": len(self._requirements),
+                "requirement_revisions": sum(len(r["revisions"]) for r in self._requirements.values()),
+                "requirement_warning_rows": sum(len(r["latest"]["evidence"]) for r in self._requirements.values()),
+                "requirement_skill_rows": sum(len(w["skills"]) for r in self._requirements.values() for w in r["latest"]["evidence"]),
+                "requirement_scope_verified": False,
+                "observed_incidents": len({key.split(":")[0] for key in self._records}),
                 "observed_incident_stations": len(self._records),
                 "discarded_revisions": sum(r.get("discarded_revisions", 0) for r in self._records.values()),
                 "known_empty_incidents": sum(not r["latest"]["rows"] for r in self._records.values()),
