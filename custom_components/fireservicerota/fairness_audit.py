@@ -93,6 +93,7 @@ def _api_snapshot(incident: Any) -> dict[str, Any]:
             continue
         responses.append(
             {
+                "response_id": response.get("id"),
                 "user_id": response.get("user_id"),
                 "user_name": response.get("user_name"),
                 "membership_id": response.get("membership_id"),
@@ -100,8 +101,36 @@ def _api_snapshot(incident: Any) -> dict[str, Any]:
                 "status": response.get("status"),
                 "reported_status": response.get("reported_status"),
                 "arrived_at_station": response.get("arrived_at_station"),
+                "on_duty": response.get("on_duty"),
             }
         )
+
+    # Fixed semantic field-name categories only; never return values or raw keys.
+    context_shapes = {}
+    context_types = {}
+    allowed_fields = {"available", "availability", "availability_status", "is_available", "available_at_alarm", "availability_at_alarm", "roster", "roster_status", "roster_id", "duty", "on_duty", "is_on_duty", "duty_status", "schedule", "schedule_id", "schedule_status", "fairness", "fairness_enabled", "fairness_type", "fairness_algorithm", "fairness_settings", "fairness_score", "boost", "stop", "boosted", "stopped"}
+    for scope, rows in (("incident", [incident]), ("response", incident.get("incident_responses") or [])):
+        counts = {}
+        types = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for key, value in row.items():
+                if key in allowed_fields:
+                    kind = "null" if value is None else "true" if value is True else "false" if value is False else "string" if isinstance(value, str) else "number" if isinstance(value, (int, float)) else "object" if isinstance(value, dict) else "list" if isinstance(value, list) else "other"
+                    bucket = types.setdefault(key, {})
+                    bucket[kind] = bucket.get(kind, 0) + 1
+            for category, pattern in {
+                "availability": r"availab|paraat|readiness",
+                "roster": r"roster|schedule|duty|consign|on.call",
+                "boost_stop": r"boost|forward|fairness_stop",
+                "fairness": r"fairness|virtual",
+                "alarm_policy": r"alarm.*policy|alert.*policy|notification.*policy",
+            }.items():
+                if any(re.search(pattern, str(key), re.I) and value is not None for key, value in row.items()):
+                    counts[category] = counts.get(category, 0) + 1
+        context_shapes[scope] = counts
+        context_types[scope] = types
 
     assignments = []
     for assignment in incident.get("incident_skill_assignments") or []:
@@ -118,6 +147,8 @@ def _api_snapshot(incident: Any) -> dict[str, Any]:
         "available": True,
         "responses": responses,
         "skill_assignments": assignments,
+        "historical_context_field_shapes": context_shapes,
+        "historical_context_field_types": context_types,
     }
 
 
@@ -201,6 +232,10 @@ async def analyze_incident_fairness(
                     "subject": subject,
                     "changed_by": _value(item, "whodunnit"),
                     "description": changes,
+                    "_candidate_references": {key: _value(item, key) for key in (
+                        "user_id", "membership_id", "incident_response_id",
+                        "subject_id", "audit_log_subject_id", "object_id", "auditable_id",
+                    ) if key in item},
                 }
             )
 

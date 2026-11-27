@@ -92,3 +92,44 @@ def test_beta1_migration_deactivates_unqualified_active_mapping(monkeypatch):
     assert store.records[0]["original_vehicle_number"] is None
     assert store.records[0]["end_time"] is not None
     assert disk["data"]["records"][0]["end_time"] is not None
+
+def test_role_is_persisted_and_stale_automatic_clear_does_not_remove_new_mapping(monkeypatch):
+    monkeypatch.setattr(vehicles, "Store", FakeStore)
+    disk = {}
+    store = vehicles.ReplacementVehicleStore(disk, "demo")
+
+    async def run():
+        await store.async_load()
+        old = await store.async_set(
+            station_id=3853, station_name="Gramsbergen",
+            original_vehicle_number="042333", vehicle_number="041037",
+            vehicle_function="TS",
+        )
+        assert old["vehicle_function"] == "TS"
+        new = await store.async_set(
+            station_id=3853, station_name="Gramsbergen",
+            original_vehicle_number="042333", vehicle_number="041099",
+            vehicle_function="TS",
+        )
+        assert new["vehicle_number"] == "041099"
+        assert await store.async_clear(
+            station_id=3853, original_vehicle_number="042333",
+            expected_vehicle_number=old["vehicle_number"],
+            expected_start_time=old["start_time"],
+            end_reason="bwr_p2000_confirmed_return",
+            end_incident_id=3154000,
+        ) is False
+        assert len(store.active) == 1
+        assert store.active[0]["vehicle_number"] == "041099"
+        assert await store.async_clear(
+            station_id=3853, original_vehicle_number="042333",
+            expected_vehicle_number=new["vehicle_number"],
+            expected_start_time=new["start_time"],
+            end_reason="bwr_p2000_confirmed_return",
+            end_incident_id=3154000,
+        ) is True
+        assert store.active == []
+        assert store.records[-1]["end_reason"] == "bwr_p2000_confirmed_return"
+        assert store.records[-1]["end_incident_id"] == "3154000"
+
+    asyncio.run(run())

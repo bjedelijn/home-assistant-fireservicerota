@@ -25,8 +25,40 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .fairness_audit import analyze_incident_fairness
+from .fairness_revision_summary import summarize_proposal_revisions, summarize_registration_comparison, summarize_registration_diagnostics
+from .turnout_audit_summary import summarize_turnout_audit
+from .turnout_recheck_selection import select_turnout_rechecks
+from .historical_listing_probe import summarize_history_listing_scan
+from .historical_fairness import (
+    summarize_incident_for_history,
+    build_historical_role_preview,
+    build_compact_history_evidence,
+    enrich_compact_history_task_names,
+    enrich_compact_history_crew_coverage,
+)
+from .historical_fairness_store import HistoricalFairnessStorage
+from .fairness_advisory import build_task_fairness_advisory
+from .fairness_availability_probe import (
+    choose_one_candidate_schedule_probe,
+    summarize_one_candidate_schedule_probe,
+)
+from .fairness_requirement_probe import (
+    choose_historical_task_requirement,
+    summarize_task_requirement_schedule,
+)
 from .schedule_helpers import next_available_after, next_unavailable_after
 from .replacement_vehicles import ReplacementVehicleStore
+from .dispatch_archive_store import DispatchArchiveStore
+from .dispatch_history_import import normalize_listing_page
+from .historical_detail_probe import (
+    summarize_incident_detail_capabilities, summarize_detail_relationships,
+)
+from .historical_request_budget import (
+    HistoricalRequestBudget,
+    HistoricalRequestBudgetExceeded,
+)
+from .vehicle_evidence import incident_vehicle_evidence
+from .task_vehicle_evidence import task_evidence, matched_p2000_evidence
 
 from .const import (
     ATTR_ADDRESS,
@@ -34,6 +66,9 @@ from .const import (
     ATTR_CONFIRMATION,
     ATTR_ENTRY_ID,
     ATTR_INCIDENT_ID,
+    ATTR_INCIDENT_IDS,
+    ATTR_TASK_ID,
+    ATTR_INCLUDE_PEOPLE,
     ATTR_MEMBERSHIP_ID,
     ATTR_STATION_ID,
     ATTR_AVAILABLE,
@@ -52,11 +87,28 @@ from .const import (
     DATA_CLIENT,
     DATA_COORDINATOR,
     DATA_INCIDENT_STORE,
+    DATA_HISTORICAL_FAIRNESS_STORE,
     DATA_P2000_MANAGER,
     DATA_REPLACEMENT_VEHICLES,
+    DATA_DISPATCH_ARCHIVE,
+    DATA_HISTORICAL_REQUEST_BUDGET,
+    DATA_REPLACEMENT_MONITOR,
     DOMAIN,
     SERVICE_BACKFILL_HISTORY_STAFFING,
     SERVICE_ANALYZE_INCIDENT_FAIRNESS,
+    SERVICE_IMPORT_FAIRNESS_HISTORY,
+    SERVICE_PREVIEW_FAIRNESS_HISTORY,
+    SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+    SERVICE_INSPECT_FAIRNESS_REVISIONS,
+    SERVICE_INSPECT_TURNOUT_AUDIT,
+    SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
+    SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
+    SERVICE_PROBE_HISTORICAL_INCIDENT_DETAIL,
+    SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
+    SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
+    SERVICE_IMPORT_DISPATCH_HISTORY,
+    SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+    SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
     SERVICE_MARK_INCIDENT_CLOSED,
     SERVICE_REOPEN_INCIDENT,
     SERVICE_SEND_PAGER_MESSAGE,
@@ -64,6 +116,7 @@ from .const import (
     SERVICE_SET_REPLACEMENT_VEHICLE,
     SERVICE_CLEAR_REPLACEMENT_VEHICLE,
     SERVICE_GET_REPLACEMENT_VEHICLES,
+    SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
     AVAILABILITY_MODE_DURATIONS,
     AVAILABILITY_MODE_NEXT_SCHEDULE,
     AVAILABILITY_MODE_CUSTOM,
@@ -121,6 +174,7 @@ SET_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
     vol.Required(ATTR_STATION_ID): vol.Coerce(int),
     vol.Required("original_vehicle_number"): cv.string,
     vol.Required("vehicle_number"): cv.string,
+    vol.Optional("vehicle_function"): cv.string,
 })
 CLEAR_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
@@ -129,6 +183,66 @@ CLEAR_REPLACEMENT_VEHICLE_SCHEMA = vol.Schema({
 })
 GET_REPLACEMENT_VEHICLES_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTRY_ID): cv.string,
+})
+GET_INCIDENT_VEHICLE_EVIDENCE_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Optional(ATTR_INCIDENT_ID): vol.Coerce(str),
+})
+
+
+# Explicitly invoked local analysis; no background audit fetch or personnel output.
+IMPORT_FAIRNESS_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Required(ATTR_INCIDENT_IDS): vol.All(
+        cv.ensure_list, [vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$"))],
+        vol.Length(min=1, max=5),
+    ),
+    vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+})
+PREVIEW_FAIRNESS_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+})
+PREVIEW_FAIRNESS_ADVISORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Required(ATTR_TASK_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+})
+PROBE_FAIRNESS_SCHEMA = PREVIEW_FAIRNESS_ADVISORY_SCHEMA
+IMPORT_DISPATCH_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Optional(ATTR_MAX_PAGES, default=25): vol.All(vol.Coerce(int), vol.Range(min=1, max=25)),
+})
+PROBE_HISTORICAL_INCIDENT_DETAIL_SCHEMA = vol.Schema({
+    vol.Optional("offset"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000)),
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Optional(ATTR_LIMIT, default=2): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)),
+})
+PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Optional("start_page", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=500)),
+    vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=5)),
+})
+REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+})
+INSPECT_TURNOUT_AUDIT_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Required(ATTR_INCIDENT_ID): vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")),
+    vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+})
+INSPECT_FAIRNESS_REVISIONS_SCHEMA = vol.Schema({
+    vol.Optional("sample_index"): vol.All(vol.Coerce(int), vol.Range(min=1, max=20)),
+    vol.Optional(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Optional(ATTR_INCIDENT_ID): vol.All(vol.Coerce(str), vol.Match(r"^[0-9]+$")),
+    vol.Optional(ATTR_MAX_PAGES, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
 })
 
 ANALYZE_INCIDENT_FAIRNESS_SCHEMA = vol.Schema(
@@ -189,10 +303,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     replacement_store = ReplacementVehicleStore(hass, entry.entry_id)
     await replacement_store.async_load()
 
+    dispatch_archive = DispatchArchiveStore(hass, entry.entry_id)
+    await dispatch_archive.async_load(dict(entry.options))
+    history_budget = HistoricalRequestBudget(hass, entry.entry_id)
+    await history_budget.async_load()
+
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_CLIENT: client,
         DATA_COORDINATOR: coordinator,
         DATA_REPLACEMENT_VEHICLES: replacement_store,
+        DATA_DISPATCH_ARCHIVE: dispatch_archive,
+        DATA_HISTORICAL_REQUEST_BUDGET: history_budget,
     }
 
     _async_register_services(hass)
@@ -216,6 +337,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_data = hass.data[DOMAIN][entry.entry_id]
     client = entry_data[DATA_CLIENT]
     p2000_manager = entry_data.get(DATA_P2000_MANAGER)
+    replacement_monitor = entry_data.get(DATA_REPLACEMENT_MONITOR)
+    if replacement_monitor is not None:
+        replacement_monitor.stop()
     if p2000_manager is not None:
         await p2000_manager.async_stop()
     await hass.async_add_executor_job(client.websocket.stop_listener)
@@ -232,12 +356,34 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SEND_PAGER_MESSAGE,
             SERVICE_BACKFILL_HISTORY_STAFFING,
             SERVICE_ANALYZE_INCIDENT_FAIRNESS,
+            SERVICE_IMPORT_FAIRNESS_HISTORY,
+            SERVICE_PREVIEW_FAIRNESS_HISTORY,
+            SERVICE_PREVIEW_FAIRNESS_ADVISORY,
+            SERVICE_INSPECT_FAIRNESS_REVISIONS,
+            SERVICE_INSPECT_TURNOUT_AUDIT,
+            SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY,
+            SERVICE_PROBE_HISTORICAL_INCIDENT_LIST,
+            SERVICE_PROBE_HISTORICAL_INCIDENT_DETAIL,
+            SERVICE_GET_DISPATCH_ARCHIVE_STATUS,
+            SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX,
+            SERVICE_IMPORT_DISPATCH_HISTORY,
+            "enrich_dispatch_history",
+            "repair_dispatch_station_index",
+            "probe_turnout_import",
+            "import_turnout_history",
+            "manage_turnout_storage",
+            "recheck_turnout_history",
+            "diagnose_dispatch_station_index",
+            "get_station_archive_status",
+            SERVICE_PROBE_FAIRNESS_AVAILABILITY,
+            SERVICE_PROBE_FAIRNESS_TASK_COVERAGE,
             SERVICE_MARK_INCIDENT_CLOSED,
             SERVICE_REOPEN_INCIDENT,
             SERVICE_SET_STATION_AVAILABILITY,
             SERVICE_SET_REPLACEMENT_VEHICLE,
             SERVICE_CLEAR_REPLACEMENT_VEHICLE,
             SERVICE_GET_REPLACEMENT_VEHICLES,
+            SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
         ):
             if hass.services.has_service(DOMAIN, service):
                 hass.services.async_remove(DOMAIN, service)
@@ -352,6 +498,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 station_name=str(membership.get("station_name") or station_id),
                 original_vehicle_number=call.data["original_vehicle_number"],
                 vehicle_number=call.data["vehicle_number"],
+                vehicle_function=call.data.get("vehicle_function"),
             )
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
@@ -384,6 +531,1034 @@ def _async_register_services(hass: HomeAssistant) -> None:
     async def async_get_replacement_vehicles(call: ServiceCall) -> dict:
         entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
         return {"active": entry_data[DATA_REPLACEMENT_VEHICLES].active}
+
+    async def async_get_incident_vehicle_evidence(call: ServiceCall) -> dict:
+        """Read-only, privacy-filtered diagnostic of a BWR incident's vehicle fields."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        incident_id = call.data.get(ATTR_INCIDENT_ID) or client.incident_id
+        if incident_id is None:
+            raise HomeAssistantError("No incident ID available for vehicle diagnostics")
+        incident = await client.async_get_incident(incident_id)
+        if not isinstance(incident, dict):
+            raise HomeAssistantError("Could not retrieve incident for vehicle diagnostics")
+        api_evidence = incident_vehicle_evidence(incident)
+        raw = client.websocket.incident_data
+        # Only examine the matching live event; do not accidentally report
+        # another incident's vehicle evidence after a websocket update.
+        ws_evidence = (
+            incident_vehicle_evidence(raw)
+            if isinstance(raw, dict) and str(raw.get("id")) == str(incident_id)
+            else None
+        )
+        manager = entry_data.get(DATA_P2000_MANAGER)
+        return {
+            "incident_id": str(incident_id),
+            "rest": api_evidence,
+            "websocket": ws_evidence,
+            "tasks": {
+                "rest": task_evidence(incident, client.task_index),
+                "websocket": (
+                    task_evidence(raw, client.task_index) if ws_evidence is not None else None
+                ),
+            },
+            "p2000": (
+                matched_p2000_evidence(manager.persistent_matches, incident_id)
+                if manager is not None
+                else {"status": "p2000_manager_unavailable", "units": [], "sources": []}
+            ),
+            "note": "Task/P2000 context only: no evidence of a physical vehicle turnout or crew.",
+        }
+
+
+    def _history_entry(call: ServiceCall):
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower():
+            raise HomeAssistantError("Historical fairness is only supported for BrandweerRooster NL")
+        station_id = call.data[ATTR_STATION_ID]
+        permitted = {str(x.get("id")) for x in client.own_stations if isinstance(x, dict)}
+        if str(station_id) not in permitted:
+            raise HomeAssistantError("No authorized station membership for this request")
+        cache = entry_data.get(DATA_HISTORICAL_FAIRNESS_STORE)
+        if cache is None:
+            cache = HistoricalFairnessStorage(hass, client.entry_id)
+            entry_data[DATA_HISTORICAL_FAIRNESS_STORE] = cache
+        return entry_data, client, cache
+
+    def _compact_fairness(rows, client, station_id):
+        preview = build_historical_role_preview(rows, station_id)
+        compact = build_compact_history_evidence(preview)
+        return enrich_compact_history_task_names(compact, client.task_index, station_id)
+
+    async def async_import_fairness_history(call: ServiceCall) -> dict:
+        """Bounded on-demand BWR audit import to private HA storage."""
+        entry_data, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        cached = {str(item["incident_id"]) for item in await cache.async_list(station_id)}
+        result = {"requested": 0, "imported": 0, "already_cached": 0, "skipped": 0, "failed": 0,
+                  "privacy": "personal_and_post_records_remain_in_private_ha_storage"}
+        for incident_id in dict.fromkeys(call.data[ATTR_INCIDENT_IDS]):
+            result["requested"] += 1
+            if incident_id in cached:
+                result["already_cached"] += 1
+                continue
+            try:
+                audit = await analyze_incident_fairness(
+                    lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), incident_id,
+                    max_pages=call.data[ATTR_MAX_PAGES], groups=client.groups,
+                )
+                converted = summarize_incident_for_history(audit, station_id)
+                if converted.get("status") != "skipped":
+                    await cache.async_upsert(converted["record"])
+                    result["imported"] += 1
+                else:
+                    result["skipped"] += 1
+            except HistoricalRequestBudgetExceeded:
+                result["stopped_reason"] = "daily_budget_exhausted_or_paused"
+                break
+            except Exception:
+                # Never write real incident IDs, response bodies or names to logs.
+                _LOGGER.warning("Private fairness import failed for one incident")
+                result["failed"] += 1
+        return {**result, **entry_data[DATA_HISTORICAL_REQUEST_BUDGET].status()}
+
+    async def async_preview_fairness_history(call: ServiceCall) -> dict:
+        """Anonymous descriptive historical overview, not a crew prediction."""
+        _entry, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        return _compact_fairness(await cache.async_list(station_id), client, station_id)
+
+    async def async_preview_fairness_advisory(call: ServiceCall) -> dict:
+        """Task-scoped, anonymous fairness evidence; no predicted deployment."""
+        _entry, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        records = await cache.async_list(station_id)
+        return build_task_fairness_advisory(
+            records, station_id, call.data[ATTR_TASK_ID],
+            task_index=client.task_index, groups=client.groups,
+            include_people=False,
+        )
+
+
+    async def async_probe_fairness_availability(call: ServiceCall) -> dict:
+        """One authorized candidate GET, no private schedule or identities returned."""
+        _entry, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        records = await cache.async_list(station_id)
+        membership_id, selection = choose_one_candidate_schedule_probe(
+            records, client.groups, client.task_index, station_id, task_id,
+            authenticated_user_id=(
+                client.user_data.get("id") if isinstance(client.user_data, dict) else None
+            ),
+        )
+        if membership_id is None:
+            return selection
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        try:
+            schedule = await client.async_api_get(
+                f"memberships/{membership_id}/combined_schedule",
+                client._schedule_window_params(),
+            )
+        except Exception:
+            # Private identifiers and API data must never enter public logs.
+            _LOGGER.debug("Read-only fairness availability probe unavailable")
+            schedule = None
+        return summarize_one_candidate_schedule_probe(selection, schedule, now)
+
+    async def async_probe_fairness_task_coverage(call: ServiceCall) -> dict:
+        """Single known task requirement; aggregate-only current coverage."""
+        entry_data, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        task_id = call.data[ATTR_TASK_ID]
+        records = await cache.async_list(station_id)
+        compact = _compact_fairness(records, client, station_id)
+        incident_store = entry_data.get(DATA_INCIDENT_STORE)
+        evidence = enrich_compact_history_crew_coverage(
+            compact,
+            incident_store.history if incident_store is not None else [],
+            station_id,
+            cached_fairness_records=records,
+        )
+        requirement_id, selection = choose_historical_task_requirement(
+            evidence, station_id, task_id, client.task_index,
+        )
+        if requirement_id is None:
+            return selection
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        try:
+            schedule = await client.async_api_get(
+                f"availability_requirements/{requirement_id}/schedule",
+                client._schedule_window_params(),
+            )
+        except Exception:
+            _LOGGER.debug("Read-only fairness task coverage probe unavailable")
+            schedule = None
+        return summarize_task_requirement_schedule(
+            selection, schedule, now, task_index=client.task_index,
+        )
+
+
+    async def async_get_dispatch_archive_monthly_index(call: ServiceCall) -> dict:
+        """Summarize only the local BWR index. Never request remote history."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        return await entry_data[DATA_DISPATCH_ARCHIVE].async_index_summary(
+            str(hass.config.time_zone)
+        )
+
+    async def async_get_dispatch_archive_status(call: ServiceCall) -> dict:
+        """Return private archive status without emitting incident identities."""
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        return {
+            **archive.status(),
+            **entry_data[DATA_HISTORICAL_REQUEST_BUDGET].status(),
+            "retention": entry_data[DATA_CLIENT]._entry.options.get(
+                "dispatch_archive_retention", "all"
+            ),
+            "store_incident_details": bool(
+                entry_data[DATA_CLIENT]._entry.options.get(
+                    "dispatch_archive_details", True
+                )
+            ),
+            "store_yearly_statistics": bool(
+                entry_data[DATA_CLIENT]._entry.options.get(
+                    "dispatch_yearly_stats", True
+                )
+            ),
+        }
+
+    async def async_import_dispatch_history(call: ServiceCall) -> dict:
+        """Opt-in, bounded archive import; resume from persisted page checkpoint."""
+        entry_data, client, _fairness_store = _history_entry(call)
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive import is already running")
+        async with lock:
+            if archive.import_status == "complete":
+                return {**archive.status(), "status": "already_complete"}
+            await archive.async_update_import("running")
+            pages_this_call = 0
+            records_this_call = 0
+            for _ in range(call.data[ATTR_MAX_PAGES]):
+                page = archive.import_next_page
+                if page > 5000:
+                    await archive.async_update_import("failed")
+                    return {**archive.status(), "status": "page_limit_reached"}
+                try:
+                    payload = await budget.async_get(
+                        client, "incidents", {"page": page, "per_page": 25}
+                    )
+                    rows = normalize_listing_page(payload, client.groups)
+                except HistoricalRequestBudgetExceeded:
+                    await archive.async_update_import("interrupted")
+                    return {**archive.status(), **budget.status(),
+                            "status": "daily_budget_exhausted"}
+                except Exception as err:
+                    _LOGGER.debug(
+                        "BWR dispatch archive import stopped (%s)", type(err).__name__
+                    )
+                    await archive.async_update_import("interrupted")
+                    return {**archive.status(), **budget.status(),
+                            "status": "interrupted_unexpected_response"}
+                if not rows:
+                    await archive.async_update_import("complete")
+                    return {**archive.status(), "status": "listing_exhausted",
+                            "archive_years_verified_complete": False}
+                await archive.async_commit_listing_page(
+                    rows, dict(client._entry.options), page=page
+                )
+                pages_this_call += 1
+                records_this_call += len(rows)
+            await archive.async_update_import("interrupted")
+            return {
+                **archive.status(), "status": "batch_limit_reached",
+                "pages_this_call": pages_this_call,
+                "records_this_call": records_this_call,
+                "archive_years_verified_complete": False,
+            }
+
+    async def async_get_station_archive_status(call: ServiceCall) -> dict:
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower():
+            raise HomeAssistantError("Historical archive is only supported for BrandweerRooster NL")
+        permitted = {str(x.get("id")) for x in client.own_stations if isinstance(x, dict) and str(x.get("id")).isascii() and str(x.get("id")).isdigit()}
+        requested = call.data.get(ATTR_STATION_ID)
+        if not permitted or (requested is not None and str(requested) not in permitted):
+            raise HomeAssistantError("No authorized station membership for this request")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        result = {**archive.status(), "api_requests_made": 0, "history_complete": False}
+        if requested is not None:
+            result["requested_station_index_count"] = archive.station_index_count(requested)
+            result["requested_incident_station_count"] = archive.incident_station_count(requested)
+        else:
+            result["stations"] = [{"station_id": int(key), "indexed_incidents": archive.station_index_count(key), "direct_incidents": archive.incident_station_count(key)} for key in sorted(permitted, key=int)]
+        return result
+
+    async def async_diagnose_dispatch_station_index(call: ServiceCall) -> dict:
+        from .staffing_insights import _resolve_station
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower() or not client.own_stations:
+            raise HomeAssistantError("No authorized BrandweerRooster station membership")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        known = {str(g["id"]): g for g in client.groups if isinstance(g, dict) and g.get("id") is not None}
+        result = {"inspected": 0, "responses_missing": 0, "responses_empty": 0,
+                  "responses_other_shape": 0, "responses_nonempty": 0,
+                  "response_rows": 0, "group_missing": 0, "group_unknown": 0,
+                  "group_without_station": 0, "group_resolved": 0,
+                  "unexpected_identity": 0, "alternative_fields_present": {},
+                  "alternative_fields_nonempty": {}, "incident_field_presence": {},
+                  "title_keyword_candidates": {"test": 0, "oefening": 0, "annulering": 0},
+                  "incident_group_rows": 0, "incident_group_resolved": 0,
+                  "incident_group_unknown": 0, "incident_group_without_station": 0,
+                  "task_references_known": 0, "task_references_unknown": 0,
+                  "incident_types": {}, "station_comparison": {},
+                  "comparison_sample": call.data["comparison_sample"]}
+        async with lock:
+            identifiers = (await archive.async_detail_probe_ids(call.data[ATTR_LIMIT], call.data["offset"])
+                           if call.data["comparison_sample"]
+                           else await archive.async_unresolved_station_ids(call.data[ATTR_LIMIT], call.data["offset"]))
+            for identifier in identifiers:
+                try:
+                    payload = await budget.async_get(client, f"incidents/{identifier}", None)
+                except HistoricalRequestBudgetExceeded:
+                    result["stopped_reason"] = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception:
+                    result["stopped_reason"] = "request_failed"
+                    break
+                result["inspected"] += 1
+                if not isinstance(payload, dict) or str(payload.get("id")) != identifier:
+                    result["unexpected_identity"] += 1
+                    continue
+                for key in ("station_id", "station_ids", "group_id", "group_ids", "groups", "stations", "task_ids", "incident_skill_assignments", "vehicle_ids"):
+                    if key in payload:
+                        counts = result["alternative_fields_present"]
+                        counts[key] = counts.get(key, 0) + 1
+                        if payload[key]:
+                            counts = result["alternative_fields_nonempty"]
+                            counts[key] = counts.get(key, 0) + 1
+                for key in ("type", "incident_type", "incident_type_id", "category", "category_id", "status", "is_test", "is_exercise", "cancelled", "cancelled_at", "fairness_proposal"):
+                    if key in payload:
+                        counts = result["incident_field_presence"]
+                        counts[key] = counts.get(key, 0) + 1
+                import re
+                title = " ".join(str(payload.get(key) or "") for key in ("title", "description", "name")).casefold()
+                for label, pattern in (("test", r"\btest(?:alarm|alarmering|melding)?\b"), ("oefening", r"\boefen(?:ing|alarm|melding)?\b"), ("annulering", r"\b(?:geannuleerd|annulering|ingetrokken)\b")):
+                    if re.search(pattern, title):
+                        result["title_keyword_candidates"][label] += 1
+                raw_type = payload.get("type")
+                # Only short machine-like tokens; never expose free-text titles.
+                type_key = str(raw_type) if type(raw_type) in (str, int) and re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(raw_type)) else "missing_or_other"
+                types = result["incident_types"]
+                types[type_key] = types.get(type_key, 0) + 1
+                direct_stations = set()
+                response_stations = set()
+                incident_groups = payload.get("groups")
+                if isinstance(incident_groups, list):
+                    for group in incident_groups:
+                        result["incident_group_rows"] += 1
+                        key = group.get("id", group.get("group_id")) if isinstance(group, dict) else group
+                        if str(key) not in known:
+                            result["incident_group_unknown"] += 1
+                        elif _resolve_station(key, known):
+                            result["incident_group_resolved"] += 1
+                            station = _resolve_station(key, known)
+                            if station.get("station_id") is not None:
+                                direct_stations.add(str(station["station_id"]))
+                        else:
+                            result["incident_group_without_station"] += 1
+                tasks = payload.get("task_ids")
+                if isinstance(tasks, list):
+                    for task in tasks:
+                        key = str(task)
+                        if key in client.task_index or (type(task) is int and task in client.task_index):
+                            result["task_references_known"] += 1
+                        else:
+                            result["task_references_unknown"] += 1
+                rows = payload.get("incident_responses")
+                if rows is None:
+                    result["responses_missing"] += 1
+                elif not isinstance(rows, list):
+                    result["responses_other_shape"] += 1
+                elif not rows:
+                    result["responses_empty"] += 1
+                else:
+                    result["responses_nonempty"] += 1
+                    for row in rows:
+                        result["response_rows"] += 1
+                        group = row.get("group_id") if isinstance(row, dict) else None
+                        if group is None:
+                            result["group_missing"] += 1
+                        elif str(group) not in known:
+                            result["group_unknown"] += 1
+                        elif not _resolve_station(group, known):
+                            result["group_without_station"] += 1
+                        else:
+                            result["group_resolved"] += 1
+                            station = _resolve_station(group, known)
+                            if station.get("station_id") is not None:
+                                response_stations.add(str(station["station_id"]))
+                comparison = ("equal" if direct_stations == response_stations else
+                              "direct_superset" if response_stations < direct_stations else
+                              "response_superset" if direct_stations < response_stations else
+                              "partial_overlap" if direct_stations & response_stations else "disjoint")
+                if not response_stations:
+                    comparison = "direct_only" if direct_stations else "neither"
+                elif not direct_stations:
+                    comparison = "response_only"
+                counts = result["station_comparison"]
+                counts[comparison] = counts.get(comparison, 0) + 1
+        return {**result, **budget.status(), "archive_modified": False}
+
+    async def async_probe_turnout_import(call: ServiceCall) -> dict:
+        from .historical_turnout_normalizer import prepare_turnout_observation
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        allowed = {str(x.get("id")) for x in client.own_stations or []
+                   if isinstance(x, dict) and str(x.get("id")).isascii() and str(x.get("id")).isdigit()}
+        if "brandweerrooster.nl" not in str(client._url).lower() or not allowed:
+            raise HomeAssistantError("No authorized BrandweerRooster station membership")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        counts = {}
+        identity_fields = {}
+        assignment_fields = {}
+        warning_fields = {}
+        membership_shapes = {}
+        membership_counts = {"entries": 0, "empty_lists": 0, "matched_authorized_response": 0, "matched_shown_up": 0, "matched_dispatched": 0, "unmatched_or_unresolved": 0}
+        skill_status_fields = {}
+        coverage_counts = {"warning_lists": 0, "warning_rows": 0, "skill_status_rows": 0}
+        attempted = response_rows = 0
+        reason = "batch_limit_reached"
+        async with lock:
+            if not client._entry.options.get("dispatch_archive_details", True):
+                return {"status": "detail_storage_disabled", "archive_modified": False}
+            scope = {}
+            for identifier, station in await archive.async_turnout_scope(allowed):
+                scope.setdefault(identifier, set()).add(station)
+            selected_station = call.data.get("station_id")
+            if selected_station is not None:
+                selected_station = str(selected_station)
+                if selected_station not in allowed:
+                    raise HomeAssistantError("Station is not authorized")
+            selected_scope = {
+                identifier: stations if selected_station is None else {selected_station}
+                for identifier, stations in scope.items()
+                if selected_station is None or selected_station in stations
+            }
+            offset = call.data["offset"]
+            for identifier in list(selected_scope)[offset:offset + call.data[ATTR_LIMIT]]:
+                try:
+                    payload = await budget.async_get(client, f"incidents/{identifier}", None)
+                except HistoricalRequestBudgetExceeded:
+                    reason = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception:
+                    reason = "request_failed"
+                    break
+                attempted += 1
+                prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
+                status = prepared["status"]
+                counts[status] = counts.get(status, 0) + 1
+                if status == "ready" and selected_station is not None:
+                    prepared = {**prepared, "rows": [row for row in prepared["rows"] if row["station_id"] == selected_station],
+                                "station_scope": [station for station in prepared["station_scope"] if station == selected_station]}
+                response_rows += len(prepared.get("rows", []))
+                if status == "ready":
+                    # Count only field presence and primitive types, never raw values.
+                    warnings = payload.get("warning_statuses")
+                    if isinstance(warnings, list):
+                        coverage_counts["warning_lists"] += 1
+                        for warning in warnings:
+                            if not isinstance(warning, dict):
+                                continue
+                            coverage_counts["warning_rows"] += 1
+                            for field in ("group_id", "station_id", "task_id", "vehicle_id", "skill_statuses", "status", "sufficient", "required", "available", "availability_requirement_id", "task_ids", "level", "service_level"):
+                                if warning.get(field) is not None:
+                                    warning_fields[field] = warning_fields.get(field, 0) + 1
+                            skills = warning.get("skill_statuses")
+                            if not isinstance(skills, list):
+                                continue
+                            for skill in skills:
+                                if not isinstance(skill, dict):
+                                    continue
+                                coverage_counts["skill_status_rows"] += 1
+                                members = skill.get("available_memberships")
+                                if isinstance(members, list):
+                                    if not members:
+                                        membership_counts["empty_lists"] += 1
+                                    for member in members:
+                                        membership_counts["entries"] += 1
+                                        shape = type(member).__name__
+                                        membership_shapes[shape] = membership_shapes.get(shape, 0) + 1
+                                        raw_id = member.get("membership_id", member.get("id")) if isinstance(member, dict) else member
+                                        identifier_text = str(raw_id)
+                                        matches = [row for row in prepared["rows"] if row["membership_id"] == identifier_text]
+                                        if len(matches) != 1:
+                                            membership_counts["unmatched_or_unresolved"] += 1
+                                            continue
+                                        membership_counts["matched_authorized_response"] += 1
+                                        reported = matches[0].get("reported_status")
+                                        if reported == "shown_up":
+                                            membership_counts["matched_shown_up"] += 1
+                                        elif reported == "dispatched":
+                                            membership_counts["matched_dispatched"] += 1
+                                for field in ("skill_id", "short_code", "name", "required", "available", "count", "required_count", "available_count", "present_count", "responding_count", "acknowledged_count", "status", "sufficient", "fulfilled", "minimum", "actual", "needed", "missing", "number_required", "number_available", "assigned_count", "available_memberships", "buffer", "level", "assigned", "available_count", "position_type"):
+                                    value = skill.get(field)
+                                    if value is not None:
+                                        key = field + ":" + type(value).__name__
+                                        skill_status_fields[key] = skill_status_fields.get(key, 0) + 1
+                    authorized = {(row["station_id"], row["membership_id"]) for row in prepared["rows"]}
+                    from .staffing_insights import _resolve_station
+                    known = {str(g.get("id")): g for g in client.groups if isinstance(g, dict)}
+                    for row in payload.get("incident_responses", []):
+                        station = _resolve_station(row.get("group_id"), known)
+                        if not station or (str(station.get("station_id")), str(row.get("membership_id"))) not in authorized:
+                            continue
+                        for field in ("user_name", "first_name", "last_name", "user_first_name", "user_last_name", "role", "function", "skill_ids", "task_id"):
+                            if row.get(field) is not None:
+                                identity_fields[field] = identity_fields.get(field, 0) + 1
+                        user = row.get("user")
+                        if isinstance(user, dict):
+                            for field in ("first_name", "last_name", "name"):
+                                if user.get(field) is not None:
+                                    key = "user." + field
+                                    identity_fields[key] = identity_fields.get(key, 0) + 1
+                    for assignment in payload.get("incident_skill_assignments") or []:
+                        if not isinstance(assignment, dict):
+                            continue
+                        if str(assignment.get("membership_id")) not in {m for _, m in authorized}:
+                            continue
+                        for field in ("membership_id", "user_id", "skill_ids", "task_id", "role", "function", "vehicle_id"):
+                            if assignment.get(field) is not None:
+                                assignment_fields[field] = assignment_fields.get(field, 0) + 1
+        return {**budget.status(), "status": reason, "attempted": attempted,
+                "outcomes": counts, "authorized_response_rows": response_rows,
+                "coverage_shape_counts": coverage_counts, "warning_field_presence": warning_fields,
+                "available_membership_shapes": membership_shapes, "available_membership_counts": membership_counts,
+                "skill_status_field_presence": skill_status_fields,
+                "identity_field_presence": identity_fields, "assignment_field_presence": assignment_fields,
+                "archive_modified": False, "personal_data_persisted": False}
+
+    async def async_manage_turnout_storage(call: ServiceCall) -> dict:
+        from .historical_turnout_store import HistoricalTurnoutStore
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        async with lock:
+            store = HistoricalTurnoutStore(hass, client.entry_id)
+            await store.async_load()
+            operation = call.data["operation"]
+            before = store.status()
+            removed = 0
+            if operation == "purge":
+                if not call.data.get("confirm_delete", False):
+                    raise HomeAssistantError("Explicit deletion confirmation required")
+                removed = await store.async_restrict(set())
+            return {"operation": operation, "before": before, **store.status(),
+                    "skill_summary": store.skill_summary(),
+                    "removed_incident_stations": removed, "archive_modified": False,
+                    "api_requests_made": 0}
+
+    async def async_import_turnout_history(call: ServiceCall) -> dict:
+        from .historical_turnout_store import HistoricalTurnoutStore
+        from .historical_turnout_normalizer import prepare_turnout_observation
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        allowed = {str(x.get("id")) for x in client.own_stations or []
+                   if isinstance(x, dict) and str(x.get("id")).isascii() and str(x.get("id")).isdigit()}
+        if "brandweerrooster.nl" not in str(client._url).lower() or not allowed:
+            raise HomeAssistantError("No authorized BrandweerRooster station membership")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        counts = {}
+        attempted = response_rows = saved = 0
+        reason = "batch_limit_reached"
+        async with lock:
+            if not client._entry.options.get("dispatch_archive_details", True):
+                return {"status": "detail_storage_disabled", "archive_modified": False}
+            scope = {}
+            for identifier, station in await archive.async_turnout_scope(allowed):
+                scope.setdefault(identifier, set()).add(station)
+            selected_station = call.data.get("station_id")
+            if selected_station is not None:
+                selected_station = str(selected_station)
+                if selected_station not in allowed:
+                    raise HomeAssistantError("Station is not authorized")
+            selected_scope = {
+                identifier: stations if selected_station is None else {selected_station}
+                for identifier, stations in scope.items()
+                if selected_station is None or selected_station in stations
+            }
+            if not archive.enrichment_complete:
+                return {"status": "station_enrichment_incomplete", "personal_data_persisted": False}
+            store = HistoricalTurnoutStore(hass, client.entry_id)
+            await store.async_load()
+            pending = [identifier for identifier, stations in selected_scope.items()
+                       if any(not store.has_observation(identifier, station) for station in stations)]
+            for identifier in pending[:call.data[ATTR_LIMIT]]:
+                try:
+                    payload = await budget.async_get(client, f"incidents/{identifier}", None)
+                except HistoricalRequestBudgetExceeded:
+                    reason = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception:
+                    reason = "request_failed"
+                    break
+                attempted += 1
+                prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
+                full_authorized_count = len(prepared.get("rows", []))
+                status = prepared["status"]
+                counts[status] = counts.get(status, 0) + 1
+                if status == "ready" and selected_station is not None:
+                    prepared = {**prepared, "rows": [row for row in prepared["rows"] if row["station_id"] == selected_station],
+                                "station_scope": [station for station in prepared["station_scope"] if station == selected_station]}
+                response_rows += len(prepared.get("rows", []))
+                if status != "ready":
+                    continue
+                for station in prepared["station_scope"]:
+                    if not store.has_observation(identifier, station):
+                        saved += int(await store.async_observe(identifier,
+                            [row for row in prepared["rows"] if row["station_id"] == station],
+                            station_id=station))
+                # Keep unscoped provider counts only for incidents whose response
+                # stations are all authorized; never infer a station from counts.
+                if prepared.get("provider_response_count") == full_authorized_count:
+                    await store.async_observe_requirements(identifier, prepared.get("requirement_evidence"))
+            remaining = sum(any(not store.has_observation(identifier, station) for station in stations)
+                            for identifier, stations in selected_scope.items())
+            if not remaining:
+                reason = "scope_exhausted"
+        return {**budget.status(), "status": reason, "attempted": attempted,
+                "outcomes": counts, "authorized_response_rows": response_rows,
+                **store.status(), "remaining_incidents": remaining, "saved_incident_stations": saved,
+                "archive_modified": False, "personal_data_persisted": bool(saved)}
+
+    async def async_recheck_turnout_history(call: ServiceCall) -> dict:
+        from .historical_turnout_store import HistoricalTurnoutStore
+        from .historical_turnout_normalizer import prepare_turnout_observation
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        allowed = {str(x.get("id")) for x in client.own_stations or []
+                   if isinstance(x, dict) and str(x.get("id")).isascii() and str(x.get("id")).isdigit()}
+        if "brandweerrooster.nl" not in str(client._url).lower() or not allowed:
+            raise HomeAssistantError("No authorized BrandweerRooster station membership")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        counts = {}
+        attempted = response_rows = saved = unchanged = 0
+        reason = "batch_limit_reached"
+        async with lock:
+            if not client._entry.options.get("dispatch_archive_details", True):
+                return {"status": "detail_storage_disabled", "archive_modified": False}
+            scope = {}
+            for identifier, station in await archive.async_turnout_scope(allowed):
+                scope.setdefault(identifier, set()).add(station)
+            selected_station = call.data.get("station_id")
+            if selected_station is not None:
+                selected_station = str(selected_station)
+                if selected_station not in allowed:
+                    raise HomeAssistantError("Station is not authorized")
+            selected_scope = {
+                identifier: stations if selected_station is None else {selected_station}
+                for identifier, stations in scope.items()
+                if selected_station is None or selected_station in stations
+            }
+            if not archive.enrichment_complete:
+                return {"status": "station_enrichment_incomplete", "personal_data_persisted": False}
+            store = HistoricalTurnoutStore(hass, client.entry_id)
+            await store.async_load()
+            pending = [identifier for identifier, stations in selected_scope.items()
+                       if any(store.has_observation(identifier, station) for station in stations)]
+            for identifier in pending[call.data['offset']:call.data['offset'] + call.data[ATTR_LIMIT]]:
+                try:
+                    payload = await budget.async_get(client, f"incidents/{identifier}", None)
+                except HistoricalRequestBudgetExceeded:
+                    reason = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception:
+                    reason = "request_failed"
+                    break
+                attempted += 1
+                prepared = prepare_turnout_observation(payload, identifier, client.groups, allowed, scope[identifier])
+                full_authorized_count = len(prepared.get("rows", []))
+                status = prepared["status"]
+                counts[status] = counts.get(status, 0) + 1
+                if status == "ready" and selected_station is not None:
+                    prepared = {**prepared, "rows": [row for row in prepared["rows"] if row["station_id"] == selected_station],
+                                "station_scope": [station for station in prepared["station_scope"] if station == selected_station]}
+                response_rows += len(prepared.get("rows", []))
+                if status != "ready":
+                    continue
+                for station in prepared["station_scope"]:
+                    if store.has_observation(identifier, station):
+                        changed = await store.async_observe(identifier,
+                            [row for row in prepared["rows"] if row["station_id"] == station],
+                            station_id=station)
+                        saved += int(changed)
+                        unchanged += int(not changed)
+                # Keep unscoped provider counts only for incidents whose response
+                # stations are all authorized; never infer a station from counts.
+                if prepared.get("provider_response_count") == full_authorized_count:
+                    await store.async_observe_requirements(identifier, prepared.get("requirement_evidence"))
+        return {**budget.status(), "status": reason, "attempted": attempted,
+                "outcomes": counts, "authorized_response_rows": response_rows,
+                **store.status(), "eligible_incidents": len(pending), "changed_incident_stations": saved, "unchanged_incident_stations": unchanged,
+                "archive_modified": False, "personal_data_persisted": bool(saved)}
+
+    async def async_repair_dispatch_station_index(call: ServiceCall) -> dict:
+        entry_data = _service_entry_data(hass, call.data.get(ATTR_ENTRY_ID))
+        client = entry_data[DATA_CLIENT]
+        if "brandweerrooster.nl" not in str(client._url).lower() or not client.own_stations:
+            raise HomeAssistantError("No authorized BrandweerRooster station membership")
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        result = {"attempted": 0, "resolved": 0, "unresolved": 0, "unexpected_response": 0}
+        async with lock:
+            if not client._entry.options.get("dispatch_archive_details", True):
+                return {**archive.status(), "status": "detail_storage_disabled", "api_requests_made": 0}
+            for identifier in await archive.async_missing_station_ids(call.data[ATTR_LIMIT]):
+                try:
+                    payload = await budget.async_get(client, f"incidents/{identifier}", None)
+                except HistoricalRequestBudgetExceeded:
+                    result["stopped_reason"] = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception:
+                    result["stopped_reason"] = "request_failed"
+                    break
+                result["attempted"] += 1
+                try:
+                    rows = normalize_listing_page([payload], client.groups)
+                    if len(rows) != 1 or rows[0]["incident_id"] != identifier:
+                        raise ValueError("Unexpected incident identity")
+                except (ValueError, TypeError, AttributeError):
+                    await archive.async_mark_station_repair(identifier, "unexpected_response")
+                    result["unexpected_response"] += 1
+                    continue
+                if await archive.async_repair_station_record(rows[0], dict(client._entry.options)):
+                    result["resolved"] += 1
+                else:
+                    await archive.async_mark_station_repair(identifier, "unresolved")
+                    result["unresolved"] += 1
+        return {**archive.status(), **budget.status(), **result, "history_complete": False}
+
+    async def async_enrich_dispatch_history(call: ServiceCall) -> dict:
+        entry_data, client, _cache = _history_entry(call)
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        lock = entry_data.setdefault("dispatch_archive_import_lock", asyncio.Lock())
+        if lock.locked():
+            raise HomeAssistantError("Historical archive operation is already running")
+        changed = pages = 0
+        reason = "batch_limit_reached"
+        async with lock:
+            for _ in range(call.data[ATTR_MAX_PAGES]):
+                if not client._entry.options.get("dispatch_archive_details", True):
+                    reason = "detail_storage_disabled"
+                    break
+                if archive.enrichment_complete:
+                    reason = "listing_exhausted"
+                    break
+                page = archive.enrichment_next_page
+                if page > 5000:
+                    reason = "page_limit_reached"
+                    break
+                try:
+                    payload = await budget.async_get(client, "incidents", {"page": page, "per_page": 25})
+                    rows = normalize_listing_page(payload, client.groups)
+                    changed += await archive.async_enrich_station_page(rows, dict(client._entry.options), page=page)
+                    pages += 1
+                    if not rows:
+                        reason = "listing_exhausted"
+                        break
+                except HistoricalRequestBudgetExceeded:
+                    reason = "historical_budget_exhausted_or_paused"
+                    break
+                except Exception as err:
+                    _LOGGER.debug("Station enrichment interrupted (%s)", type(err).__name__)
+                    reason = "interrupted_unexpected_response"
+                    break
+        return {**archive.status(), **budget.status(), "status": reason,
+                "pages_this_call": pages, "records_changed": changed,
+                "requested_station_index_count": archive.station_index_count(call.data[ATTR_STATION_ID]),
+                "history_complete": False}
+
+    async def async_probe_historical_incident_detail(call: ServiceCall) -> dict:
+        """Inspect at most three locally indexed BWR detail response shapes.
+
+        Explicit opt-in only. Uses the same persisted daily request gate as
+        the archive listing. No IDs, personnel or free text are returned.
+        """
+        entry_data, client, _cache = _history_entry(call)
+        archive = entry_data[DATA_DISPATCH_ARCHIVE]
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        ids = await archive.async_detail_probe_ids(call.data[ATTR_LIMIT], offset=call.data.get("offset"))
+        inspected = []
+        stopped_reason = None
+        for identifier in ids:
+            try:
+                response = await budget.async_get(
+                    client, f"incidents/{identifier}", {}
+                )
+            except HistoricalRequestBudgetExceeded:
+                stopped_reason = "daily_budget_exhausted"
+                break
+            except Exception as err:
+                _LOGGER.debug(
+                    "Historical incident detail shape probe stopped (%s)",
+                    type(err).__name__,
+                )
+                stopped_reason = "api_error"
+                break
+            inspected.append(response)
+            if not isinstance(response, dict):
+                stopped_reason = "unexpected_response_shape"
+                break
+        return {
+            **summarize_incident_detail_capabilities(inspected),
+            "local_relationships": summarize_detail_relationships(
+                inspected, client.groups, call.data[ATTR_STATION_ID], client.task_index
+            ),
+            "requested_samples": len(ids),
+            "stopped_reason": stopped_reason,
+            **budget.status(),
+        }
+
+    async def async_probe_historical_incident_list(call: ServiceCall) -> dict:
+        """Read at most five 25-row listing pages without storing incidents."""
+        entry_data, client, _cache = _history_entry(call)
+        budget = entry_data[DATA_HISTORICAL_REQUEST_BUDGET]
+        pages = []
+        start_page = call.data["start_page"]
+        max_pages = call.data[ATTR_MAX_PAGES]
+        try:
+            for page_number in range(start_page, start_page + max_pages):
+                payload = await budget.async_get(
+                    client, "incidents", {"page": page_number, "per_page": 25}
+                )
+                pages.append(payload)
+                # Only continue when this page has a known, bounded list shape.
+                if isinstance(payload, list):
+                    rows = payload
+                elif isinstance(payload, dict):
+                    rows = payload.get("data")
+                else:
+                    break
+                if not isinstance(rows, list) or len(rows) > 25 or not rows:
+                    break
+        except HistoricalRequestBudgetExceeded:
+            return {
+                "status": "daily_budget_exhausted", "read_only": True,
+                "incident_ids_returned": False,
+                "personal_or_post_details_returned": False,
+                "history_complete": False, "pages_fetched": len(pages),
+                **budget.status(),
+            }
+        except Exception as err:
+            _LOGGER.debug(
+                "Historical listing depth probe unavailable (%s)",
+                type(err).__name__,
+            )
+            return {
+                "status": "endpoint_unavailable", "read_only": True,
+                "incident_ids_returned": False,
+                "personal_or_post_details_returned": False,
+                "history_complete": False,
+                "pagination_verified": False,
+                "pages_fetched": len(pages),
+            }
+        result = summarize_history_listing_scan(pages, start_page=start_page)
+        listing_rows = []
+        for payload in pages:
+            rows = payload if isinstance(payload, list) else payload.get("data") if isinstance(payload, dict) else None
+            if isinstance(rows, list) and len(rows) <= 25:
+                listing_rows.extend(row for row in rows if isinstance(row, dict))
+        result["listing_detail_capabilities"] = summarize_incident_detail_capabilities(listing_rows)
+        result["listing_local_relationships"] = summarize_detail_relationships(
+            listing_rows, client.groups, call.data[ATTR_STATION_ID], client.task_index
+        )
+        result["pages_fetched"] = len(pages)
+        return {**result, **budget.status()}
+
+    async def async_refresh_turnout_audit_history(call: ServiceCall) -> dict:
+        """Bounded opt-in HA-scheduled review of cached past incidents only."""
+        entry_data, client, cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        now = datetime.now(ZoneInfo(str(hass.config.time_zone)))
+        selected = select_turnout_rechecks(
+            await cache.async_list(station_id), now, limit=2
+        )
+        outcome = {
+            "status": "bounded_retrospective_review",
+            "read_only_remote": True,
+            "reviewed": 0,
+            "changed_summaries": 0,
+            "not_attributable_or_incomplete": 0,
+            "failed": 0,
+            "remaining_due_not_counted": True,
+            "personal_or_incident_ids_returned": False,
+            "interpretation": "Audit marker changes do not prove corrected physical turnout",
+        }
+        for record in selected:
+            try:
+                audit = await analyze_incident_fairness(
+                    lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), record["incident_id"], max_pages=5,
+                    groups=client.groups,
+                )
+                linked = summarize_incident_for_history(audit, station_id)
+                summary = summarize_turnout_audit(audit)
+                if (
+                    linked.get("status") != "imported"
+                    or summary["comparison_status"] != "audit_markers_observed"
+                ):
+                    outcome["not_attributable_or_incomplete"] += 1
+                    continue
+                old = record.get("turnout_audit_review") or {}
+                review = {
+                    "status": summary["comparison_status"],
+                    "checked_at": now.isoformat(),
+                    "late_registration_event_count": summary["late_registration_event_count"],
+                    "late_registration_round_count": summary["late_registration_round_count"],
+                    "latest_turnout_status_event_at": summary["latest_turnout_status_event_at"],
+                }
+                if old.get("status") == "audit_markers_observed" and any(
+                    old.get(field) != review[field]
+                    for field in (
+                        "late_registration_event_count",
+                        "late_registration_round_count",
+                        "latest_turnout_status_event_at",
+                    )
+                ):
+                    outcome["changed_summaries"] += 1
+                await cache.async_save_turnout_review(
+                    station_id, record["incident_id"], review
+                )
+                outcome["reviewed"] += 1
+            except HistoricalRequestBudgetExceeded:
+                outcome["stopped_reason"] = "daily_budget_exhausted_or_paused"
+                break
+            except Exception as err:
+                # No private incident IDs, actor names or audit bodies in logs.
+                _LOGGER.debug("Private turnout history review failed (%s)", type(err).__name__)
+                outcome["failed"] += 1
+        return {**outcome, **entry_data[DATA_HISTORICAL_REQUEST_BUDGET].status()}
+
+    async def async_inspect_turnout_audit(call: ServiceCall) -> dict:
+        """Inspect one authorized incident; return audit marker counts only."""
+        entry_data, client, _cache = _history_entry(call)
+        station_id = call.data[ATTR_STATION_ID]
+        try:
+            audit = await analyze_incident_fairness(
+                lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), call.data[ATTR_INCIDENT_ID],
+                max_pages=call.data[ATTR_MAX_PAGES], groups=client.groups,
+            )
+            attribution = summarize_incident_for_history(audit, station_id)
+        except Exception as err:
+            _LOGGER.debug(
+                "Read-only turnout audit unavailable (%s)", type(err).__name__
+            )
+            return {"status": "audit_unavailable", "read_only": True}
+        if attribution.get("status") != "imported":
+            return {
+                "status": "not_attributable_to_authorized_station",
+                "read_only": True,
+            }
+        return {
+            "status": "observations_only",
+            "read_only": True,
+            "remote_modified": False,
+            "local_storage_modified": False,
+            "personal_or_actor_details_returned": False,
+            **summarize_turnout_audit(audit),
+        }
+
+    async def async_inspect_fairness_revisions(call: ServiceCall) -> dict:
+        """One authorized on-demand incident audit; counts only, no persistence."""
+        entry_data, client, _cache = _history_entry(call)
+        incident_id = call.data.get(ATTR_INCIDENT_ID)
+        station_id = call.data[ATTR_STATION_ID]
+        selection = "explicit_incident"
+        if incident_id is None and "sample_index" in call.data:
+            identifiers = {str(record.get("incident_id") or "") for record in await _cache.async_list(station_id) if str(record.get("station_id")) == str(station_id) and record.get("proposal_snapshots_seen")}
+            identifiers = sorted((v for v in identifiers if v.isascii() and v.isdigit()), key=int, reverse=True)
+            index = call.data["sample_index"] - 1
+            if index >= len(identifiers):
+                return {"status": "no_cached_sample_at_index", "cached_sample_count": len(identifiers), "read_only": True, "api_requests_made": 0}
+            incident_id = identifiers[index]
+            selection = "cached_proposal_sample_index"
+        if incident_id is None:
+            candidates = []
+            for record in await _cache.async_list(station_id):
+                review = record.get("turnout_audit_review") or {}
+                identifier = str(record.get("incident_id") or "")
+                events = review.get("late_registration_event_count")
+                rounds = review.get("late_registration_round_count")
+                if (str(record.get("station_id")) == str(station_id)
+                    and identifier.isascii() and identifier.isdigit()
+                    and review.get("status") == "audit_markers_observed"
+                    and type(events) is int and events > 0
+                    and record.get("proposal_snapshots_seen")):
+                    candidates.append((rounds if type(rounds) is int else 0, events, identifier))
+            if not candidates:
+                return {"status": "no_cached_late_registration_candidate",
+                        "read_only": True, "api_requests_made": 0}
+            incident_id = max(candidates)[2]
+            selection = "cached_late_registration_markers"
+        try:
+            audit = await analyze_incident_fairness(
+                lambda endpoint, params: entry_data[DATA_HISTORICAL_REQUEST_BUDGET].async_get(client, endpoint, params), incident_id,
+                max_pages=call.data[ATTR_MAX_PAGES], groups=client.groups,
+            )
+            # Ensure the audit is complete and the incident unambiguously
+            # belongs to the requested authorized station before returning.
+            matched = summarize_incident_for_history(audit, station_id)
+        except Exception as err:
+            # Exclude incident IDs, names and payloads from logs/errors.
+            _LOGGER.debug("Fairness revision inspection failed (%s)", type(err).__name__)
+            return {"status": "audit_unavailable", "read_only": True}
+        if matched.get("status") != "imported":
+            return {
+                "status": "not_attributable_to_authorized_station",
+                "reason": matched.get("reason"),
+                "read_only": True,
+            }
+        return {
+            "status": "observations_only",
+            "selection": selection,
+            "read_only": True,
+            "remote_modified": False,
+            "local_storage_modified": False,
+            "person_identifiers_returned": False,
+            **summarize_proposal_revisions(audit),
+            "turnout_audit": summarize_turnout_audit(audit),
+            "registration_comparison": summarize_registration_comparison(audit),
+            "registration_diagnostics": summarize_registration_diagnostics(audit),
+            **entry_data[DATA_HISTORICAL_REQUEST_BUDGET].status(),
+        }
 
     async def async_analyze_incident_fairness(call: ServiceCall) -> dict:
         """Inspect one incident's audit log with the existing OAuth client."""
@@ -477,6 +1652,44 @@ def _async_register_services(hass: HomeAssistant) -> None:
             DOMAIN, SERVICE_GET_REPLACEMENT_VEHICLES, async_get_replacement_vehicles,
             schema=GET_REPLACEMENT_VEHICLES_SCHEMA, supports_response=SupportsResponse.ONLY,
         )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE):
+        hass.services.async_register(
+            DOMAIN, SERVICE_GET_INCIDENT_VEHICLE_EVIDENCE,
+            async_get_incident_vehicle_evidence,
+            schema=GET_INCIDENT_VEHICLE_EVIDENCE_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+
+    for service, handler, schema in (
+        (SERVICE_IMPORT_FAIRNESS_HISTORY, async_import_fairness_history, IMPORT_FAIRNESS_HISTORY_SCHEMA),
+        (SERVICE_PREVIEW_FAIRNESS_HISTORY, async_preview_fairness_history, PREVIEW_FAIRNESS_HISTORY_SCHEMA),
+        (SERVICE_PREVIEW_FAIRNESS_ADVISORY, async_preview_fairness_advisory, PREVIEW_FAIRNESS_ADVISORY_SCHEMA),
+        (SERVICE_INSPECT_FAIRNESS_REVISIONS, async_inspect_fairness_revisions, INSPECT_FAIRNESS_REVISIONS_SCHEMA),
+        (SERVICE_INSPECT_TURNOUT_AUDIT, async_inspect_turnout_audit, INSPECT_TURNOUT_AUDIT_SCHEMA),
+        (SERVICE_REFRESH_TURNOUT_AUDIT_HISTORY, async_refresh_turnout_audit_history, REFRESH_TURNOUT_AUDIT_HISTORY_SCHEMA),
+        (SERVICE_PROBE_HISTORICAL_INCIDENT_LIST, async_probe_historical_incident_list, PROBE_HISTORICAL_INCIDENT_LIST_SCHEMA),
+        (SERVICE_PROBE_HISTORICAL_INCIDENT_DETAIL, async_probe_historical_incident_detail, PROBE_HISTORICAL_INCIDENT_DETAIL_SCHEMA),
+        (SERVICE_GET_DISPATCH_ARCHIVE_STATUS, async_get_dispatch_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
+        (SERVICE_GET_DISPATCH_ARCHIVE_MONTHLY_INDEX, async_get_dispatch_archive_monthly_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})),
+        (SERVICE_IMPORT_DISPATCH_HISTORY, async_import_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
+        ("enrich_dispatch_history", async_enrich_dispatch_history, IMPORT_DISPATCH_HISTORY_SCHEMA),
+        ("diagnose_dispatch_station_index", async_diagnose_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)), vol.Optional("comparison_sample", default=False): cv.boolean, vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
+        ("recheck_turnout_history", async_recheck_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("station_id"): vol.All(vol.Coerce(int), vol.Range(min=1)), vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
+        ("manage_turnout_storage", async_manage_turnout_storage, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("operation", default="status"): vol.In(["status", "purge"]), vol.Optional("confirm_delete", default=False): cv.boolean})),
+        ("import_turnout_history", async_import_turnout_history, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("station_id"): vol.All(vol.Coerce(int), vol.Range(min=1)), vol.Required("confirm_local_personal_storage"): vol.In([True]), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3))})),
+        ("probe_turnout_import", async_probe_turnout_import, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional("station_id"): vol.All(vol.Coerce(int), vol.Range(min=1)), vol.Optional(ATTR_LIMIT, default=3): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)), vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000))})),
+        ("repair_dispatch_station_index", async_repair_dispatch_station_index, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_LIMIT, default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=10))})),
+        ("get_station_archive_status", async_get_station_archive_status, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string, vol.Optional(ATTR_STATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1))})),
+        (SERVICE_PROBE_FAIRNESS_AVAILABILITY, async_probe_fairness_availability, PROBE_FAIRNESS_SCHEMA),
+        (SERVICE_PROBE_FAIRNESS_TASK_COVERAGE, async_probe_fairness_task_coverage, PROBE_FAIRNESS_SCHEMA),
+    ):
+        if not hass.services.has_service(DOMAIN, service):
+            hass.services.async_register(
+                DOMAIN, service, handler, schema=schema,
+                supports_response=SupportsResponse.ONLY,
+            )
 
     if not hass.services.has_service(DOMAIN, SERVICE_ANALYZE_INCIDENT_FAIRNESS):
         hass.services.async_register(

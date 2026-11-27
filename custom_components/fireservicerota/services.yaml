@@ -234,6 +234,13 @@ set_replacement_vehicle:
       example: "04-1034"
       selector:
         text: {}
+    vehicle_function:
+      name: Voertuigfunctie
+      description: Optioneel; voor automatische BWR-voertuigcontrole is een expliciete functie vereist (bijv. TS, WTS).
+      required: false
+      example: "TS"
+      selector:
+        text: {}
     entry_id:
       name: Configuratie-ID
       required: false
@@ -275,3 +282,329 @@ get_replacement_vehicles:
       required: false
       selector:
         text: {}
+
+get_incident_vehicle_evidence:
+  name: Inspecteer BWR-voertuigvelden (veilig)
+  description: >-
+    Lees de veldnamen en exacte voertuignummers uit een BrandweerRooster-incident.
+    Retourneert geen persoonsgegevens of volledige incidenttekst.
+    Diagnostiek is geen bewijs van daadwerkelijke inzet.
+  fields:
+    entry_id:
+      name: Configuratie-ID
+      required: false
+      selector:
+        text: {}
+    incident_id:
+      name: Incident-ID
+      description: Optioneel; zonder waarde wordt het laatste ontvangen incident opgehaald.
+      required: false
+      selector:
+        text: {}
+
+
+import_fairness_history:
+  name: Import historical fairness (private)
+  description: >-
+    On-demand import of up to five authorized incident audits into private
+    Home Assistant storage. No personnel or station audit records are sent to GitHub.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_ids:
+      name: Incident IDs (1 to 5)
+      required: true
+      selector:
+        text:
+          multiple: true
+    max_pages:
+      name: Maximum audit pages
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+
+preview_fairness_history:
+  name: Preview historical fairness (anonymous)
+  description: >-
+    Read only a compact aggregated historical overview from private Home Assistant
+    storage. Does not infer the actual crew or make predictions.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+preview_fairness_advisory:
+  name: Preview fairness by task (anonymous)
+  description: >-
+    Read-only task-specific historical observations. No individual names or
+    memberships returned. Does not predict a future crew.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+
+probe_fairness_availability:
+  name: Inspect fairness availability (anonymous)
+  description: >-
+    Inspect at most one authorized historical candidate via a read-only schedule
+    request. Returns only limited diagnostic status and no identities, schedule
+    intervals or personal availability values.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+probe_fairness_task_coverage:
+  name: Inspect fairness task requirement coverage (aggregate)
+  description: >-
+    Verify the current aggregate coverage for one uniquely identified task
+    requirement. Read-only and privacy-filtered; it cannot infer crew selection,
+    personal qualifications or actual deployment.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+inspect_fairness_revisions:
+  name: Inspect fairness proposal revisions (anonymous)
+  description: >-
+    Read a bounded historical incident audit, compare the first and latest
+    fairness proposals, count changes per role, and report the timestamps of
+    modified proposal snapshots. The service returns no names or membership IDs,
+    cannot explain why somebody was selected, and
+    never modifies BWR, HA storage, rosters, or alarms.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_id:
+      name: Incident ID (optional)
+      description: Omit to select one cached incident with late registration markers for this station.
+      required: false
+      selector:
+        text: {}
+    max_pages:
+      name: Maximum audit pages
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+
+inspect_turnout_audit:
+  name: Inspect retrospective turnout audit markers (anonymous)
+  description: >-
+    Read one authorized incident audit on demand and return only the times and
+    count of observed 'Werkelijke opkomststatus' change markers. Does not reveal
+    people, audit descriptions or actor details and does not establish that a
+    manual correction or real vehicle turnout took place.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    incident_id:
+      name: Incident ID
+      required: true
+      selector:
+        text: {}
+    max_pages:
+      name: Maximum audit pages
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+
+refresh_turnout_audit_history:
+  name: Review historical turnout status records (bounded)
+  description: >-
+    Read-only BWR review of at most two already-cached incidents per invocation.
+    Recent incidents are revisited daily and older ones weekly for up to 45 days.
+    Only anonymous counts and last-seen audit timestamps are saved privately
+    in Home Assistant. No automatic scheduling until you create a HA automation.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+probe_historical_incident_list:
+  name: Probe BWR historical incident listing (read-only)
+  description: >-
+    Read at most five authorized incident-list pages, requesting 25 records
+    per page (maximum 125 records). Return anonymous per-page date coverage,
+    item counts and overlap counts only. No incident IDs, people or post details.
+    Use start_page to examine older ranges without reloading page one.
+    Does not prove complete historical archive coverage.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    start_page:
+      name: Starting page
+      description: First 25-record listing page to inspect.
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 500
+          mode: box
+    max_pages:
+      name: Number of pages
+      description: At most five consecutive listing pages.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: box
+
+get_dispatch_archive_status:
+  name: Get dispatch archive status
+  description: >-
+    Show incident archive counts and active retention settings. No incident
+    identifiers, titles, vehicle data or personal information are returned.
+    The historical import is not yet connected.
+  fields:
+    entry_id:
+      name: Integration entry ID (optional)
+      required: false
+      selector:
+        text:
+
+import_dispatch_history:
+  name: Import BWR dispatch history
+  description: >-
+    Opt-in historical incident listing import. Reads up to 25 pages of 25 rows
+    (625 incidents) per invocation, resuming from a persisted checkpoint.
+    Saves only validated incident ID and timestamp, not persons, names, vehicles,
+    station affiliation, priority or turnout. Yearly dispatch statistics and
+    historical fairness audits are not imported by this action.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    max_pages:
+      name: Maximum pages this call
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 25
+          mode: box
+    entry_id:
+      name: Integration entry ID (optional)
+      required: false
+      selector:
+        text:
+
+get_dispatch_archive_monthly_index:
+  name: Get indexed BWR incidents by month (local only)
+  description: >-
+    Summarize only locally stored BWR incident IDs by created_at month,
+    in the Home Assistant timezone. Makes zero BWR API calls. These numbers
+    are not verified alerts, turnouts or fairness statistics, and no year
+    is claimed complete. Does not expose incident identifiers or persons.
+  fields:
+    entry_id:
+      name: Integration entry ID (optional)
+      required: false
+      selector:
+        text:
+
+probe_historical_incident_detail:
+  name: Probe BWR historical incident detail capability
+  description: >-
+    Opt-in capability check of 1 to 3 already indexed incident IDs, using
+    the same conservative daily BWR request budget and 2-second pacing.
+    Returns only fixed field-presence counts. Does not return incident IDs,
+    incident names, timestamps, post names, crew information or raw API data.
+    This does not import details, calculate turnout, or establish fairness.
+  fields:
+    station_id:
+      name: Authorized station ID
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    limit:
+      name: Maximum detail samples
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 3
+          mode: box
+    entry_id:
+      name: Integration entry ID (optional)
+      required: false
+      selector:
+        text:
