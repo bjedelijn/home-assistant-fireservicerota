@@ -1,8 +1,41 @@
 """Prepare station-scoped observations from incident detail responses."""
 from typing import Any
+import re
 
 from .staffing_insights import _resolve_station
 from .historical_turnout_store import _identifier, normalize_observation
+
+
+def normalize_requirement_evidence(payload: dict) -> list | None:
+    """Preserve provider counts without inferring station or vehicle scope."""
+    warnings = payload.get("warning_statuses")
+    if not isinstance(warnings, list):
+        return None
+    def token(value):
+        return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_ /+-]{0,63}", value) else None
+    def count(value):
+        return value if type(value) is int and value >= 0 else None
+    result = []
+    for warning in warnings:
+        if not isinstance(warning, dict) or not isinstance(warning.get("skill_statuses"), list):
+            return None
+        skills = []
+        for skill in warning["skill_statuses"]:
+            if not isinstance(skill, dict) or _identifier(skill.get("skill_id")) is None:
+                return None
+            members = skill.get("available_memberships")
+            skills.append({
+                "skill_id": _identifier(skill["skill_id"]),
+                "short_code": token(skill.get("short_code")),
+                "minimum": count(skill.get("minimum")),
+                "buffer": count(skill.get("buffer")),
+                "assigned_count": count(skill.get("assigned_count")),
+                "available_reference_count": len(members) if isinstance(members, list) else None,
+                "level": token(skill.get("level")),
+            })
+        result.append({"service_level": token(warning.get("service_level")),
+                       "scope_verified": False, "skills": skills})
+    return result
 
 
 def prepare_turnout_observation(payload: Any, incident_id: Any, groups: list,
@@ -104,4 +137,5 @@ def prepare_turnout_observation(payload: Any, incident_id: Any, groups: list,
     except ValueError:
         return {"status": "ambiguous_identity"}
     return {"status": "ready", "rows": clean, "station_scope": sorted(scope),
-            "provider_response_count": len(responses)}
+            "provider_response_count": len(responses),
+            "requirement_evidence": normalize_requirement_evidence(payload)}
